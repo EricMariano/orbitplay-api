@@ -29,8 +29,11 @@ async function reset(): Promise<void> {
 
 reset()
   .then(async () => {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error('DATABASE_URL is required');
     // Re-apply migrations immediately so the DB is usable right after reset.
-    await import('./migrate');
+    const { runMigrations } = await import('./migrate');
+    await runMigrations(url);
   })
   .catch((err) => {
     console.error('✗ reset failed');
