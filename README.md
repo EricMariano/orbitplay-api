@@ -3,6 +3,8 @@
 Backend principal do OrbitPlay — NestJS + Drizzle + Postgres. Repositório
 **exclusivo da API**. O front vive em `orbitplay-web` e consome esta API em
 `http://localhost:3000` e o contrato em [`openapi.json`](#contrato-openapi).
+Com a API rodando, a documentação interativa (Swagger UI) fica em
+`http://localhost:3000/docs` (JSON cru em `/docs-json`).
 
 Esta é a fatia de setup: ambiente local sobe com um comando, autenticação com
 rotação de refresh, RBAC, uma fatia vertical completa (`games`) como molde,
