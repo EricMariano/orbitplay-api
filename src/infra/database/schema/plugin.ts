@@ -1,6 +1,8 @@
 import { integer, jsonb, pgTable, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { primaryId, timestamps } from './_helpers';
 import { triggerTypeEnum } from './enums';
+import { sessions } from './participations';
+import { builds } from './tests';
 
 /**
  * Plug-in / telemetry model (section 9). Created now, fed later. These shapes
@@ -14,7 +16,7 @@ import { triggerTypeEnum } from './enums';
 
 export const pluginManifests = pgTable('plugin_manifests', {
   id: primaryId(),
-  buildId: uuid('build_id'), // FK to builds added when that table exists
+  buildId: uuid('build_id').references(() => builds.id),
   sdkVersion: text('sdk_version').notNull(),
   engine: text('engine').notNull(),
   rawManifest: jsonb('raw_manifest').notNull(),
@@ -41,7 +43,9 @@ export const triggerDefinitions = pgTable('trigger_definitions', {
 export const heatmapCells = pgTable(
   'heatmap_cells',
   {
-    sessionId: uuid('session_id').notNull(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
     x: integer('x').notNull(),
     y: integer('y').notNull(),
     z: integer('z').notNull(),
@@ -53,7 +57,9 @@ export const heatmapCells = pgTable(
 /** Short-lived tokens authenticating a plug-in telemetry session. */
 export const sessionTokens = pgTable('session_tokens', {
   id: primaryId(),
-  sessionId: uuid('session_id').notNull(),
+  sessionId: uuid('session_id')
+    .notNull()
+    .references(() => sessions.id, { onDelete: 'cascade' }),
   tokenHash: text('token_hash').notNull(),
   expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
