@@ -9,12 +9,12 @@ sustente sozinho.
 
 **Legenda de situação**
 
-| Marca no comentário | Significa |
-| --- | --- |
-| `[existe]` | tabela já criada e em uso |
-| `[criada, sem uso]` | tabela existe, nenhum código a consome |
-| `[novo]` | a criar no escopo de plataforma |
-| `[congelada]` | existe, dormente, contrato imutável (SDK e builds publicadas dependem) |
+| Marca no comentário | Significa                                                              |
+| ------------------- | ---------------------------------------------------------------------- |
+| `[existe]`          | tabela já criada e em uso                                              |
+| `[criada, sem uso]` | tabela existe, nenhum código a consome                                 |
+| `[novo]`            | a criar no escopo de plataforma                                        |
+| `[congelada]`       | existe, dormente, contrato imutável (SDK e builds publicadas dependem) |
 
 Tabelas deferidas (pagamento, carteira, boost, insights, transcrição) **não
 aparecem** — ver `BACKEND-SPEC.md` §10.
@@ -71,7 +71,7 @@ insert único e transacional.
 
 ---
 
-## 2. IAM e tenancy
+## 2. Auth e tenancy
 
 ```mermaid
 erDiagram
@@ -114,7 +114,7 @@ erDiagram
         timestamptz revoked_at "rotação + detecção de reuso"
     }
     PASSWORD_RESET_TOKENS {
-        uuid id PK "[novo]"
+        uuid id PK
         uuid user_id FK
         text token_hash
         timestamptz expires_at "uso único, vida curta"
@@ -128,9 +128,9 @@ erDiagram
     }
 ```
 
-`PASSWORD_RESET_TOKENS` é a tabela que falta para `POST /auth/password/forgot`
-deixar de ser um stub: hoje ele só dispara um e-mail dizendo que o fluxo virá
-depois, porque não há onde guardar o token.
+`PASSWORD_RESET_TOKENS` alimenta `POST /auth/password/forgot` e
+`POST /auth/password/reset`: o token de uso único (hash) fica aqui; ao
+redefinir, `used_at` é setado e as sessões ativas do usuário são revogadas.
 
 ---
 
@@ -216,7 +216,7 @@ Dois pontos que o diagrama expõe:
   `builds` não existia (`DECISIONS.md` §1.3). A migração que cria `builds` é o
   momento de fechar essa dívida, mesmo com o plug-in fora de escopo.
 - **`BUILD_VALIDATION_STEPS` já inclui `plugin_manifest` no enum.** O passo
-  entra depois sem migração de enum, e a UI consegue mostrar *onde* a validação
+  entra depois sem migração de enum, e a UI consegue mostrar _onde_ a validação
   falhou em vez de só "falhou".
 
 ---

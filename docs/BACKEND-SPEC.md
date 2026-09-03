@@ -29,12 +29,12 @@ por cursor, auditoria e `openapi.json` versionado.
 
 **13 endpoints implementados** (contrato completo em `openapi.json`):
 
-| Módulo | Endpoints |
-| --- | --- |
-| `health` | `GET /health` — já verifica Postgres, Redis e storage |
-| `iam` | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password/forgot` |
-| `orgs` | `GET /orgs/current`, `GET /orgs/members` |
-| `games` | `GET /games`, `GET /games/:id`, `POST /games`, `PATCH /games/:id`, `DELETE /games/:id` |
+| Módulo   | Endpoints                                                                                                                                |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `health` | `GET /health` — já verifica Postgres, Redis e storage                                                                                    |
+| `auth`   | `POST /auth/login`, `POST /auth/refresh`, `POST /auth/logout`, `GET /auth/me`, `POST /auth/password/forgot`, `POST /auth/password/reset` |
+| `orgs`   | `GET /orgs/current`, `GET /orgs/members`                                                                                                 |
+| `games`  | `GET /games`, `GET /games/:id`, `POST /games`, `PATCH /games/:id`, `DELETE /games/:id`                                                   |
 
 **Tabelas existentes:** `users`, `organizations`, `memberships`, `roles`,
 `refresh_tokens`, `games`, `game_assets`, `audit_log`, `plugin_manifests`,
@@ -47,24 +47,24 @@ hora), `AiPort` (stub), `AsrPort` (stub).
 
 ### 1.2 Cobertura por tela do handoff
 
-| # | Tela | Cobertura hoje | O que falta |
-| --- | --- | --- | --- |
-| 01 | Login — Estúdio e Jogador | **Parcial** | Criar conta e redefinir senha (só o "esqueci" existe, e é stub) |
-| 02 | Home Estúdio | **Nenhuma** | Dashboard, KPIs, telemetria, benchmark, testes recentes |
-| 03 | Meus jogos | **Parcial** | Filtros, métricas agregadas por card, imagens |
-| 04 | Novo jogo | **Parcial** | Upload/validação de capa e banner |
-| 05 | Detalhes do meu jogo | **Nenhuma** | Resumo, abas, tabela de testes |
-| 06–10 | Wizard de novo teste (5 etapas) | **Nenhuma** | Modelos, formulário, build, público e publicação. Plug-in, orçamento e checkout deferidos (§10) |
-| 11 | Relatório | **Nenhuma** | Agregações, gráficos, exportação. Blocos de telemetria e IA deferidos (§10) |
-| 12 | Detalhes de teste / sessão | **Nenhuma** | Sessão e vídeo. Transcrição e gatilhos deferidos (§10) |
-| 13 | Home Jogador | **Nenhuma** | Progresso, teste em andamento, destaques. Carteira deferida (§10) |
-| 14 | Jogos disponíveis para testar | **Nenhuma** | Feed rankeado e elegibilidade. Impulsionamento deferido (§10) |
-| 15 | Detalhes de um jogo (jogador) | **Nenhuma** | Abas, CTA por estado, conquistas, comunidade |
-| 16 | Tutorial + download da build | **Nenhuma** | Tutorial por modelo, consentimentos, download |
-| 17 | Gameplay + sobreposição | **Nenhuma** | Sessão, dispositivos, heartbeat, finalização |
-| 18 | Resumo da sessão + formulário | **Nenhuma** | Resumo, transcrição, envio de respostas |
-| 19 | Ação enviada + resultado | **Nenhuma** | XP, nota, conquistas. Crédito financeiro deferido (§10) |
-| 20 | Central de gerenciamento de usuários | **Parcial** | Só a listagem existe; nenhuma escrita |
+| #     | Tela                                 | Cobertura hoje | O que falta                                                                                     |
+| ----- | ------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------- |
+| 01    | Login — Estúdio e Jogador            | **Parcial**    | Criar conta e redefinir senha (só o "esqueci" existe, e é stub)                                 |
+| 02    | Home Estúdio                         | **Nenhuma**    | Dashboard, KPIs, telemetria, benchmark, testes recentes                                         |
+| 03    | Meus jogos                           | **Parcial**    | Filtros, métricas agregadas por card, imagens                                                   |
+| 04    | Novo jogo                            | **Parcial**    | Upload/validação de capa e banner                                                               |
+| 05    | Detalhes do meu jogo                 | **Nenhuma**    | Resumo, abas, tabela de testes                                                                  |
+| 06–10 | Wizard de novo teste (5 etapas)      | **Nenhuma**    | Modelos, formulário, build, público e publicação. Plug-in, orçamento e checkout deferidos (§10) |
+| 11    | Relatório                            | **Nenhuma**    | Agregações, gráficos, exportação. Blocos de telemetria e IA deferidos (§10)                     |
+| 12    | Detalhes de teste / sessão           | **Nenhuma**    | Sessão e vídeo. Transcrição e gatilhos deferidos (§10)                                          |
+| 13    | Home Jogador                         | **Nenhuma**    | Progresso, teste em andamento, destaques. Carteira deferida (§10)                               |
+| 14    | Jogos disponíveis para testar        | **Nenhuma**    | Feed rankeado e elegibilidade. Impulsionamento deferido (§10)                                   |
+| 15    | Detalhes de um jogo (jogador)        | **Nenhuma**    | Abas, CTA por estado, conquistas, comunidade                                                    |
+| 16    | Tutorial + download da build         | **Nenhuma**    | Tutorial por modelo, consentimentos, download                                                   |
+| 17    | Gameplay + sobreposição              | **Nenhuma**    | Sessão, dispositivos, heartbeat, finalização                                                    |
+| 18    | Resumo da sessão + formulário        | **Nenhuma**    | Resumo, transcrição, envio de respostas                                                         |
+| 19    | Ação enviada + resultado             | **Nenhuma**    | XP, nota, conquistas. Crédito financeiro deferido (§10)                                         |
+| 20    | Central de gerenciamento de usuários | **Parcial**    | Só a listagem existe; nenhuma escrita                                                           |
 
 **Resumo:** 0 telas completas, 4 parciais, 16 sem nenhum backend.
 **79 endpoints a construir** contra **13 existentes** — 92 operações no total, conforme `openapi.design.yaml`.
@@ -74,53 +74,54 @@ hora), `AiPort` (stub), `AsrPort` (stub).
 Levantado lendo o código, não só a lista de rotas. Cada item abaixo é trabalho
 que um planejamento otimista deixaria de fora:
 
-| Item | Situação real |
-| --- | --- |
-| `POST /auth/password/forgot` | **É um stub.** Envia um e-mail cujo texto diz "fluxo de reset completo virá em etapa futura". Não gera token, não existe tabela `password_reset_tokens` e não existe `POST /auth/password/reset`. A RN-05 da Tela 01 **não** está atendida. |
-| Criação de conta | **Não existe endpoint algum.** Usuários só entram pelo `db:seed`. O "Criar nova conta" da Tela 01 é 100% novo, para os dois perfis. |
-| `GET /games` | Aceita apenas `limit` e `cursor`. **Sem** filtro por `status`, **sem** busca e **sem** os agregados que o card da Tela 03 exige (RN-03: testes, recompensas, jogadores). |
-| `game_assets` | Tabela criada e **nenhuma linha de código a usa**. Não há upload, nem `coverUrl`/`bannerUrl` no `GameDto`. As imagens da Tela 04 são trabalho novo de ponta a ponta. |
-| `GET /orgs/members` | Retorna a lista inteira, **sem paginação, filtro ou busca** — a Tela 20 pede busca/filtro. Não existe nenhuma rota de escrita de membro (convite, papel, status, reset). |
-| `plugin_manifests`, `trigger_definitions`, `heatmap_cells`, `session_tokens` | Tabelas criadas com o contrato **congelado**, mas **sem nenhum consumidor**: não há endpoint de ingestão, nem parser de manifesto, nem emissão de session token. |
-| `telemetry_events` | Tabela particionada e adaptador Postgres prontos, mas **sem endpoint de ingestão** e sem job de manutenção de partições. |
-| `PaymentPort` | `FakePaymentAdapter` aprova na hora com id determinístico. **Nenhum gateway real**, nenhum webhook, nenhuma conciliação. |
-| `AiPort` / `AsrPort` | Stubs que devolvem valor fixo marcado como `isFake: true`. Nenhuma integração real. |
-| `builds` | Tabela **não existe**. Por isso `plugin_manifests.build_id` é um `uuid` **sem FK** — a FK é dívida registrada em `DECISIONS.md` §1.3 e precisa entrar junto com a tabela. |
+| Item                                                                         | Situação real                                                                                                                                                             |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /auth/password/forgot`                                                 | Fluxo completo: gera token de uso único, persiste hash em `password_reset_tokens` e envia e-mail com link/token. Resposta sempre genérica (RN-05).                        |
+| `POST /auth/password/reset`                                                  | Consome token; atualiza senha; revoga todas as sessões (refresh tokens) do usuário.                                                                                       |
+| Criação de conta                                                             | **Pronto** — `POST /auth/signup/studio`, `POST /auth/signup/player` e `GET /auth/signup/availability`.                                                                    |
+| `GET /games`                                                                 | Aceita apenas `limit` e `cursor`. **Sem** filtro por `status`, **sem** busca e **sem** os agregados que o card da Tela 03 exige (RN-03: testes, recompensas, jogadores).  |
+| `game_assets`                                                                | Tabela criada e **nenhuma linha de código a usa**. Não há upload, nem `coverUrl`/`bannerUrl` no `GameDto`. As imagens da Tela 04 são trabalho novo de ponta a ponta.      |
+| `GET /orgs/members`                                                          | Retorna a lista inteira, **sem paginação, filtro ou busca** — a Tela 20 pede busca/filtro. Não existe nenhuma rota de escrita de membro (convite, papel, status, reset).  |
+| `plugin_manifests`, `trigger_definitions`, `heatmap_cells`, `session_tokens` | Tabelas criadas com o contrato **congelado**, mas **sem nenhum consumidor**: não há endpoint de ingestão, nem parser de manifesto, nem emissão de session token.          |
+| `telemetry_events`                                                           | Tabela particionada e adaptador Postgres prontos, mas **sem endpoint de ingestão** e sem job de manutenção de partições.                                                  |
+| `PaymentPort`                                                                | `FakePaymentAdapter` aprova na hora com id determinístico. **Nenhum gateway real**, nenhum webhook, nenhuma conciliação.                                                  |
+| `AiPort` / `AsrPort`                                                         | Stubs que devolvem valor fixo marcado como `isFake: true`. Nenhuma integração real.                                                                                       |
+| `builds`                                                                     | Tabela **não existe**. Por isso `plugin_manifests.build_id` é um `uuid` **sem FK** — a FK é dívida registrada em `DECISIONS.md` §1.3 e precisa entrar junto com a tabela. |
 
 ## 2. Convenções transversais (valem para todo endpoint novo)
 
-| Tema | Regra |
-| --- | --- |
-| **Tenancy** | Toda leitura/escrita é filtrada por `organization_id` via `BaseRepository`. Serviço nunca filtra à mão. (Tela 02 RN-01, Tela 03 RN-01, Tela 12 RN-01) |
-| **Papéis** | `owner`, `admin`, `studio`, `player`. O papel válido vem da **membership ativa carregada no access token** — nunca do corpo da requisição. (Tela 01 RN-03) |
-| **Permissão** | Ação não autorizada retorna `403`; a UI esconde/desabilita, mas o backend é a autoridade. (Tela 02 RN-04) |
-| **Erros** | Envelope único `{ statusCode, code, message, fieldErrors?, requestId }`. Validação Zod → `422` com erro por campo. |
-| **Paginação** | `?limit=&cursor=` → `{ data, nextCursor }`. Cursor opaco sobre UUIDv7. |
-| **Idempotência** | Header `Idempotency-Key` **obrigatório** em: publicação de teste, criação de participação, finalização de sessão e envio de formulário. Chave persistida (Redis + coluna única) e resposta original reproduzida em repetição. |
-| **Estados de processamento** | Todo recurso que depende de job assíncrono retorna `status: processing \| ready \| failed` **por bloco**, nunca um valor provisório disfarçado de definitivo. (Tela 11 RN-02, Tela 19 RN-02) |
-| **Falha parcial** | Relatórios e telas compostas retornam `status` por bloco, para que um bloco quebrado não derrube a página. (Tela 11, Tela 12) |
-| **Valores financeiros** | Quando aparecerem (recompensa exibida, valor do teste), sempre em centavos (`amountCents` + `currency`) e sempre vindos do backend. Cobrança e movimentação de dinheiro estão deferidas (§10). |
-| **Rate limit** | Já ativo em `auth`. Estender para ingestão de telemetria, uploads e endpoints de escrita do jogador. |
-| **Auditoria** | `audit_log` obrigatório em: mudança de papel/status, desativação de conta, pagamento, saque, publicação/encerramento de teste, invalidação de sessão. (Tela 20 RN-05) |
-| **LGPD / consentimento** | Gravação de tela, áudio, microfone e webcam exigem consentimento explícito registrado antes da sessão. Plataforma é 18+ (`users.birthdate`). |
+| Tema                         | Regra                                                                                                                                                                                                                         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tenancy**                  | Toda leitura/escrita é filtrada por `organization_id` via `BaseRepository`. Serviço nunca filtra à mão. (Tela 02 RN-01, Tela 03 RN-01, Tela 12 RN-01)                                                                         |
+| **Papéis**                   | `owner`, `admin`, `studio`, `player`. O papel válido vem da **membership ativa carregada no access token** — nunca do corpo da requisição. (Tela 01 RN-03)                                                                    |
+| **Permissão**                | Ação não autorizada retorna `403`; a UI esconde/desabilita, mas o backend é a autoridade. (Tela 02 RN-04)                                                                                                                     |
+| **Erros**                    | Envelope único `{ statusCode, code, message, fieldErrors?, requestId }`. Validação Zod → `422` com erro por campo.                                                                                                            |
+| **Paginação**                | `?limit=&cursor=` → `{ data, nextCursor }`. Cursor opaco sobre UUIDv7.                                                                                                                                                        |
+| **Idempotência**             | Header `Idempotency-Key` **obrigatório** em: publicação de teste, criação de participação, finalização de sessão e envio de formulário. Chave persistida (Redis + coluna única) e resposta original reproduzida em repetição. |
+| **Estados de processamento** | Todo recurso que depende de job assíncrono retorna `status: processing \| ready \| failed` **por bloco**, nunca um valor provisório disfarçado de definitivo. (Tela 11 RN-02, Tela 19 RN-02)                                  |
+| **Falha parcial**            | Relatórios e telas compostas retornam `status` por bloco, para que um bloco quebrado não derrube a página. (Tela 11, Tela 12)                                                                                                 |
+| **Valores financeiros**      | Quando aparecerem (recompensa exibida, valor do teste), sempre em centavos (`amountCents` + `currency`) e sempre vindos do backend. Cobrança e movimentação de dinheiro estão deferidas (§10).                                |
+| **Rate limit**               | Já ativo em `auth`. Estender para ingestão de telemetria, uploads e endpoints de escrita do jogador.                                                                                                                          |
+| **Auditoria**                | `audit_log` obrigatório em: mudança de papel/status, desativação de conta, pagamento, saque, publicação/encerramento de teste, invalidação de sessão. (Tela 20 RN-05)                                                         |
+| **LGPD / consentimento**     | Gravação de tela, áudio, microfone e webcam exigem consentimento explícito registrado antes da sessão. Plataforma é 18+ (`users.birthdate`).                                                                                  |
 
 ---
 
 ## 3. Módulos, APIs e endpoints
 
-### M1 — Autenticação e onboarding *(Tela 01)*
+### M1 — Autenticação e onboarding _(Tela 01)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| POST | `/auth/login` | público | [✓] |
-| POST | `/auth/refresh` | público (cookie) | [✓] |
-| POST | `/auth/logout` | autenticado | [✓] |
-| GET | `/auth/me` | autenticado | [✓] |
-| POST | `/auth/password/forgot` | público | [✓] |
-| POST | `/auth/password/reset` | público (token) | **[novo]** |
-| POST | `/auth/signup/studio` | público | **[novo]** — cria user + organização + membership `owner` |
-| POST | `/auth/signup/player` | público | **[novo]** — cria user + membership `player`, valida 18+ |
-| GET | `/auth/signup/availability?email=` | público | **[novo]** — checagem de e-mail em uso (resposta genérica) |
+| Método | Rota                               | Papel            | Situação                                                        |
+| ------ | ---------------------------------- | ---------------- | --------------------------------------------------------------- |
+| POST   | `/auth/login`                      | público          | [✓]                                                             |
+| POST   | `/auth/refresh`                    | público (cookie) | [✓]                                                             |
+| POST   | `/auth/logout`                     | autenticado      | [✓]                                                             |
+| GET    | `/auth/me`                         | autenticado      | [✓]                                                             |
+| POST   | `/auth/password/forgot`            | público          | [✓]                                                             |
+| POST   | `/auth/password/reset`             | público (token)  | [✓]                                                             |
+| POST   | `/auth/signup/studio`              | público          | [✓] — cria user + organização + membership `owner`              |
+| POST   | `/auth/signup/player`              | público          | [✓] — cria user + org pessoal + membership `player`, valida 18+ |
+| GET    | `/auth/signup/availability?email=` | público          | [✓] — `{ available }` + rate limit agressivo (anti-enumeração)  |
 
 **Regras**
 
@@ -137,21 +138,21 @@ que um planejamento otimista deixaria de fora:
 
 ---
 
-### M2 — Organizações, membros e central de usuários *(Telas 02 e 20)*
+### M2 — Organizações, membros e central de usuários _(Telas 02 e 20)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/orgs/current` | autenticado | [✓] |
-| GET | `/orgs/members` | studio+ | [✓] — **estender** com `?q=&role=&status=` e paginação |
-| PATCH | `/orgs/current` | owner/admin | **[novo]** |
-| POST | `/orgs/members/invite` | owner/admin | **[novo]** |
-| PATCH | `/orgs/members/:userId/role` | owner (admin se autorizado) | **[novo]** |
-| PATCH | `/orgs/members/:userId/status` | owner/admin | **[novo]** — ativar/desativar |
-| POST | `/orgs/members/:userId/password-reset` | owner/admin | **[novo]** — dispara e-mail |
-| DELETE | `/orgs/members/:userId` | owner | **[novo]** — desativação lógica |
-| GET | `/audit-logs?actor=&action=&from=&to=` | owner/admin | **[novo]** |
+| Método | Rota                                   | Papel                       | Situação                                               |
+| ------ | -------------------------------------- | --------------------------- | ------------------------------------------------------ |
+| GET    | `/orgs/current`                        | autenticado                 | [✓]                                                    |
+| GET    | `/orgs/members`                        | studio+                     | [✓] — **estender** com `?q=&role=&status=` e paginação |
+| PATCH  | `/orgs/current`                        | owner/admin                 | **[novo]**                                             |
+| POST   | `/orgs/members/invite`                 | owner/admin                 | **[novo]**                                             |
+| PATCH  | `/orgs/members/:userId/role`           | owner (admin se autorizado) | **[novo]**                                             |
+| PATCH  | `/orgs/members/:userId/status`         | owner/admin                 | **[novo]** — ativar/desativar                          |
+| POST   | `/orgs/members/:userId/password-reset` | owner/admin                 | **[novo]** — dispara e-mail                            |
+| DELETE | `/orgs/members/:userId`                | owner                       | **[novo]** — desativação lógica                        |
+| GET    | `/audit-logs?actor=&action=&from=&to=` | owner/admin                 | **[novo]**                                             |
 
-**Regras** *(Tela 20)*
+**Regras** _(Tela 20)_
 
 - RN-01: central exclusiva do Owner; Admin só com permissão específica.
 - RN-02: alteração de papel é ação crítica — exige confirmação explícita
@@ -166,22 +167,22 @@ que um planejamento otimista deixaria de fora:
 
 ---
 
-### M3 — Jogos do estúdio *(Telas 03, 04, 05)*
+### M3 — Jogos do estúdio _(Telas 03, 04, 05)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/games?status=&q=` | studio+ | [✓] — **estender** com agregados do card |
-| GET | `/games/:id` | studio+ | [✓] |
-| POST | `/games` | studio+ com permissão de criação | [✓] |
-| PATCH | `/games/:id` | studio+ | [✓] |
-| DELETE | `/games/:id` | studio+ | [✓] |
-| POST | `/games/:id/assets/upload-url` | studio+ | **[novo]** — presigned PUT (capa/banner) |
-| POST | `/games/:id/assets` | studio+ | **[novo]** — confirma upload e vincula |
-| DELETE | `/games/:id/assets/:assetId` | studio+ | **[novo]** |
-| GET | `/games/:id/summary` | studio+ | **[novo]** — banner, disponibilidade, indicadores (Tela 05) |
-| GET | `/games/:id/tests?tab=active\|all&status=` | studio+ | **[novo]** — tabela de testes |
-| GET | `/games/:id/achievements` | studio+ | **[novo]** |
-| GET | `/games/:id/specs` | studio+ | **[novo]** |
+| Método | Rota                                       | Papel                            | Situação                                                    |
+| ------ | ------------------------------------------ | -------------------------------- | ----------------------------------------------------------- |
+| GET    | `/games?status=&q=`                        | studio+                          | [✓] — **estender** com agregados do card                    |
+| GET    | `/games/:id`                               | studio+                          | [✓]                                                         |
+| POST   | `/games`                                   | studio+ com permissão de criação | [✓]                                                         |
+| PATCH  | `/games/:id`                               | studio+                          | [✓]                                                         |
+| DELETE | `/games/:id`                               | studio+                          | [✓]                                                         |
+| POST   | `/games/:id/assets/upload-url`             | studio+                          | **[novo]** — presigned PUT (capa/banner)                    |
+| POST   | `/games/:id/assets`                        | studio+                          | **[novo]** — confirma upload e vincula                      |
+| DELETE | `/games/:id/assets/:assetId`               | studio+                          | **[novo]**                                                  |
+| GET    | `/games/:id/summary`                       | studio+                          | **[novo]** — banner, disponibilidade, indicadores (Tela 05) |
+| GET    | `/games/:id/tests?tab=active\|all&status=` | studio+                          | **[novo]** — tabela de testes                               |
+| GET    | `/games/:id/achievements`                  | studio+                          | **[novo]**                                                  |
+| GET    | `/games/:id/specs`                         | studio+                          | **[novo]**                                                  |
 
 **Regras**
 
@@ -200,12 +201,12 @@ que um planejamento otimista deixaria de fora:
 
 ---
 
-### M4 — Catálogo de modelos de teste *(Tela 06)*
+### M4 — Catálogo de modelos de teste _(Tela 06)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/test-models` | studio+ | **[novo]** |
-| GET | `/test-models/:key` | studio+ | **[novo]** |
+| Método | Rota                | Papel   | Situação   |
+| ------ | ------------------- | ------- | ---------- |
+| GET    | `/test-models`      | studio+ | **[novo]** |
+| GET    | `/test-models/:key` | studio+ | **[novo]** |
 
 Modelos previstos: `free_exploration_telemetry`, `free_exploration`, `ab_test`,
 `ab_test_images`.
@@ -229,28 +230,28 @@ Payload por modelo: `key`, `name`, `description`, `deliverables[]`,
 
 ---
 
-### M5 — Wizard de criação de teste *(Telas 06 → 10)*
+### M5 — Wizard de criação de teste _(Telas 06 → 10)_
 
 O wizard é um **rascunho persistido no servidor** (`tests.status = 'draft'`),
 para que voltar entre etapas não perca dados (Tela 07, estados e validações).
 Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
 
-| Método | Rota | Etapa | Situação |
-| --- | --- | --- | --- |
-| POST | `/games/:gameId/tests` | cria rascunho | **[novo]** |
-| GET | `/tests/:id` | qualquer | **[novo]** — inclui `currentStep` e `pendingValidations[]` |
-| PATCH | `/tests/:id/model` | 1 | **[novo]** |
-| PUT | `/tests/:id/form` | 2 | **[novo]** — substitui o conjunto de perguntas |
-| GET | `/tests/:id/form/preview` | 2 | **[novo]** |
-| POST | `/tests/:id/build/upload-url` | 3 | **[novo]** |
-| POST | `/tests/:id/build` | 3 | **[novo]** — confirma upload, dispara validação |
-| GET | `/tests/:id/build` | 3 | **[novo]** — status da validação |
-| DELETE | `/tests/:id/build` | 3 | **[novo]** — substituir build |
-| PATCH | `/tests/:id/audience` | 4 | **[novo]** — público, quantidade, duração |
-| POST | `/tests/:id/publish` | 5 | **[novo]** — `Idempotency-Key` |
-| PATCH | `/tests/:id/status` | pós | **[novo]** — pausar/encerrar |
+| Método | Rota                          | Etapa         | Situação                                                   |
+| ------ | ----------------------------- | ------------- | ---------------------------------------------------------- |
+| POST   | `/games/:gameId/tests`        | cria rascunho | **[novo]**                                                 |
+| GET    | `/tests/:id`                  | qualquer      | **[novo]** — inclui `currentStep` e `pendingValidations[]` |
+| PATCH  | `/tests/:id/model`            | 1             | **[novo]**                                                 |
+| PUT    | `/tests/:id/form`             | 2             | **[novo]** — substitui o conjunto de perguntas             |
+| GET    | `/tests/:id/form/preview`     | 2             | **[novo]**                                                 |
+| POST   | `/tests/:id/build/upload-url` | 3             | **[novo]**                                                 |
+| POST   | `/tests/:id/build`            | 3             | **[novo]** — confirma upload, dispara validação            |
+| GET    | `/tests/:id/build`            | 3             | **[novo]** — status da validação                           |
+| DELETE | `/tests/:id/build`            | 3             | **[novo]** — substituir build                              |
+| PATCH  | `/tests/:id/audience`         | 4             | **[novo]** — público, quantidade, duração                  |
+| POST   | `/tests/:id/publish`          | 5             | **[novo]** — `Idempotency-Key`                             |
+| PATCH  | `/tests/:id/status`           | pós           | **[novo]** — pausar/encerrar                               |
 
-**Etapa 2 — formulário** *(Tela 07)*
+**Etapa 2 — formulário** _(Tela 07)_
 
 - RN-01: cada pergunta exige tipo e enunciado antes de avançar.
 - RN-02: tipos com opções exigem a quantidade mínima de opções do componente.
@@ -260,7 +261,7 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
   no envio, M8).
 - RN-05: exclusão de pergunta com conteúdo preenchido pede confirmação.
 
-**Etapa 3 — build** *(Tela 08)*
+**Etapa 3 — build** _(Tela 08)_
 
 - RN-01: só avança com upload **concluído e validado**.
 - RN-05: falha de upload, arquivo inválido ou versão incompatível **preservam o
@@ -269,7 +270,7 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
   (§10). O gate `requiresTelemetry` já existe no contrato do M4 e é onde essa
   trava se liga quando o plug-in voltar.
 
-**Etapa 4 — público e duração** *(Tela 09)*
+**Etapa 4 — público e duração** _(Tela 09)_
 
 - RN-01: precisa existir público elegível configurado antes de finalizar
   (validação server-side de que a combinação retorna estimativa > 0).
@@ -280,7 +281,7 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
   **deferidas** (§10). Mantenha a quantidade de testes e a duração como campos
   próprios: são eles que a precificação vai consumir depois.
 
-**Etapa 5 — conclusão** *(Tela 10)*
+**Etapa 5 — conclusão** _(Tela 10)_
 
 - RN-02: recarregar **não pode criar um segundo teste** — `Idempotency-Key` no
   publish, mesmo sem cobrança envolvida. Essa regra não depende de pagamento.
@@ -292,11 +293,11 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
 
 ### M6 — Builds
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/builds/:id` | studio+ | **[novo]** |
-| GET | `/builds/:id/compatibility?platform=&os=&arch=` | autenticado | **[novo]** |
-| GET | `/builds/:id/download-url` | player com participação ativa | **[novo]** — presigned, curta duração |
+| Método | Rota                                            | Papel                         | Situação                              |
+| ------ | ----------------------------------------------- | ----------------------------- | ------------------------------------- |
+| GET    | `/builds/:id`                                   | studio+                       | **[novo]**                            |
+| GET    | `/builds/:id/compatibility?platform=&os=&arch=` | autenticado                   | **[novo]**                            |
+| GET    | `/builds/:id/download-url`                      | player com participação ativa | **[novo]** — presigned, curta duração |
 
 **Regras**
 
@@ -317,22 +318,22 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
 
 ---
 
-### M7 — Feed do jogador e elegibilidade *(Telas 13, 14, 15)*
+### M7 — Feed do jogador e elegibilidade _(Telas 13, 14, 15)_
 
 O jogador não vê uma lista, vê um **feed rankeado no estilo Steam**. O
 impulsionamento pago está deferido junto com pagamentos (§10), mas o ranking
 precisa nascer com o conceito de **slot** — retrofitar posição paga em um feed
 que ordena por data é reescrever o módulo.
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/player/home` | player | **[novo]** |
-| GET | `/player/feed?section=&cursor=&limit=` | player | **[novo]** — feed rankeado |
-| GET | `/player/feed/filters` | player | **[novo]** — facetas (plataforma, gênero, recompensa) |
-| GET | `/player/games/:gameId` | player | **[novo]** |
-| GET | `/player/games/:gameId/tests` | player | **[novo]** |
-| GET | `/player/tests/:testId` | player | **[novo]** |
-| GET | `/player/participations?status=` | player | **[novo]** — rota própria; `/player/tests/mine` colidiria com `/player/tests/:testId` |
+| Método | Rota                                   | Papel  | Situação                                                                              |
+| ------ | -------------------------------------- | ------ | ------------------------------------------------------------------------------------- |
+| GET    | `/player/home`                         | player | **[novo]**                                                                            |
+| GET    | `/player/feed?section=&cursor=&limit=` | player | **[novo]** — feed rankeado                                                            |
+| GET    | `/player/feed/filters`                 | player | **[novo]** — facetas (plataforma, gênero, recompensa)                                 |
+| GET    | `/player/games/:gameId`                | player | **[novo]**                                                                            |
+| GET    | `/player/games/:gameId/tests`          | player | **[novo]**                                                                            |
+| GET    | `/player/tests/:testId`                | player | **[novo]**                                                                            |
+| GET    | `/player/participations?status=`       | player | **[novo]** — rota própria; `/player/tests/mine` colidiria com `/player/tests/:testId` |
 
 **Regras do feed**
 
@@ -374,21 +375,21 @@ que ordena por data é reescrever o módulo.
 
 ---
 
-### M8 — Participações e sessões *(Telas 16 → 19)*
+### M8 — Participações e sessões _(Telas 16 → 19)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| POST | `/player/tests/:testId/participations` | player | **[novo]** — `Idempotency-Key` |
-| GET | `/participations/:id` | player | **[novo]** |
-| POST | `/participations/:id/consents` | player | **[novo]** |
-| GET | `/participations/:id/tutorial` | player | **[novo]** |
-| POST | `/participations/:id/sessions` | player | **[novo]** |
-| PATCH | `/sessions/:id/devices` | player | **[novo]** — mic/webcam on/off |
-| POST | `/sessions/:id/heartbeat` | player | **[novo]** |
-| POST | `/sessions/:id/finish` | player | **[novo]** — `Idempotency-Key` |
-| GET | `/sessions/:id/summary` | player | **[novo]** |
-| POST | `/sessions/:id/form-response` | player | **[novo]** — `Idempotency-Key` |
-| GET | `/participations/:id/result` | player | **[novo]** |
+| Método | Rota                                   | Papel  | Situação                       |
+| ------ | -------------------------------------- | ------ | ------------------------------ |
+| POST   | `/player/tests/:testId/participations` | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/participations/:id`                  | player | **[novo]**                     |
+| POST   | `/participations/:id/consents`         | player | **[novo]**                     |
+| GET    | `/participations/:id/tutorial`         | player | **[novo]**                     |
+| POST   | `/participations/:id/sessions`         | player | **[novo]**                     |
+| PATCH  | `/sessions/:id/devices`                | player | **[novo]** — mic/webcam on/off |
+| POST   | `/sessions/:id/heartbeat`              | player | **[novo]**                     |
+| POST   | `/sessions/:id/finish`                 | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/sessions/:id/summary`                | player | **[novo]**                     |
+| POST   | `/sessions/:id/form-response`          | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/participations/:id/result`           | player | **[novo]**                     |
 
 **Regras**
 
@@ -422,11 +423,11 @@ que ordena por data é reescrever o módulo.
 
 ### M9 — Mídia e gravação
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| POST | `/sessions/:id/recordings/upload-url` | player | **[novo]** — multipart/chunked |
-| POST | `/sessions/:id/recordings/complete` | player | **[novo]** |
-| GET | `/sessions/:id/recordings/:recordingId/playback-url` | studio+ | **[novo]** |
+| Método | Rota                                                 | Papel   | Situação                       |
+| ------ | ---------------------------------------------------- | ------- | ------------------------------ |
+| POST   | `/sessions/:id/recordings/upload-url`                | player  | **[novo]** — multipart/chunked |
+| POST   | `/sessions/:id/recordings/complete`                  | player  | **[novo]**                     |
+| GET    | `/sessions/:id/recordings/:recordingId/playback-url` | studio+ | **[novo]**                     |
 
 **Regras**
 
@@ -444,18 +445,18 @@ que ordena por data é reescrever o módulo.
 
 ---
 
-### M10 — Relatórios *(Telas 11, 12)*
+### M10 — Relatórios _(Telas 11, 12)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/tests/:id/report` | studio+ | **[novo]** — resumo geral |
-| GET | `/tests/:id/report/evolution` | studio+ | **[novo]** |
-| GET | `/tests/:id/report/ratings` | studio+ | **[novo]** |
-| GET | `/tests/:id/report/testers` | studio+ | **[novo]** — distribuição e arquétipos |
-| GET | `/tests/:id/sessions?limit=&cursor=&sort=` | studio+ | **[novo]** |
-| GET | `/sessions/:id` | studio+ | **[novo]** — detalhe completo |
-| POST | `/sessions/:id/rate` | studio+ | **[novo]** — avaliar/agradecer o tester |
-| GET | `/tests/:id/report/export?format=csv\|pdf` | studio+ | **[novo]** |
+| Método | Rota                                       | Papel   | Situação                                |
+| ------ | ------------------------------------------ | ------- | --------------------------------------- |
+| GET    | `/tests/:id/report`                        | studio+ | **[novo]** — resumo geral               |
+| GET    | `/tests/:id/report/evolution`              | studio+ | **[novo]**                              |
+| GET    | `/tests/:id/report/ratings`                | studio+ | **[novo]**                              |
+| GET    | `/tests/:id/report/testers`                | studio+ | **[novo]** — distribuição e arquétipos  |
+| GET    | `/tests/:id/sessions?limit=&cursor=&sort=` | studio+ | **[novo]**                              |
+| GET    | `/sessions/:id`                            | studio+ | **[novo]** — detalhe completo           |
+| POST   | `/sessions/:id/rate`                       | studio+ | **[novo]** — avaliar/agradecer o tester |
+| GET    | `/tests/:id/report/export?format=csv\|pdf` | studio+ | **[novo]**                              |
 
 **Regras**
 
@@ -475,12 +476,12 @@ que ordena por data é reescrever o módulo.
 
 ---
 
-### M11 — Dashboard do estúdio *(Tela 02)*
+### M11 — Dashboard do estúdio _(Tela 02)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/studio/dashboard` | studio+ | **[novo]** |
-| GET | `/studio/benchmark` | studio+ | **[novo]** |
+| Método | Rota                | Papel   | Situação   |
+| ------ | ------------------- | ------- | ---------- |
+| GET    | `/studio/dashboard` | studio+ | **[novo]** |
+| GET    | `/studio/benchmark` | studio+ | **[novo]** |
 
 **Regras**
 
@@ -495,14 +496,14 @@ que ordena por data é reescrever o módulo.
 
 ---
 
-### M12 — Gamificação: XP, nível, conquistas, missões, ranking *(Telas 13, 19)*
+### M12 — Gamificação: XP, nível, conquistas, missões, ranking _(Telas 13, 19)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/player/progress` | player | **[novo]** |
-| GET | `/player/achievements` | player | **[novo]** |
-| GET | `/player/missions` | player | **[novo]** |
-| GET | `/rankings?scope=&period=` | player | **[novo]** |
+| Método | Rota                       | Papel  | Situação   |
+| ------ | -------------------------- | ------ | ---------- |
+| GET    | `/player/progress`         | player | **[novo]** |
+| GET    | `/player/achievements`     | player | **[novo]** |
+| GET    | `/player/missions`         | player | **[novo]** |
+| GET    | `/rankings?scope=&period=` | player | **[novo]** |
 
 **Regras**
 
@@ -516,16 +517,16 @@ que ordena por data é reescrever o módulo.
 
 ---
 
-### M13 — Comunidade e avaliações do jogo *(Tela 15)*
+### M13 — Comunidade e avaliações do jogo _(Tela 15)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/games/:id/community/posts` | autenticado | **[novo]** |
-| POST | `/games/:id/community/posts` | player | **[novo]** |
-| POST | `/community/posts/:id/report` | autenticado | **[novo]** |
-| PATCH | `/community/posts/:id/moderate` | studio+ | **[novo]** |
-| GET | `/games/:id/reviews` | autenticado | **[novo]** |
-| POST | `/games/:id/reviews` | player | **[novo]** |
+| Método | Rota                            | Papel       | Situação   |
+| ------ | ------------------------------- | ----------- | ---------- |
+| GET    | `/games/:id/community/posts`    | autenticado | **[novo]** |
+| POST   | `/games/:id/community/posts`    | player      | **[novo]** |
+| POST   | `/community/posts/:id/report`   | autenticado | **[novo]** |
+| PATCH  | `/community/posts/:id/moderate` | studio+     | **[novo]** |
+| GET    | `/games/:id/reviews`            | autenticado | **[novo]** |
+| POST   | `/games/:id/reviews`            | player      | **[novo]** |
 
 **Regra** — Tela 15 RN-04: comunidade respeita regras de moderação e vínculo com
 o jogo.
@@ -537,10 +538,10 @@ o jogo.
 - E-mails transacionais via `NotificationPort`: convite de membro, redefinição
   de senha, teste publicado, sessão validada, recompensa liberada, saque
   processado, build reprovada.
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/notifications?unreadOnly=` | autenticado | **[novo]** |
-| PATCH | `/notifications/:id/read` | autenticado | **[novo]** |
+  | Método | Rota | Papel | Situação |
+  | --- | --- | --- | --- |
+  | GET | `/notifications?unreadOnly=` | autenticado | **[novo]** |
+  | PATCH | `/notifications/:id/read` | autenticado | **[novo]** |
 
 - Notificações in-app dependem de confirmação no Figma de que o componente
   existe (pendência 8).
@@ -549,10 +550,10 @@ o jogo.
 
 ### M15 — Saúde e observabilidade
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/health` | público | [✓] — já verifica Postgres, Redis e storage; responde `503` quando algum cai |
-| GET | `/health/ready` | público | **[novo]** — readiness que inclui a fila (BullMQ) |
+| Método | Rota            | Papel   | Situação                                                                     |
+| ------ | --------------- | ------- | ---------------------------------------------------------------------------- |
+| GET    | `/health`       | público | [✓] — já verifica Postgres, Redis e storage; responde `503` quando algum cai |
+| GET    | `/health/ready` | público | **[novo]** — readiness que inclui a fila (BullMQ)                            |
 
 - Separar liveness de readiness: uma instância que não consegue enfileirar job
   não deve receber tráfego, mas também não deve ser reiniciada por isso.
@@ -565,14 +566,14 @@ o jogo.
 
 ### Nesta fase
 
-| # | Integração | Porta / uso | Situação |
-| --- | --- | --- | --- |
-| 1 | **Object storage** — MinIO (protocolo S3) | `StoragePort` — builds, mídia, assets | ✓ real |
-| 2 | **E-mail transacional** — SMTP/Mailhog em dev | `NotificationPort` | ✓ dev; provider de produção a definir |
-| 3 | **Redis / BullMQ** | filas e idempotência | ✓ real |
-| 4 | **Scan de malware da build** — ClamAV ou serviço | worker de validação | **[novo]** |
-| 5 | **Transcode de vídeo** — ffmpeg | worker de mídia | **[novo]** |
-| 6 | **CDN** para builds e mídia | opcional, reduz custo de egress | a definir |
+| #   | Integração                                       | Porta / uso                           | Situação                              |
+| --- | ------------------------------------------------ | ------------------------------------- | ------------------------------------- |
+| 1   | **Object storage** — MinIO (protocolo S3)        | `StoragePort` — builds, mídia, assets | ✓ real                                |
+| 2   | **E-mail transacional** — SMTP/Mailhog em dev    | `NotificationPort`                    | ✓ dev; provider de produção a definir |
+| 3   | **Redis / BullMQ**                               | filas e idempotência                  | ✓ real                                |
+| 4   | **Scan de malware da build** — ClamAV ou serviço | worker de validação                   | **[novo]**                            |
+| 5   | **Transcode de vídeo** — ffmpeg                  | worker de mídia                       | **[novo]**                            |
+| 6   | **CDN** para builds e mídia                      | opcional, reduz custo de egress       | a definir                             |
 
 ### Deferidas (§10)
 
@@ -609,16 +610,16 @@ o que o Drizzle não expressa (particionamento, triggers).
 
 ## 6. Jobs assíncronos (BullMQ)
 
-| Job | Dispara | Produz |
-| --- | --- | --- |
-| `build.validate` | confirmação de upload | checksum, scan, status da build |
-| `media.transcode` | gravação completa | vídeo reproduzível + thumbnail |
-| `media.extract-audio` | gravação completa | áudio pronto para o ASR entrar depois |
-| `session.validate` | sessão finalizada | sessão válida/inválida → libera XP e conquistas |
-| `report.aggregate` | sessão validada | `test_report_snapshots` |
-| `dashboard.kpi.refresh` | eventos de domínio | cache de KPIs |
-| `feed.rank.refresh` | agendado + eventos | ranking orgânico pré-calculado |
-| `notifications.send` | eventos de domínio | e-mail |
+| Job                     | Dispara               | Produz                                          |
+| ----------------------- | --------------------- | ----------------------------------------------- |
+| `build.validate`        | confirmação de upload | checksum, scan, status da build                 |
+| `media.transcode`       | gravação completa     | vídeo reproduzível + thumbnail                  |
+| `media.extract-audio`   | gravação completa     | áudio pronto para o ASR entrar depois           |
+| `session.validate`      | sessão finalizada     | sessão válida/inválida → libera XP e conquistas |
+| `report.aggregate`      | sessão validada       | `test_report_snapshots`                         |
+| `dashboard.kpi.refresh` | eventos de domínio    | cache de KPIs                                   |
+| `feed.rank.refresh`     | agendado + eventos    | ranking orgânico pré-calculado                  |
+| `notifications.send`    | eventos de domínio    | e-mail                                          |
 
 **Deferidos (§10):** `plugin.manifest.parse`, `asr.transcribe`,
 `ai.insight.session`, `ai.insight.test`, `payment.reconcile`, `wallet.payout`,
@@ -646,13 +647,13 @@ o que o Drizzle não expressa (particionamento, triggers).
 
 ## 8. Ordem sugerida de entrega
 
-| Fase | Escopo |
-| --- | --- |
-| **F1 — Fundação** | Signup estúdio/jogador, reset de senha, central de usuários e membros, jogos + upload de assets, auditoria exposta |
-| **F2 — Contratação** | Catálogo de modelos, wizard completo (rascunho, formulário, build, público) e publicação do teste |
-| **F3 — Execução** | Feed do jogador e elegibilidade, participação, tutorial e download da build, sessão, envio de formulário |
-| **F4 — Resultados** | Mídia e gravação, validação de sessão, XP/conquistas, relatórios, dashboard do estúdio |
-| **F5 — Complementos** | Comunidade e avaliações, missões e ranking, notificações in-app, exportações |
+| Fase                  | Escopo                                                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| **F1 — Fundação**     | Signup estúdio/jogador, reset de senha, central de usuários e membros, jogos + upload de assets, auditoria exposta |
+| **F2 — Contratação**  | Catálogo de modelos, wizard completo (rascunho, formulário, build, público) e publicação do teste                  |
+| **F3 — Execução**     | Feed do jogador e elegibilidade, participação, tutorial e download da build, sessão, envio de formulário           |
+| **F4 — Resultados**   | Mídia e gravação, validação de sessão, XP/conquistas, relatórios, dashboard do estúdio                             |
+| **F5 — Complementos** | Comunidade e avaliações, missões e ranking, notificações in-app, exportações                                       |
 
 Ao final da F5 a plataforma fecha o ciclo completo sem dinheiro envolvido: o
 estúdio cria e publica um teste, o jogador encontra no feed, baixa, joga,
@@ -664,17 +665,17 @@ produto antes de acoplar o trilho financeiro.
 Só o que bloqueia **esta** fase. As decisões de pagamento, impulsionamento e IA
 voltam junto com o escopo deferido (§10).
 
-| # | Pendência | Impacto |
-| --- | --- | --- |
-| 1 | Frames de "Novo jogo" (Tela 04) e "Central de usuários" (Tela 20) marcados como pendentes no handoff | Campos exatos, obrigatoriedade e limites indefinidos — bloqueia F1 |
-| 2 | **Sinais e pesos do ranking orgânico do feed** | Sem isso o feed vira ordenação por data — bloqueia F3 |
-| 3 | **Critérios de validação/invalidação de sessão** (antifraude, qualidade mínima) | É o gatilho de XP e conquistas — bloqueia F4 |
-| 4 | **Fórmulas de XP, de nível e de "qualidade de feedback"** | Bloqueia F4 |
-| 5 | Escopo e periodicidade do ranking de jogadores | Afeta F5 |
-| 6 | Política de retenção de vídeo e prazo de expurgo | LGPD e custo de storage — decidir antes da F4 |
-| 7 | Fonte de dados do benchmark de mercado (Tela 02) | Afeta o dashboard na F4 |
-| 8 | Existência de notificações in-app no Figma | Afeta F5 |
-| 9 | Como a recompensa aparece na UI enquanto não há carteira (valor informativo × ocultar) | Afeta Telas 13, 14, 15 e 19 |
+| #   | Pendência                                                                                            | Impacto                                                            |
+| --- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 1   | Frames de "Novo jogo" (Tela 04) e "Central de usuários" (Tela 20) marcados como pendentes no handoff | Campos exatos, obrigatoriedade e limites indefinidos — bloqueia F1 |
+| 2   | **Sinais e pesos do ranking orgânico do feed**                                                       | Sem isso o feed vira ordenação por data — bloqueia F3              |
+| 3   | **Critérios de validação/invalidação de sessão** (antifraude, qualidade mínima)                      | É o gatilho de XP e conquistas — bloqueia F4                       |
+| 4   | **Fórmulas de XP, de nível e de "qualidade de feedback"**                                            | Bloqueia F4                                                        |
+| 5   | Escopo e periodicidade do ranking de jogadores                                                       | Afeta F5                                                           |
+| 6   | Política de retenção de vídeo e prazo de expurgo                                                     | LGPD e custo de storage — decidir antes da F4                      |
+| 7   | Fonte de dados do benchmark de mercado (Tela 02)                                                     | Afeta o dashboard na F4                                            |
+| 8   | Existência de notificações in-app no Figma                                                           | Afeta F5                                                           |
+| 9   | Como a recompensa aparece na UI enquanto não há carteira (valor informativo × ocultar)               | Afeta Telas 13, 14, 15 e 19                                        |
 
 ## 10. Deferido — fora do escopo desta fase
 
@@ -689,29 +690,29 @@ insights de IA e transcrição por ASR.
 
 **O que fica preparado nos módulos ativos**
 
-| Ponto de acoplamento | Onde | Por quê |
-| --- | --- | --- |
-| `requiresTelemetry` no contrato do modelo de teste | M4 | É o gate que a Etapa 3 usa quando o plug-in voltar |
-| Validação de build como **lista de etapas**, não booleano | M6 | O passo de manifesto do plug-in entra como mais uma etapa |
-| Composição do feed em **slots** | M7 | Slot pago entra sem reordenar o módulo |
-| `t_ms` desde o início da sessão como base temporal única | M8, M9 | Telemetria, transcrição e insights se ancoram nela |
-| Recompensa devida registrada na sessão validada | M8 | É o dado que a carteira consome quando entrar |
-| Relatório em **blocos independentes** com `status` | M10 | Telemetria e IA entram como blocos novos, sem quebrar contrato |
-| Idempotência no publish do teste | M5 | A regra não depende de cobrança e já nasce correta |
-| `session_tokens`, `plugin_manifests`, `trigger_definitions`, `heatmap_cells`, `telemetry_events` | schema | Tabelas já existem e ficam dormentes |
+| Ponto de acoplamento                                                                             | Onde   | Por quê                                                        |
+| ------------------------------------------------------------------------------------------------ | ------ | -------------------------------------------------------------- |
+| `requiresTelemetry` no contrato do modelo de teste                                               | M4     | É o gate que a Etapa 3 usa quando o plug-in voltar             |
+| Validação de build como **lista de etapas**, não booleano                                        | M6     | O passo de manifesto do plug-in entra como mais uma etapa      |
+| Composição do feed em **slots**                                                                  | M7     | Slot pago entra sem reordenar o módulo                         |
+| `t_ms` desde o início da sessão como base temporal única                                         | M8, M9 | Telemetria, transcrição e insights se ancoram nela             |
+| Recompensa devida registrada na sessão validada                                                  | M8     | É o dado que a carteira consome quando entrar                  |
+| Relatório em **blocos independentes** com `status`                                               | M10    | Telemetria e IA entram como blocos novos, sem quebrar contrato |
+| Idempotência no publish do teste                                                                 | M5     | A regra não depende de cobrança e já nasce correta             |
+| `session_tokens`, `plugin_manifests`, `trigger_definitions`, `heatmap_cells`, `telemetry_events` | schema | Tabelas já existem e ficam dormentes                           |
 
 ---
 
-### Deferido — Pagamentos do estúdio *(Telas 09, 10)*
+### Deferido — Pagamentos do estúdio _(Telas 09, 10)_
 
 Direção do dinheiro (já decidida em `DECISIONS.md` §1.2): **estúdio paga, tester
 recebe**.
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/payments/:id` | studio+ | **[novo]** |
-| GET | `/orgs/current/invoices` | owner/admin | **[novo]** |
-| POST | `/webhooks/payments/:provider` | público (assinatura) | **[novo]** |
+| Método | Rota                           | Papel                | Situação   |
+| ------ | ------------------------------ | -------------------- | ---------- |
+| GET    | `/payments/:id`                | studio+              | **[novo]** |
+| GET    | `/orgs/current/invoices`       | owner/admin          | **[novo]** |
+| POST   | `/webhooks/payments/:provider` | público (assinatura) | **[novo]** |
 
 **Regras**
 
@@ -722,17 +723,18 @@ recebe**.
   (Tela 09, estados e validações).
 - Transição para "teste publicado" acontece **na confirmação do pagamento**,
   nunca no retorno da tela.
+
 ---
 
-### Deferido — Carteira e saque do jogador *(Tela 13)*
+### Deferido — Carteira e saque do jogador _(Tela 13)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/player/wallet` | player | **[novo]** — saldo disponível e pendente |
-| GET | `/player/wallet/transactions` | player | **[novo]** |
-| GET | `/player/wallet/eligibility` | player | **[novo]** |
-| POST | `/player/wallet/withdrawals` | player | **[novo]** — `Idempotency-Key` |
-| GET | `/player/wallet/withdrawals/:id` | player | **[novo]** |
+| Método | Rota                             | Papel  | Situação                                 |
+| ------ | -------------------------------- | ------ | ---------------------------------------- |
+| GET    | `/player/wallet`                 | player | **[novo]** — saldo disponível e pendente |
+| GET    | `/player/wallet/transactions`    | player | **[novo]**                               |
+| GET    | `/player/wallet/eligibility`     | player | **[novo]**                               |
+| POST   | `/player/wallet/withdrawals`     | player | **[novo]** — `Idempotency-Key`           |
+| GET    | `/player/wallet/withdrawals/:id` | player | **[novo]**                               |
 
 **Regras**
 
@@ -744,21 +746,22 @@ recebe**.
   editável.
 - Saque exige dados de recebimento válidos e passa por aprovação/liquidação
   assíncrona.
+
 ---
 
-### Deferido — Impulsionamento do feed *(Telas 09, 14)*
+### Deferido — Impulsionamento do feed _(Telas 09, 14)_
 
 Slot pago no topo do feed do jogador, contratado na Etapa 4 do wizard ou avulso.
 Depende de pagamento, então sai junto.
 
-| Método | Rota | Papel |
-| --- | --- | --- |
-| GET | `/boosts/packages` | studio+ |
-| POST | `/tests/:id/boost` | studio+ |
-| GET | `/tests/:id/boost` | studio+ |
-| PATCH | `/tests/:id/boost` | studio+ |
-| GET | `/tests/:id/boost/metrics` | studio+ |
-| POST | `/player/feed/events` | player |
+| Método | Rota                       | Papel   |
+| ------ | -------------------------- | ------- |
+| GET    | `/boosts/packages`         | studio+ |
+| POST   | `/tests/:id/boost`         | studio+ |
+| GET    | `/tests/:id/boost`         | studio+ |
+| PATCH  | `/tests/:id/boost`         | studio+ |
+| GET    | `/tests/:id/boost/metrics` | studio+ |
+| POST   | `/player/feed/events`      | player  |
 
 **Regras que não podem se perder**
 
@@ -778,12 +781,12 @@ Depende de pagamento, então sai junto.
 
 ### Deferido — Telemetria e Orbit Plug-in
 
-| Método | Rota | Autenticação | Situação |
-| --- | --- | --- | --- |
-| POST | `/telemetry/events` | session token do plug-in | **[novo]** |
-| POST | `/telemetry/heatmap` | session token do plug-in | **[novo]** |
-| GET | `/sessions/:id/telemetry` | studio+ | **[novo]** |
-| GET | `/tests/:id/telemetry/summary` | studio+ | **[novo]** |
+| Método | Rota                           | Autenticação             | Situação   |
+| ------ | ------------------------------ | ------------------------ | ---------- |
+| POST   | `/telemetry/events`            | session token do plug-in | **[novo]** |
+| POST   | `/telemetry/heatmap`           | session token do plug-in | **[novo]** |
+| GET    | `/sessions/:id/telemetry`      | studio+                  | **[novo]** |
+| GET    | `/tests/:id/telemetry/summary` | studio+                  | **[novo]** |
 
 **Regras**
 
@@ -797,14 +800,15 @@ Depende de pagamento, então sai junto.
 - Eventos recebidos após o fim da sessão + tolerância são descartados.
 - Rate limit e limite de payload próprios (volume alto, cliente não confiável).
 - Manutenção de partições diárias de `telemetry_events` via job agendado.
+
 ---
 
-### Deferido — IA e insights *(Telas 11, 12)*
+### Deferido — IA e insights _(Telas 11, 12)_
 
-| Método | Rota | Papel | Situação |
-| --- | --- | --- | --- |
-| GET | `/tests/:id/insights?q=&type=` | studio+ | **[novo]** |
-| GET | `/sessions/:id/insights` | studio+ | **[novo]** |
+| Método | Rota                           | Papel   | Situação   |
+| ------ | ------------------------------ | ------- | ---------- |
+| GET    | `/tests/:id/insights?q=&type=` | studio+ | **[novo]** |
+| GET    | `/sessions/:id/insights`       | studio+ | **[novo]** |
 
 **Regras**
 
@@ -814,6 +818,7 @@ Depende de pagamento, então sai junto.
   gerado por IA (`generatedByAi: true`). Insight **não substitui** o dado bruto.
 - Tela 11 RN-02: enquanto processa, retorna `status: processing`.
 - Busca/filtro server-side (a tela tem campo de busca sobre os cards).
+
 ---
 
 ### Deferido — Transcrição (ASR)

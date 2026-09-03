@@ -155,7 +155,7 @@ src/
 │  ├─ telemetry/               TelemetryStore Postgres (SQL cru)
 │  └─ fakes/                   FakePayment, StubAi, StubAsr
 ├─ modules/
-│  ├─ health/ · iam/ · orgs/ · games/ (fatia vertical) · audit/
+│  ├─ health/ · auth/ · orgs/ · games/ (fatia vertical) · audit/
 └─ workers/
    └─ main.worker.ts           processo separado dos jobs
 

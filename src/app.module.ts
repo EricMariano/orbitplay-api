@@ -17,7 +17,7 @@ import { TelemetryModule } from './infra/telemetry/telemetry.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { GamesModule } from './modules/games/games.module';
 import { HealthModule } from './modules/health/health.module';
-import { IamModule } from './modules/iam/iam.module';
+import { AuthModule } from './modules/auth/auth.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
@@ -71,7 +71,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
 
     // Feature modules
     HealthModule,
-    IamModule,
+    AuthModule,
     OrgsModule,
     GamesModule,
   ],

@@ -23,6 +23,18 @@ Implementação:
 
 Papéis: `owner`, `admin`, `studio`, `player`.
 
+**Signup paths:**
+
+- `POST /auth/signup/studio` — cria user + organização + membership `owner`
+  (token `role=owner`).
+- `POST /auth/signup/player` — cria user + **organização pessoal**
+  (`Conta de {displayName}`, slug `player-<uuid_sem_hífens>`) + membership
+  `player` (token `role=player`). A coluna `owner_user_id` aponta para o próprio
+  player (NOT NULL), mas o papel no JWT é `player`, então mutações de estúdio
+  (`STUDIO_ROLES`) continuam `403`.
+- O seed demo (`player@orbitplay.dev` na org do estúdio) permanece só para
+  fixtures de teste — não espelha o fluxo de signup do jogador.
+
 ### 1.2 Direção do dinheiro — **decidido**
 
 **Estúdio paga, tester (jogador) recebe.** Sem pagamento implementado nesta
@@ -103,7 +115,7 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   malformado também vira 404 (nunca 500). Provado nos testes e2e.
 - **Rate limit por IP e por identificador.** IP via `ThrottlerGuard`
   (`/auth/login`, `/auth/password/forgot`); identificador (e-mail) via contador
-  no Redis no `IamService` — os dois são necessários (só IP não barra ataque
+  no Redis no `AuthService` — os dois são necessários (só IP não barra ataque
   distribuído contra uma conta).
 - **Login de tempo comparável.** Usuário inexistente também paga um
   `argon2.verify` contra um hash dummy, para não vazar existência de conta por

@@ -2,9 +2,9 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { ThrottlerModule } from '@nestjs/throttler';
-import { IamController } from './iam.controller';
-import { IamRepository } from './iam.repository';
-import { IamService } from './iam.service';
+import { AuthController } from './auth.controller';
+import { AuthRepository } from './auth.repository';
+import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 
@@ -24,15 +24,22 @@ import { TokenService } from './token.service';
       useFactory: (config: ConfigService) => ({
         throttlers: [
           {
+            name: 'default',
             ttl: config.get<number>('authThrottle.ttl')! * 1000, // seconds → ms
             limit: config.get<number>('authThrottle.limit')!,
+          },
+          {
+            // Opt-in only on GET /auth/signup/availability (see AuthController).
+            name: 'availability',
+            ttl: config.get<number>('authThrottle.availabilityTtl')! * 1000,
+            limit: config.get<number>('authThrottle.availabilityLimit')!,
           },
         ],
       }),
     }),
   ],
-  controllers: [IamController],
-  providers: [IamService, IamRepository, PasswordService, TokenService],
+  controllers: [AuthController],
+  providers: [AuthService, AuthRepository, PasswordService, TokenService],
   exports: [JwtModule, PasswordService],
 })
-export class IamModule {}
+export class AuthModule {}
