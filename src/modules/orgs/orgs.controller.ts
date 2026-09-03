@@ -4,7 +4,7 @@ import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
-import { Role, STUDIO_ROLES } from '../../shared/auth/roles';
+import { Role, STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
 import { InviteMemberDto, MemberDto, MemberListDto, OrgDto } from './dto/org.dto';
 import { OrgsService } from './orgs.service';
 
@@ -34,9 +34,10 @@ export class OrgsController {
   @ZodResponse({ status: HttpStatus.CREATED, type: MemberDto })
   invite(
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('role') callerRole: RoleValue,
     @Body() dto: InviteMemberDto,
     @Req() req: Request,
   ) {
-    return this.orgs.inviteMember(organizationId, dto, req);
+    return this.orgs.inviteMember(organizationId, callerRole, dto, req);
   }
 }

@@ -147,6 +147,30 @@ describe('Org members — invite (e2e)', () => {
     expect(res.status).toBe(201);
   });
 
+  it('admin cannot grant the owner role: 403 (privilege escalation)', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/orgs/members/invite')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ email: 'admin-quer-ser-owner@estudio.dev', role: 'owner' });
+
+    expect(res.status).toBe(403);
+
+    const rows = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM users
+      WHERE lower(email) = 'admin-quer-ser-owner@estudio.dev'`;
+    expect(rows[0].count).toBe('0');
+  });
+
+  it('owner may grant the owner role', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/orgs/members/invite')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'socio@estudio.dev', role: 'owner' });
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({ role: 'owner', status: 'invited' });
+  });
+
   it('studio role cannot invite: 403', async () => {
     const res = await request(app.getHttpServer())
       .post('/orgs/members/invite')

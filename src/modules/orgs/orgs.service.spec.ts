@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrganizationRow } from '../../infra/database/schema/organizations';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { NotificationPort } from '../../shared/ports/notification.port';
+import { Role } from '../../shared/auth/roles';
 import type { PasswordService } from '../auth/password.service';
 import { MemberAlreadyExistsError, type OrgsRepository } from './orgs.repository';
 import { OrgsService } from './orgs.service';
@@ -69,6 +70,7 @@ describe('OrgsService inviteMember', () => {
   it('creates the membership as invited, never active', async () => {
     const view = await service.inviteMember(
       ORG,
+      Role.OWNER,
       { email: 'novo@estudio.dev', role: 'studio' },
       req,
     );
@@ -80,7 +82,7 @@ describe('OrgsService inviteMember', () => {
   });
 
   it('never stores a caller-supplied password — the hash comes from random bytes', async () => {
-    await service.inviteMember(ORG, { email: 'novo@estudio.dev', role: 'admin' }, req);
+    await service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'admin' }, req);
 
     expect(password.hash).toHaveBeenCalledTimes(1);
     const hashed = password.hash.mock.calls[0][0] as string;
@@ -94,6 +96,7 @@ describe('OrgsService inviteMember', () => {
   it('normalizes the e-mail and falls back to it when displayName is omitted', async () => {
     const view = await service.inviteMember(
       ORG,
+      Role.OWNER,
       { email: '  Novo@Estudio.DEV ', role: 'studio' },
       req,
     );
@@ -105,6 +108,7 @@ describe('OrgsService inviteMember', () => {
   it('keeps the given displayName when provided', async () => {
     const view = await service.inviteMember(
       ORG,
+      Role.OWNER,
       { email: 'novo@estudio.dev', displayName: 'Ana Souza', role: 'studio' },
       req,
     );
@@ -112,16 +116,47 @@ describe('OrgsService inviteMember', () => {
     expect(view.displayName).toBe('Ana Souza');
   });
 
+  it('refuses an admin granting the owner role (privilege escalation)', async () => {
+    await expect(
+      service.inviteMember(ORG, Role.ADMIN, { email: 'meu@email.dev', role: 'owner' }, req),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(repo.createInvitedMember).not.toHaveBeenCalled();
+    expect(mail.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it('lets an owner grant the owner role', async () => {
+    const view = await service.inviteMember(
+      ORG,
+      Role.OWNER,
+      { email: 'socio@estudio.dev', role: 'owner' },
+      req,
+    );
+
+    expect(view.role).toBe('owner');
+  });
+
+  it('lets an admin grant the non-owner roles', async () => {
+    const view = await service.inviteMember(
+      ORG,
+      Role.ADMIN,
+      { email: 'novo@estudio.dev', role: 'admin' },
+      req,
+    );
+
+    expect(view.role).toBe('admin');
+  });
+
   it('maps an existing membership to a 409 conflict', async () => {
     repo.createInvitedMember.mockRejectedValue(new MemberAlreadyExistsError());
 
     await expect(
-      service.inviteMember(ORG, { email: 'ja@membro.dev', role: 'studio' }, req),
+      service.inviteMember(ORG, Role.OWNER, { email: 'ja@membro.dev', role: 'studio' }, req),
     ).rejects.toMatchObject({ status: 409 });
   });
 
   it('records an org.member_invited audit intent (Tela 20 RN-05)', async () => {
-    await service.inviteMember(ORG, { email: 'novo@estudio.dev', role: 'studio' }, req);
+    await service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req);
 
     const drafts = drainAuditDrafts(req);
     expect(drafts).toHaveLength(1);
@@ -133,7 +168,7 @@ describe('OrgsService inviteMember', () => {
   });
 
   it('sends the invitation e-mail without any token or password', async () => {
-    await service.inviteMember(ORG, { email: 'novo@estudio.dev', role: 'studio' }, req);
+    await service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req);
 
     expect(mail.sendEmail).toHaveBeenCalledTimes(1);
     const message = mail.sendEmail.mock.calls[0][0] as {
@@ -151,7 +186,7 @@ describe('OrgsService inviteMember', () => {
     repo.findById.mockResolvedValue(null);
 
     await expect(
-      service.inviteMember(ORG, { email: 'novo@estudio.dev', role: 'studio' }, req),
+      service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req),
     ).rejects.toMatchObject({ status: 404 });
     expect(repo.createInvitedMember).not.toHaveBeenCalled();
   });

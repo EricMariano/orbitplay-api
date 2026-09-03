@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { NOTIFICATION_PORT, type NotificationPort } from '../../shared/ports/notification.port';
+import { Role, type RoleValue } from '../../shared/auth/roles';
 import { PasswordService } from '../auth/password.service';
 import type { InviteMemberInput, MemberView, OrgView } from './dto/org.dto';
 import { MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
@@ -49,9 +50,17 @@ export class OrgsService {
    */
   async inviteMember(
     organizationId: string,
+    callerRole: RoleValue,
     dto: InviteMemberInput,
     req: Request,
   ): Promise<MemberView> {
+    // Granting `owner` is the Owner's alone: an admin could otherwise invite an
+    // address they control as owner, and activating that membership later
+    // (M2-05) would hand them the organization.
+    if (dto.role === Role.OWNER && callerRole !== Role.OWNER) {
+      throw AppException.forbidden('Somente owners podem convidar owners');
+    }
+
     const org = await this.repo.findById(organizationId);
     if (!org) throw AppException.notFound('Organização não encontrada');
 
