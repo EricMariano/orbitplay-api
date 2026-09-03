@@ -323,6 +323,42 @@
         ]
       }
     },
+    "/orgs/members/invite": {
+      "post": {
+        "operationId": "OrgsController_invite",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InviteMemberDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
     "/games": {
       "get": {
         "operationId": "GamesController_list",
@@ -832,6 +868,74 @@
         },
         "required": [
           "data"
+        ],
+        "additionalProperties": false
+      },
+      "InviteMemberDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "studio",
+              "player"
+            ]
+          }
+        },
+        "required": [
+          "email",
+          "role"
+        ]
+      },
+      "MemberDto_Output": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "studio",
+              "player"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "invited",
+              "disabled"
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "email",
+          "displayName",
+          "role",
+          "status"
         ],
         "additionalProperties": false
       },

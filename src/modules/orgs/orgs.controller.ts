@@ -1,10 +1,11 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
+import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
-import { STUDIO_ROLES } from '../../shared/auth/roles';
-import { MemberListDto, OrgDto } from './dto/org.dto';
+import { Role, STUDIO_ROLES } from '../../shared/auth/roles';
+import { InviteMemberDto, MemberDto, MemberListDto, OrgDto } from './dto/org.dto';
 import { OrgsService } from './orgs.service';
 
 @ApiTags('orgs')
@@ -24,5 +25,18 @@ export class OrgsController {
   @ZodResponse({ type: MemberListDto })
   members(@CurrentUser('organizationId') organizationId: string) {
     return this.orgs.listMembers(organizationId);
+  }
+
+  /** Member management is the Owner's area; Admin shares it (Tela 20 RN-01). */
+  @Post('members/invite')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @HttpCode(HttpStatus.CREATED)
+  @ZodResponse({ status: HttpStatus.CREATED, type: MemberDto })
+  invite(
+    @CurrentUser('organizationId') organizationId: string,
+    @Body() dto: InviteMemberDto,
+    @Req() req: Request,
+  ) {
+    return this.orgs.inviteMember(organizationId, dto, req);
   }
 }
