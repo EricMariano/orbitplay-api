@@ -88,7 +88,6 @@ tags:
     description: Notificações (M14)
 
 paths:
-
   # ---------------------------------------------------------------- M15 health
   /health:
     get:
@@ -224,11 +223,8 @@ paths:
       description: |
         RN-05 (Tela 01). Resposta **sempre** genérica, exista ou não a conta.
         Gera token de uso único com expiração curta e dispara o e-mail.
-
-        Hoje implementado como stub: envia e-mail sem gerar token. Concluir
-        junto com `POST /auth/password/reset`.
       security: []
-      x-status: partial
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -250,7 +246,7 @@ paths:
         Consome o token de uso único. Ao concluir, revoga todas as sessões
         ativas do usuário. Token inválido, expirado ou já usado → `422`.
       security: []
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -273,7 +269,7 @@ paths:
         Cria usuário, organização e membership `owner` em uma única transação
         (decisão `DECISIONS.md` §1.1). Idade mínima 18 anos (§1.4).
       security: []
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -299,7 +295,7 @@ paths:
       summary: Criar conta de jogador
       description: 'Cria usuário e membership `player`. Idade mínima 18 anos.'
       security: []
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -326,7 +322,7 @@ paths:
         Usado para feedback em formulário. Resposta propositalmente pobre e com
         rate limit agressivo, para não virar enumeração de contas.
       security: []
-      x-status: todo
+      x-status: implemented
       parameters:
         - name: email
           in: query
@@ -342,6 +338,7 @@ paths:
                 required: [available]
                 properties:
                   available: { type: boolean }
+        '422': { $ref: '#/components/responses/ValidationError' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
   # ------------------------------------------------------------------ M2 orgs
@@ -2207,7 +2204,6 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
 
 components:
-
   securitySchemes:
     bearer:
       type: http
@@ -2290,7 +2286,6 @@ components:
           schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
   schemas:
-
     # ---- transversais ----
     ErrorEnvelope:
       type: object

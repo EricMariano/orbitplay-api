@@ -21,6 +21,7 @@ describe('validateEnv', () => {
     const env = validateEnv({ ...validEnv });
     expect(env.PORT).toBe(3000);
     expect(env.ACCESS_TOKEN_TTL).toBe('15m');
+    expect(env.PASSWORD_RESET_TTL).toBe('1h');
     expect(env.STORAGE_FORCE_PATH_STYLE).toBe(true);
   });
 

@@ -48,7 +48,7 @@ CREATE TYPE report_stage         AS ENUM ('none', 'partial', 'final');
 
 
 -- =============================================================================
--- IAM E TENANCY
+-- AUTH E TENANCY
 -- =============================================================================
 
 CREATE TABLE users (
@@ -114,7 +114,7 @@ CREATE TABLE password_reset_tokens (
   used_at    timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
-COMMENT ON TABLE password_reset_tokens IS '[novo] Tabela que FALTA hoje. Sem ela, POST /auth/password/forgot e um stub que so manda email dizendo que o fluxo vem depois.';
+COMMENT ON TABLE password_reset_tokens IS '[existe] Token de uso unico para POST /auth/password/forgot e /auth/password/reset.';
 COMMENT ON COLUMN password_reset_tokens.used_at IS 'Uso unico. Redefinir invalida as sessoes ativas do usuario.';
 
 CREATE TABLE audit_log (

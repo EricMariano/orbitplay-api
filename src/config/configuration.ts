@@ -60,6 +60,12 @@ export function buildConfig(env: Env) {
     authThrottle: {
       ttl: env.AUTH_THROTTLE_TTL,
       limit: env.AUTH_THROTTLE_LIMIT,
+      availabilityTtl: env.AUTH_AVAILABILITY_THROTTLE_TTL,
+      availabilityLimit: env.AUTH_AVAILABILITY_THROTTLE_LIMIT,
+    },
+    auth: {
+      passwordResetTtl: env.PASSWORD_RESET_TTL,
+      passwordResetTtlMs: durationToMs(env.PASSWORD_RESET_TTL),
     },
   };
 }

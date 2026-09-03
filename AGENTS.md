@@ -52,12 +52,12 @@ edita schema .ts
 
 ### O que NUNCA fazer
 
-| Proibido | Motivo |
-| -------- | ------ |
+| Proibido                                                 | Motivo                                               |
+| -------------------------------------------------------- | ---------------------------------------------------- |
 | Escrever ou editar arquivos em `drizzle/*.sql` (gerados) | Quebra o histórico do Drizzle e diverge do schema TS |
-| Criar migração SQL “na mão” no lugar de `db:generate` | O journal (`drizzle/meta/`) fica inconsistente |
-| Alterar `drizzle/meta/` manualmente | Metadados do Drizzle Kit — só o kit escreve |
-| Colocar DDL de tabela normal em `drizzle/manual/` | Manual é só para o que o Drizzle **não expressa** |
+| Criar migração SQL “na mão” no lugar de `db:generate`    | O journal (`drizzle/meta/`) fica inconsistente       |
+| Alterar `drizzle/meta/` manualmente                      | Metadados do Drizzle Kit — só o kit escreve          |
+| Colocar DDL de tabela normal em `drizzle/manual/`        | Manual é só para o que o Drizzle **não expressa**    |
 
 ### Exceção: `drizzle/manual/`
 
@@ -85,12 +85,12 @@ Regras:
 
 ### Scripts de banco
 
-| Script | Uso |
-| ------ | --- |
-| `pnpm db:generate` | Gera migração a partir do schema TS |
-| `pnpm db:migrate` | Aplica geradas + manual |
-| `pnpm db:seed` | Seed determinístico e idempotente |
-| `pnpm db:reset` | Dev only — dropa schemas, re-migra (não faz seed) |
+| Script             | Uso                                               |
+| ------------------ | ------------------------------------------------- |
+| `pnpm db:generate` | Gera migração a partir do schema TS               |
+| `pnpm db:migrate`  | Aplica geradas + manual                           |
+| `pnpm db:seed`     | Seed determinístico e idempotente                 |
+| `pnpm db:reset`    | Dev only — dropa schemas, re-migra (não faz seed) |
 
 Após `db:reset`, rode `pnpm db:seed` se precisar de dados.
 
@@ -105,7 +105,7 @@ src/
 ├─ config/          env.schema (Zod) + configuration
 ├─ shared/          guards, filters, interceptors, ports, util — sem lógica de domínio
 ├─ infra/           adaptadores concretos (DB, Redis, MinIO, mail, queue, fakes)
-├─ modules/       fatias verticais (health, iam, orgs, games, audit, …)
+├─ modules/       fatias verticais (health, auth, orgs, games, audit, …)
 └─ workers/       processos BullMQ separados da API
 ```
 
@@ -129,13 +129,13 @@ dto/              schemas Zod + createZodDto
 
 Interfaces em `src/shared/ports/`. Implementações em `src/infra/`.
 
-| Porta | Adaptador atual |
-| ----- | --------------- |
-| `StoragePort` | MinIO (`STORAGE_*`, não `S3_*`) |
-| `NotificationPort` | Mailhog |
-| `TelemetryStorePort` | Postgres (SQL cru) |
-| `PaymentPort` | `FakePaymentAdapter` |
-| `AiPort` / `AsrPort` | stubs |
+| Porta                | Adaptador atual                 |
+| -------------------- | ------------------------------- |
+| `StoragePort`        | MinIO (`STORAGE_*`, não `S3_*`) |
+| `NotificationPort`   | Mailhog                         |
+| `TelemetryStorePort` | Postgres (SQL cru)              |
+| `PaymentPort`        | `FakePaymentAdapter`            |
+| `AiPort` / `AsrPort` | stubs                           |
 
 Injete pela **porta** nos services; não acople módulos de domínio ao SDK concreto.
 
@@ -232,12 +232,12 @@ Não monte envelopes de erro ad hoc nos controllers.
 
 ### Quando adicionar testes
 
-| Mudança | Teste esperado |
-| ------- | -------------- |
-| Regra de negócio nova | unit spec no service |
-| Endpoint ou fluxo HTTP | e2e spec |
-| Isolamento org / RBAC | e2e (padrão em `games.e2e-spec.ts`) |
-| Validação de env | `env.schema.spec.ts` |
+| Mudança                | Teste esperado                      |
+| ---------------------- | ----------------------------------- |
+| Regra de negócio nova  | unit spec no service                |
+| Endpoint ou fluxo HTTP | e2e spec                            |
+| Isolamento org / RBAC  | e2e (padrão em `games.e2e-spec.ts`) |
+| Validação de env       | `env.schema.spec.ts`                |
 
 ---
 
@@ -285,11 +285,11 @@ pnpm openapi:generate
 
 ## Referências rápidas
 
-| Arquivo | Conteúdo |
-| ------- | -------- |
-| `README.md` | Setup, scripts, credenciais seed |
-| `DECISIONS.md` | Decisões bloqueantes (org, pagamento, A/B, idade) |
-| `src/modules/games/` | Molde de fatia vertical completa |
-| `src/infra/database/base.repository.ts` | Tenancy e paginação cursor |
-| `src/app.module.ts` | Guards, pipes e interceptors globais |
-| `test/games.e2e-spec.ts` | Padrões de teste e2e (critérios #3–#8) |
+| Arquivo                                 | Conteúdo                                          |
+| --------------------------------------- | ------------------------------------------------- |
+| `README.md`                             | Setup, scripts, credenciais seed                  |
+| `DECISIONS.md`                          | Decisões bloqueantes (org, pagamento, A/B, idade) |
+| `src/modules/games/`                    | Molde de fatia vertical completa                  |
+| `src/infra/database/base.repository.ts` | Tenancy e paginação cursor                        |
+| `src/app.module.ts`                     | Guards, pipes e interceptors globais              |
+| `test/games.e2e-spec.ts`                | Padrões de teste e2e (critérios #3–#8)            |

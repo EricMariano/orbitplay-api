@@ -40,6 +40,13 @@ export const envSchema = z.object({
 
   AUTH_THROTTLE_TTL: z.coerce.number().int().positive().default(60),
   AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive().default(5),
+
+  /** Stricter IP throttle for signup email-availability checks (anti-enumeration). */
+  AUTH_AVAILABILITY_THROTTLE_TTL: z.coerce.number().int().positive().default(60),
+  AUTH_AVAILABILITY_THROTTLE_LIMIT: z.coerce.number().int().positive().default(3),
+
+  /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
+  PASSWORD_RESET_TTL: durationString.default('1h'),
 });
 
 export type Env = z.infer<typeof envSchema>;

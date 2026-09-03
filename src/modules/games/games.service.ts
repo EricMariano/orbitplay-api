@@ -4,6 +4,7 @@ import type { GameRow } from '../../infra/database/schema/games';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import type { Page, PaginationQuery } from '../../shared/pagination/pagination';
+import { slugify } from '../../shared/util/slugify';
 import type { CreateGameDto, GameView, UpdateGameDto } from './dto/game.dto';
 import { GamesRepository } from './games.repository';
 
@@ -107,14 +108,4 @@ function toView(row: GameRow): GameView {
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
-}
-
-function slugify(title: string): string {
-  return title
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 200);
 }
