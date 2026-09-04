@@ -111,6 +111,12 @@ export const sessionStatusEnum = pgEnum('session_status', [
   'invalidated',
 ]);
 
+/**
+ * Stored recording kinds. SQL keeps `screen | webcam | microphone` — OpenAPI
+ * uses `screen_recording | audio | microphone | webcam`. Map at the API
+ * boundary; do not add a fourth SQL value. `audio` is a consent flag and the
+ * extracted sidecar for future ASR, not a `session_recordings.kind`.
+ */
 export const recordingKindEnum = pgEnum('recording_kind', ['screen', 'webcam', 'microphone']);
 
 export const assetKindEnum = pgEnum('asset_kind', ['cover', 'banner', 'screenshot']);
