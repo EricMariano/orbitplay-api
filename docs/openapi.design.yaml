@@ -1680,7 +1680,7 @@ paths:
       description: |
         Suporta envio em partes, para gravações longas e conexões instáveis.
         Chamar uma vez por parte, informando `partNumber`.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -1704,7 +1704,7 @@ paths:
         Fecha o envio em partes e enfileira `media.transcode` e
         `media.extract-audio`. O áudio extraído fica pronto para o ASR
         (deferido) sem reprocessar o vídeo depois.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -1729,7 +1729,7 @@ paths:
         RN-03 (Tela 12): gravação ausente ou ainda processando **não é erro** —
         devolve `status` correspondente e `url: null`, para que o resto da tela
         continue funcionando.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
         - name: recordingId
