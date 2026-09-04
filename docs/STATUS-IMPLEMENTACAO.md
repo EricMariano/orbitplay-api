@@ -49,7 +49,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `GET /orgs/current`                          | ✅     |                                                   |
 | `GET /orgs/members`                          | 🟡     | sem paginação nem filtros (`q`, `role`, `status`) |
 | `PATCH /orgs/current`                        | ⬜     |                                                   |
-| `POST /orgs/members/invite`                  | ⬜     |                                                   |
+| `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin        |
 | `PATCH /orgs/members/{userId}/role`          | ⬜     | regra do "último owner" (409), auditoria          |
 | `PATCH /orgs/members/{userId}/status`        | ⬜     |                                                   |
 | `POST /orgs/members/{userId}/password-reset` | ⬜     |                                                   |

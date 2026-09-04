@@ -18,9 +18,22 @@ export const memberSchema = z.object({
 
 export const memberListSchema = z.object({ data: z.array(memberSchema) });
 
+/**
+ * Invite a member (ORB-M2-03, Tela 20). Creates an `invited` membership and
+ * sends the invitation e-mail — it never sets a password: the invitee defines
+ * theirs through the password recovery flow (RN-04).
+ */
+export const inviteMemberSchema = z.object({
+  email: z.string().min(1, 'E-mail obrigatório').email('E-mail inválido'),
+  displayName: z.string().min(1).max(200).optional(),
+  role: z.enum(['owner', 'admin', 'studio', 'player']),
+});
+
 export class OrgDto extends createZodDto(orgSchema) {}
 export class MemberDto extends createZodDto(memberSchema) {}
 export class MemberListDto extends createZodDto(memberListSchema) {}
+export class InviteMemberDto extends createZodDto(inviteMemberSchema) {}
 
 export type OrgView = z.infer<typeof orgSchema>;
 export type MemberView = z.infer<typeof memberSchema>;
+export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;

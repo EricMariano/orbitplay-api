@@ -410,7 +410,7 @@ paths:
         Cria membership com status `invited` e dispara e-mail de convite. Não
         cria senha — o convidado define a dele pelo fluxo de redefinição
         (RN-04, Tela 20).
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
