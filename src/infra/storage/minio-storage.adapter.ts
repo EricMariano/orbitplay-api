@@ -9,7 +9,7 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { StoragePort } from '../../shared/ports/storage.port';
+import type { StorageObjectMeta, StoragePort } from '../../shared/ports/storage.port';
 
 /**
  * MinIO storage adapter — the StoragePort implementation used in ALL
@@ -51,11 +51,18 @@ export class MinioStorageAdapter implements StoragePort {
   }
 
   async exists(key: string): Promise<boolean> {
+    return (await this.stat(key)) !== null;
+  }
+
+  async stat(key: string): Promise<StorageObjectMeta | null> {
     try {
-      await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
-      return true;
+      const head = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: key }));
+      return {
+        contentType: head.ContentType,
+        sizeBytes: head.ContentLength ?? 0,
+      };
     } catch {
-      return false;
+      return null;
     }
   }
 
