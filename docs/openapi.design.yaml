@@ -566,9 +566,10 @@ paths:
       summary: Listar jogos do estúdio
       description: |
         RN-03 (Tela 03): as métricas do card são **agregadas no backend** a
-        partir dos testes do jogo. Hoje implementado sem filtros e sem métricas
-        — estender.
-      x-status: partial
+        partir dos testes do jogo. Filtros `q`/`status` e paginação por cursor.
+        `sessionsValid`, `playersTotal` e `averageRating` ficam zerados até
+        M8/M13 gravarem linhas.
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -664,7 +665,7 @@ paths:
         gravado.
 
         O binário vai direto do cliente para o storage — a API nunca faz proxy.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -691,7 +692,7 @@ paths:
       description: |
         Verifica a existência do objeto no storage antes de gravar a linha. Um
         upload que não chegou não vira asset.
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -714,7 +715,7 @@ paths:
     delete:
       tags: [games]
       summary: Remover imagem do jogo
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
         - name: assetId

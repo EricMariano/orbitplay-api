@@ -58,20 +58,20 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 ### M3 — Games (`src/modules/games`)
 
-| Endpoint                              | Status | Observação                                               |
-| ------------------------------------- | ------ | -------------------------------------------------------- |
-| `POST /games`                         | ✅     | tenancy forçada (org do token)                           |
-| `GET /games/{id}`                     | ✅     |                                                          |
-| `PATCH /games/{id}`                   | ✅     |                                                          |
-| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                          |
-| `GET /games`                          | 🟡     | sem filtros e **sem métricas agregadas** (`GameMetrics`) |
-| `POST /games/{id}/assets/upload-url`  | ⬜     | tabela `game_assets` existe mas sem uso                  |
-| `POST /games/{id}/assets`             | ⬜     | confirmação de upload                                    |
-| `DELETE /games/{id}/assets/{assetId}` | ⬜     |                                                          |
-| `GET /games/{id}/summary`             | ⬜     |                                                          |
-| `GET /games/{id}/tests`               | ⬜     |                                                          |
-| `GET /games/{id}/achievements`        | ⬜     |                                                          |
-| `GET /games/{id}/specs`               | ⬜     |                                                          |
+| Endpoint                              | Status | Observação                                      |
+| ------------------------------------- | ------ | ----------------------------------------------- |
+| `POST /games`                         | ✅     | tenancy forçada (org do token)                  |
+| `GET /games/{id}`                     | ✅     |                                                 |
+| `PATCH /games/{id}`                   | ✅     |                                                 |
+| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                 |
+| `GET /games`                          | ✅     | filtros `q`/`status`, paginação e `GameMetrics` |
+| `POST /games/{id}/assets/upload-url`  | ✅     | URL assinada (PNG/JPEG/WebP, até 5 MiB)         |
+| `POST /games/{id}/assets`             | ✅     | confirma objeto no storage antes de gravar      |
+| `DELETE /games/{id}/assets/{assetId}` | ✅     | exclusão lógica + remove o objeto               |
+| `GET /games/{id}/summary`             | ⬜     |                                                 |
+| `GET /games/{id}/tests`               | ⬜     |                                                 |
+| `GET /games/{id}/achievements`        | ⬜     |                                                 |
+| `GET /games/{id}/specs`               | ⬜     |                                                 |
 
 ### M15 — Health (`src/modules/health`)
 
@@ -108,7 +108,7 @@ Enums criados: `game_status`, `membership_status`, `trigger_type`.
 
 Ressalvas sobre o que existe mas não é usado de ponta a ponta:
 
-- **`game_assets`** — tabela criada, **nenhum código a consome** (upload de capa/banner da Tela 04 é trabalho novo inteiro).
+- **`game_assets`** — tabela criada e consumida pelo fluxo de upload de capa/banner/screenshot.
 - **`audit_log`** — existe e é escrita, mas **não há endpoint** que a exponha (`GET /audit-logs` é ⬜).
 - **`plugin_manifests.build_id`** — hoje é `uuid` **sem FK**, porque `builds` ainda não existe (dívida a quitar quando `builds` for criada).
 

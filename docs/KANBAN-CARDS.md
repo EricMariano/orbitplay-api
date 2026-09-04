@@ -96,16 +96,19 @@
 ### ORB-M3-01 · Métricas agregadas + filtros em `GET /games`
 
 - **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M5 (tests) para métricas reais
-- **Escopo:** `GameMetrics` (testsTotal/active, sessionsValid, playersTotal, averageRating) agregado no backend; filtros `q`, `status`, paginação. _(Métricas dependentes de testes podem entrar zeradas até M5.)_
+- **Escopo:**
+  - [x] `GameMetrics` (testsTotal/active, sessionsValid, playersTotal, averageRating) agregado no backend.
+  - [x] Filtros `q`, `status`, paginação.
+  - _(Métricas de sessão/review ficam zeradas até M8/M13; `testsTotal`/`testsActive` já leem a tabela `tests`.)_
 
 ### ORB-M3-02 · Upload de assets do jogo (`game_assets`)
 
 - **Labels:** backend, api, infra, studio · **Estimativa:** G · **Depende de:** —
 - **Contexto:** tabela `game_assets` existe **sem uso**; fluxo é trabalho novo de ponta a ponta.
 - **Escopo:**
-  - [ ] `POST /games/{id}/assets/upload-url` — valida `contentType`/`sizeBytes`, devolve URL assinada (sem proxy de binário).
-  - [ ] `POST /games/{id}/assets` — confirma objeto no storage antes de gravar a linha.
-  - [ ] `DELETE /games/{id}/assets/{assetId}`.
+  - [x] `POST /games/{id}/assets/upload-url` — valida `contentType`/`sizeBytes`, devolve URL assinada (sem proxy de binário).
+  - [x] `POST /games/{id}/assets` — confirma objeto no storage antes de gravar a linha.
+  - [x] `DELETE /games/{id}/assets/{assetId}`.
 
 ### ORB-M3-03 · Telas de leitura do jogo
 
