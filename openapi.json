@@ -382,28 +382,6 @@
               "minLength": 1,
               "type": "string"
             }
-          },
-          {
-            "name": "q",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "maxLength": 200,
-              "type": "string"
-            }
-          },
-          {
-            "name": "status",
-            "required": false,
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "draft",
-                "active",
-                "archived"
-              ]
-            }
           }
         ],
         "responses": {
@@ -566,9 +544,9 @@
         ]
       }
     },
-    "/games/{id}/assets/upload-url": {
+    "/sessions/{id}/recordings/upload-url": {
       "post": {
-        "operationId": "GamesController_createAssetUploadUrl",
+        "operationId": "MediaController_createUploadUrl",
         "parameters": [
           {
             "name": "id",
@@ -584,7 +562,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/AssetUploadUrlRequestDto"
+                "$ref": "#/components/schemas/RecordingUploadUrlRequestDto"
               }
             }
           }
@@ -607,13 +585,13 @@
           }
         ],
         "tags": [
-          "games"
+          "media"
         ]
       }
     },
-    "/games/{id}/assets": {
+    "/sessions/{id}/recordings/complete": {
       "post": {
-        "operationId": "GamesController_confirmAsset",
+        "operationId": "MediaController_complete",
         "parameters": [
           {
             "name": "id",
@@ -629,18 +607,18 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ConfirmAssetRequestDto"
+                "$ref": "#/components/schemas/RecordingCompleteRequestDto"
               }
             }
           }
         },
         "responses": {
-          "201": {
+          "202": {
             "description": "",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GameAssetDto_Output"
+                  "$ref": "#/components/schemas/RecordingDto_Output"
                 }
               }
             }
@@ -652,13 +630,13 @@
           }
         ],
         "tags": [
-          "games"
+          "media"
         ]
       }
     },
-    "/games/{id}/assets/{assetId}": {
-      "delete": {
-        "operationId": "GamesController_removeAsset",
+    "/sessions/{id}/recordings/{recordingId}/playback-url": {
+      "get": {
+        "operationId": "MediaController_playbackUrl",
         "parameters": [
           {
             "name": "id",
@@ -669,7 +647,7 @@
             }
           },
           {
-            "name": "assetId",
+            "name": "recordingId",
             "required": true,
             "in": "path",
             "schema": {
@@ -678,8 +656,15 @@
           }
         ],
         "responses": {
-          "204": {
-            "description": ""
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackUrlResponseDto_Output"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -688,7 +673,7 @@
           }
         ],
         "tags": [
-          "games"
+          "media"
         ]
       }
     }
@@ -1133,57 +1118,6 @@
                     "archived"
                   ]
                 },
-                "coverUrl": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "bannerUrl": {
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "metrics": {
-                  "type": "object",
-                  "properties": {
-                    "testsTotal": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "testsActive": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "sessionsValid": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "playersTotal": {
-                      "type": "integer",
-                      "minimum": -9007199254740991,
-                      "maximum": 9007199254740991
-                    },
-                    "averageRating": {
-                      "type": [
-                        "number",
-                        "null"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "testsTotal",
-                    "testsActive",
-                    "sessionsValid",
-                    "playersTotal",
-                    "averageRating"
-                  ],
-                  "additionalProperties": false
-                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -1200,9 +1134,6 @@
                 "genre",
                 "platform",
                 "status",
-                "coverUrl",
-                "bannerUrl",
-                "metrics",
                 "createdAt",
                 "updatedAt"
               ],
@@ -1263,57 +1194,6 @@
               "archived"
             ]
           },
-          "coverUrl": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "bannerUrl": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "metrics": {
-            "type": "object",
-            "properties": {
-              "testsTotal": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "testsActive": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "sessionsValid": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "playersTotal": {
-                "type": "integer",
-                "minimum": -9007199254740991,
-                "maximum": 9007199254740991
-              },
-              "averageRating": {
-                "type": [
-                  "number",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "testsTotal",
-              "testsActive",
-              "sessionsValid",
-              "playersTotal",
-              "averageRating"
-            ],
-            "additionalProperties": false
-          },
           "createdAt": {
             "type": "string"
           },
@@ -1330,9 +1210,6 @@
           "genre",
           "platform",
           "status",
-          "coverUrl",
-          "bannerUrl",
-          "metrics",
           "createdAt",
           "updatedAt"
         ],
@@ -1413,41 +1290,46 @@
           }
         }
       },
-      "AssetUploadUrlRequestDto": {
+      "RecordingUploadUrlRequestDto": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "cover",
-              "banner",
-              "screenshot"
-            ]
-          },
           "contentType": {
             "type": "string",
             "enum": [
-              "image/png",
-              "image/jpeg",
-              "image/webp"
+              "video/webm",
+              "video/mp4",
+              "audio/webm",
+              "audio/ogg",
+              "audio/mp4"
             ]
           },
           "sizeBytes": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 5242880
+            "maximum": 2147483648
           },
-          "fileName": {
+          "partNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
             "type": "string",
             "minLength": 1,
-            "maxLength": 255
+            "maxLength": 500
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "screen_recording",
+              "webcam",
+              "microphone"
+            ]
           }
         },
         "required": [
-          "kind",
           "contentType",
-          "sizeBytes",
-          "fileName"
+          "sizeBytes"
         ]
       },
       "UploadUrlResponseDto_Output": {
@@ -1466,62 +1348,88 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string"
           }
         },
         "required": [
           "uploadUrl",
           "storageKey",
-          "expiresAt",
-          "maxSizeBytes"
+          "expiresAt"
         ],
         "additionalProperties": false
       },
-      "ConfirmAssetRequestDto": {
+      "RecordingCompleteRequestDto": {
         "type": "object",
         "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "cover",
-              "banner",
-              "screenshot"
-            ]
-          },
           "storageKey": {
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partNumber": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "partNumber",
+                "etag"
+              ]
+            }
           }
         },
         "required": [
-          "kind",
-          "storageKey"
+          "storageKey",
+          "durationMs"
         ]
       },
-      "GameAssetDto_Output": {
+      "RecordingDto_Output": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string"
           },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "cover",
-              "banner",
-              "screenshot"
-            ]
-          },
-          "url": {
+          "sessionId": {
             "type": "string"
           },
-          "contentType": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "unavailable"
+            ]
           },
-          "sizeBytes": {
+          "durationMs": {
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991,
@@ -1533,11 +1441,56 @@
         },
         "required": [
           "id",
-          "kind",
-          "url",
-          "contentType",
-          "sizeBytes",
+          "sessionId",
+          "status",
+          "durationMs",
           "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "PlaybackUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "unavailable"
+            ]
+          },
+          "url": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "thumbnailUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "url",
+          "expiresAt",
+          "durationMs",
+          "thumbnailUrl"
         ],
         "additionalProperties": false
       }

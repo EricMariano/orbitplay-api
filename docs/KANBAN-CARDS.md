@@ -249,12 +249,19 @@
 ### ORB-M9-01 · Schema `session_recordings`
 
 - **Labels:** backend, db · **Estimativa:** P · **Depende de:** M8-01
-- **Escopo:** tabela + enum `recording_kind`.
+- **Escopo:**
+  - [x] Tabela + enums `recording_kind` (`screen | webcam | microphone`) e `processing_status`.
+  - [x] OpenAPI (`screen_recording | audio | microphone | webcam`) mapeado na API — sem terceiro enum. `audio` é consentimento/sidecar, não `kind`.
+  - [x] Comentário no schema: gravação ausente não derruba a sessão (Tela 12 RN-03).
+  - [x] Índice em `session_id`; FK `ON DELETE CASCADE`.
 
 ### ORB-M9-02 · Upload multipart + processamento
 
 - **Labels:** backend, api, infra · **Estimativa:** G · **Depende de:** M9-01
-- **Escopo:** `POST /sessions/{id}/recordings/upload-url` (multipart por `partNumber`); `POST .../complete` (enfileira `media.transcode` + `media.extract-audio`); `GET .../playback-url` (ausente/processando não é erro: `status` + `url:null`).
+- **Escopo:**
+  - [x] `POST /sessions/{id}/recordings/upload-url` (multipart por `partNumber`).
+  - [x] `POST .../complete` (enfileira `media.transcode` + `media.extract-audio`).
+  - [x] `GET .../playback-url` (ausente/processando não é erro: `status` + `url:null`).
 
 ---
 

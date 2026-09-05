@@ -103,19 +103,29 @@ export const sessionDeviceEvents = pgTable(
   (t) => [index('session_device_events_idx').on(t.sessionId, t.tMs)],
 );
 
-export const sessionRecordings = pgTable('session_recordings', {
-  id: primaryId(),
-  sessionId: uuid('session_id')
-    .notNull()
-    .references(() => sessions.id, { onDelete: 'cascade' }),
-  kind: recordingKindEnum('kind').notNull(),
-  storageKey: text('storage_key').notNull(),
-  contentType: text('content_type'),
-  sizeBytes: bigint('size_bytes', { mode: 'number' }),
-  durationMs: integer('duration_ms'),
-  status: processingStatusEnum('status').notNull().default('processing'),
-  thumbnailKey: text('thumbnail_key'),
-});
+/**
+ * One media object belonging to a session. Missing / failed / still-processing
+ * recordings do NOT take the rest of the session down (Tela 12 RN-03) — the
+ * status lives on this row, never on `sessions`. `t_ms` is not a column here;
+ * the temporal anchor stays on `session_device_events` (M8).
+ */
+export const sessionRecordings = pgTable(
+  'session_recordings',
+  {
+    id: primaryId(),
+    sessionId: uuid('session_id')
+      .notNull()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    kind: recordingKindEnum('kind').notNull(),
+    storageKey: text('storage_key').notNull(),
+    contentType: text('content_type'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    durationMs: integer('duration_ms'),
+    status: processingStatusEnum('status').notNull().default('processing'),
+    thumbnailKey: text('thumbnail_key'),
+  },
+  (t) => [index('session_recordings_session_idx').on(t.sessionId)],
+);
 
 /**
  * Trigger for XP, achievement and reward. Own table (not a field on sessions)
@@ -165,6 +175,7 @@ export type SessionRow = typeof sessions.$inferSelect;
 export type NewSessionRow = typeof sessions.$inferInsert;
 export type SessionDeviceEventRow = typeof sessionDeviceEvents.$inferSelect;
 export type SessionRecordingRow = typeof sessionRecordings.$inferSelect;
+export type NewSessionRecordingRow = typeof sessionRecordings.$inferInsert;
 export type SessionValidationRow = typeof sessionValidations.$inferSelect;
 export type FormResponseRow = typeof formResponses.$inferSelect;
 export type FormAnswerRow = typeof formAnswers.$inferSelect;

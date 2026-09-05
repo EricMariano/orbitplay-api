@@ -1,15 +1,24 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  AbortMultipartUploadCommand,
+  CompleteMultipartUploadCommand,
+  CopyObjectCommand,
+  CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
+  UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import type { StorageObjectMeta, StoragePort } from '../../shared/ports/storage.port';
+import type {
+  MultipartPart,
+  StorageObjectMeta,
+  StoragePort,
+} from '../../shared/ports/storage.port';
 
 /**
  * MinIO storage adapter — the StoragePort implementation used in ALL
@@ -50,6 +59,79 @@ export class MinioStorageAdapter implements StoragePort {
     return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
   }
 
+  async createMultipartUpload(key: string, contentType: string): Promise<string> {
+    const out = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        ContentType: contentType,
+      }),
+    );
+    if (!out.UploadId) {
+      throw new Error(`MinIO did not return UploadId for key ${key}`);
+    }
+    return out.UploadId;
+  }
+
+  async createUploadPartUrl(
+    key: string,
+    uploadId: string,
+    partNumber: number,
+    expiresInSeconds = 900,
+  ): Promise<string> {
+    const command = new UploadPartCommand({
+      Bucket: this.bucket,
+      Key: key,
+      UploadId: uploadId,
+      PartNumber: partNumber,
+    });
+    return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
+  }
+
+  async completeMultipartUpload(
+    key: string,
+    uploadId: string,
+    parts: MultipartPart[],
+  ): Promise<void> {
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: key,
+        UploadId: uploadId,
+        MultipartUpload: {
+          Parts: parts
+            .slice()
+            .sort((a, b) => a.partNumber - b.partNumber)
+            .map((p) => ({ ETag: normalizeEtag(p.etag), PartNumber: p.partNumber })),
+        },
+      }),
+    );
+  }
+
+  async abortMultipartUpload(key: string, uploadId: string): Promise<void> {
+    try {
+      await this.client.send(
+        new AbortMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: key,
+          UploadId: uploadId,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(`abortMultipartUpload failed for ${key}: ${String(err)}`);
+    }
+  }
+
+  async copyObject(sourceKey: string, destKey: string): Promise<void> {
+    await this.client.send(
+      new CopyObjectCommand({
+        Bucket: this.bucket,
+        Key: destKey,
+        CopySource: `${this.bucket}/${encodeURIComponent(sourceKey).replace(/%2F/g, '/')}`,
+      }),
+    );
+  }
+
   async exists(key: string): Promise<boolean> {
     return (await this.stat(key)) !== null;
   }
@@ -73,4 +155,9 @@ export class MinioStorageAdapter implements StoragePort {
   async healthCheck(): Promise<void> {
     await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
   }
+}
+
+function normalizeEtag(etag: string): string {
+  const trimmed = etag.trim();
+  return trimmed.startsWith('"') ? trimmed : `"${trimmed}"`;
 }

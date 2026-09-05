@@ -80,16 +80,23 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `GET /health`       | ✅     | checa Postgres, Redis, storage    |
 | `GET /health/ready` | ⬜     | readiness incluindo fila (BullMQ) |
 
-### M4–M14 — **totalmente a fazer** (só no design)
+### M9 — Media (`src/modules/media`)
 
-Nenhum endpoint destes módulos está implementado:
+| Endpoint                                                   | Status | Observação                                                                 |
+| ---------------------------------------------------------- | ------ | -------------------------------------------------------------------------- |
+| `POST /sessions/{id}/recordings/upload-url`                | ✅     | multipart; papel `player`; URL assinada (sem proxy de binário)             |
+| `POST /sessions/{id}/recordings/complete`                  | ✅     | confirma objeto, `status: processing`, enfileira transcode + extract-audio |
+| `GET /sessions/{id}/recordings/{recordingId}/playback-url` | ✅     | `url: null` enquanto `processing`/`failed`/`unavailable` (Tela 12 RN-03)   |
+
+### M4–M14 — **a fazer** (só no design, exceto M9)
+
+Nenhum endpoint destes módulos está implementado (M9 acima já saiu desta lista):
 
 - **M4 test-models:** `GET /test-models`, `GET /test-models/{key}`
 - **M5 tests (wizard):** `POST /games/{gameId}/tests`, `GET /tests/{id}`, `PATCH /tests/{id}/model`, `PUT /tests/{id}/form`, `GET /tests/{id}/form/preview`, `POST /tests/{id}/build/upload-url`, `POST|GET|DELETE /tests/{id}/build`, `PATCH /tests/{id}/audience`, `POST /tests/{id}/publish`, `PATCH /tests/{id}/status`
 - **M6 builds:** `GET /builds/{id}`, `GET /builds/{id}/compatibility`, `GET /builds/{id}/download-url`
 - **M7 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
 - **M8 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
-- **M9 media:** `POST /sessions/{id}/recordings/upload-url`, `POST /sessions/{id}/recordings/complete`, `GET /sessions/{id}/recordings/{recordingId}/playback-url`
 - **M10 reports:** `GET /tests/{id}/report`, `.../report/evolution`, `.../report/ratings`, `.../report/testers`, `GET /tests/{id}/sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/rate`, `GET /tests/{id}/report/export`
 - **M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`
 - **M12 gamification:** `GET /player/progress`, `GET /player/achievements`, `GET /player/missions`, `GET /rankings`
@@ -100,26 +107,27 @@ Nenhum endpoint destes módulos está implementado:
 
 ## 3. Banco de dados — tabelas
 
-### ✅ Já migradas (`drizzle/0000` + `0001` + schema Drizzle)
+### ✅ Já migradas (`drizzle/0000` + `0001` + `0002` + `0003` + schema Drizzle)
 
-`users`, `organizations`, `roles`, `memberships`, `refresh_tokens`, `password_reset_tokens`, `games`, `game_assets`, `audit_log` — mais as tabelas **congeladas/dormentes** do plug-in/telemetria: `plugin_manifests`, `trigger_definitions`, `session_tokens`, `heatmap_cells`, e `telemetry_events` (particionada por dia, migração **manual** em `drizzle/manual/`).
+`users`, `organizations`, `roles`, `memberships`, `refresh_tokens`, `password_reset_tokens`, `games`, `game_assets`, `audit_log`, `session_recordings` — mais as tabelas **congeladas/dormentes** do plug-in/telemetria: `plugin_manifests`, `trigger_definitions`, `session_tokens`, `heatmap_cells`, e `telemetry_events` (particionada por dia, migração **manual** em `drizzle/manual/`). A tabela `session_recordings` e os enums `recording_kind` / `processing_status` saíram em `0002`; `0003` adiciona o índice em `session_id`.
 
-Enums criados: `game_status`, `membership_status`, `trigger_type`.
+Enums criados: `game_status`, `membership_status`, `trigger_type`, `recording_kind`, `processing_status`.
 
 Ressalvas sobre o que existe mas não é usado de ponta a ponta:
 
 - **`game_assets`** — tabela criada e consumida pelo fluxo de upload de capa/banner/screenshot.
 - **`audit_log`** — existe e é escrita, mas **não há endpoint** que a exponha (`GET /audit-logs` é ⬜).
 - **`plugin_manifests.build_id`** — hoje é `uuid` **sem FK**, porque `builds` ainda não existe (dívida a quitar quando `builds` for criada).
+- **`session_recordings`** — consumida pelo fluxo de upload/playback do M9. Gravação ausente **não** derruba a sessão (Tela 12 RN-03).
 
 ### ⬜ A criar (estão no `schema.dbdiagram.sql`, faltam no banco)
 
 **Jogo/teste/build:** `tests`, `test_audience_criteria`, `test_form_questions`, `test_form_options`, `builds`, `build_validation_steps`
-**Participação/sessão:** `participations`, `session_consents`, `sessions`, `session_device_events`, `session_recordings`, `session_validations`, `form_responses`, `form_answers`
+**Participação/sessão:** `participations`, `session_consents`, `sessions`, `session_device_events`, `session_validations`, `form_responses`, `form_answers`
 **Feed/gamificação:** `player_preferences`, `feed_ranking_snapshots`, `xp_events`, `achievements`, `player_achievements`, `missions`, `player_missions`, `ranking_snapshots`
 **Relatórios/comunidade/infra:** `test_report_snapshots`, `game_reviews`, `community_posts`, `community_reports`, `notifications`, `idempotency_keys`
 
-Enums a criar: `test_status`, `wizard_step`, `test_model_key`, `question_type`, `build_status`, `build_step_key`, `processing_status`, `participation_status`, `session_status`, `recording_kind`, `asset_kind`, `post_status`, `report_stage`.
+Enums a criar: `test_status`, `wizard_step`, `test_model_key`, `question_type`, `build_status`, `build_step_key`, `participation_status`, `session_status`, `asset_kind`, `post_status`, `report_stage`.
 
 ---
 
