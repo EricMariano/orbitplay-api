@@ -8,7 +8,6 @@ export interface MultipartPart {
   partNumber: number;
   etag: string;
 }
-
 /**
  * Object storage capability. Implemented by the MinIO adapter in every
  * environment (MinIO speaks the S3 protocol — it is not an AWS coupling).
