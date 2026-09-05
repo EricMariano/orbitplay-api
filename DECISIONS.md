@@ -120,3 +120,28 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
 - **Login de tempo comparável.** Usuário inexistente também paga um
   `argon2.verify` contra um hash dummy, para não vazar existência de conta por
   tempo de resposta.
+- **Gestão de membros é owner-only — premissa.** A RN-01 da Tela 20 permite
+  "Admin com permissão específica", mas o projeto não tem permissões por
+  usuário: `roles` guarda apenas `key`/`label`, e o `RolesGuard` só compara o
+  papel do token. Como a condição não é construível, `PATCH
+/orgs/members/{userId}/role` exige `owner`. Abrir para `admin` depois é
+  aditivo (uma linha de decorator); fechar depois tiraria acesso já concedido.
+  Revisar se o produto definir permissões por usuário.
+- **Só um owner concede `owner`.** Vale no convite (`POST
+/orgs/members/invite`, onde `admin` pode convidar mas não como owner) e deve
+  valer em qualquer rota futura que atribua papel. Sem isso um admin convida um
+  endereço próprio como owner, ou promove alguém que convidou, e assume a
+  organização.
+- **`organizations.owner_user_id` não é atualizado na troca de papel —
+  pendente.** Há duas fontes possíveis para "quem é o dono": essa coluna
+  (singular, `NOT NULL`) e as memberships com papel `owner` (várias). A RN-03
+  fala em "último Owner ativo", o que pressupõe várias, então a regra do último
+  owner conta memberships `active`. A coluna hoje é **apenas escrita, nunca
+  lida** (signup, seed e fixtures), então a divergência é inerte. Falta decidir
+  se ela é o dono canônico ou o registro de quem criou a organização — a
+  segunda leitura é a que combina com as regras, e tornaria o nome
+  `created_by_user_id` mais honesto.
+- **Membership `invited` não conta como owner ativo.** "Último Owner **ativo**"
+  é `status = 'active'`: um owner convidado ainda não consegue entrar
+  (`findActiveMembership` exige `active`), então contá-lo permitiria rebaixar o
+  único owner real e deixar a organização sem ninguém que possa agir.
