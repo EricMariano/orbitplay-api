@@ -440,7 +440,15 @@ paths:
         RN-03: rebaixar o **último Owner ativo** é recusado com `409`.
 
         RN-05: gera registro em `audit_log` com autor, data e ação.
-      x-status: todo
+
+        Papel exigido: `owner`. A RN-01 admite "Admin com permissão
+        específica", mas permissões por usuário não existem no projeto —
+        ver DECISIONS.md §3.
+
+        O `409` de conflito de edição concorrente **não** está implementado:
+        `ChangeRoleRequest` não carrega versão nem `updatedAt`, então não há
+        o que comparar. Vale também para `ChangeStatusRequest`.
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:

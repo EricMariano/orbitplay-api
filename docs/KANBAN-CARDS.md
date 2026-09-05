@@ -76,7 +76,12 @@
 ### ORB-M2-04 · `PATCH /orgs/members/{userId}/role`
 
 - **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M2-06
-- **Escopo:** exige `confirm:true` (RN-02); rebaixar **último owner ativo** → `409` (RN-03); grava `audit_log` (RN-05).
+- **Escopo:**
+  - [x] Exige `confirm:true` (RN-02) — literal, `false` é `422`.
+  - [x] Rebaixar **último owner ativo** → `409` (RN-03); contagem e escrita na mesma transação, com as memberships de owner travadas.
+  - [x] Grava `audit_log` com o papel anterior e o novo (RN-05).
+  - [x] Owner-only (RN-01) — permissões por usuário não existem; ver DECISIONS.md §3.
+  - [ ] `409` de conflito de edição concorrente — `ChangeRoleRequest` não tem versão; pendente de mudança de contrato.
 
 ### ORB-M2-05 · `PATCH /orgs/members/{userId}/status`, `DELETE /orgs/members/{userId}`, `POST .../password-reset`
 
