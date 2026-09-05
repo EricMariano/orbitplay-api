@@ -1,0 +1,1 @@
+CREATE INDEX "session_recordings_session_idx" ON "session_recordings" USING btree ("session_id");

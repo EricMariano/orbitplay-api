@@ -543,6 +543,139 @@
           "games"
         ]
       }
+    },
+    "/sessions/{id}/recordings/upload-url": {
+      "post": {
+        "operationId": "MediaController_createUploadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingUploadUrlRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/sessions/{id}/recordings/complete": {
+      "post": {
+        "operationId": "MediaController_complete",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecordingCompleteRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecordingDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "media"
+        ]
+      }
+    },
+    "/sessions/{id}/recordings/{recordingId}/playback-url": {
+      "get": {
+        "operationId": "MediaController_playbackUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recordingId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlaybackUrlResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "media"
+        ]
+      }
     }
   },
   "info": {
@@ -1156,6 +1289,210 @@
             ]
           }
         }
+      },
+      "RecordingUploadUrlRequestDto": {
+        "type": "object",
+        "properties": {
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "video/webm",
+              "video/mp4",
+              "audio/webm",
+              "audio/ogg",
+              "audio/mp4"
+            ]
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483648
+          },
+          "partNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "screen_recording",
+              "webcam",
+              "microphone"
+            ]
+          }
+        },
+        "required": [
+          "contentType",
+          "sizeBytes"
+        ]
+      },
+      "UploadUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "maxSizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadUrl",
+          "storageKey",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "RecordingCompleteRequestDto": {
+        "type": "object",
+        "properties": {
+          "storageKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "partNumber": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "etag": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                }
+              },
+              "required": [
+                "partNumber",
+                "etag"
+              ]
+            }
+          }
+        },
+        "required": [
+          "storageKey",
+          "durationMs"
+        ]
+      },
+      "RecordingDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "unavailable"
+            ]
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "status",
+          "durationMs",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "PlaybackUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "unavailable"
+            ]
+          },
+          "url": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "thumbnailUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "url",
+          "expiresAt",
+          "durationMs",
+          "thumbnailUrl"
+        ],
+        "additionalProperties": false
       }
     }
   }
