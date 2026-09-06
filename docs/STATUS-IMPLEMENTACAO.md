@@ -44,17 +44,17 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 ### M2 — Orgs (`src/modules/orgs` + `src/modules/audit`)
 
-| Endpoint                                     | Status | Observação                                        |
-| -------------------------------------------- | ------ | ------------------------------------------------- |
-| `GET /orgs/current`                          | ✅     |                                                   |
-| `GET /orgs/members`                          | 🟡     | sem paginação nem filtros (`q`, `role`, `status`) |
-| `PATCH /orgs/current`                        | ⬜     |                                                   |
-| `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin        |
-| `PATCH /orgs/members/{userId}/role`          | ⬜     | regra do "último owner" (409), auditoria          |
-| `PATCH /orgs/members/{userId}/status`        | ⬜     |                                                   |
-| `POST /orgs/members/{userId}/password-reset` | ⬜     |                                                   |
-| `DELETE /orgs/members/{userId}`              | ⬜     |                                                   |
-| `GET /audit-logs`                            | ⬜     | tabela existe, **falta expor**                    |
+| Endpoint                                     | Status | Observação                                                 |
+| -------------------------------------------- | ------ | ---------------------------------------------------------- |
+| `GET /orgs/current`                          | ✅     |                                                            |
+| `GET /orgs/members`                          | 🟡     | sem paginação nem filtros (`q`, `role`, `status`)          |
+| `PATCH /orgs/current`                        | ✅     | atualiza `name`/`slug`; owner/admin; 409 no slug duplicado |
+| `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin                 |
+| `PATCH /orgs/members/{userId}/role`          | ⬜     | regra do "último owner" (409), auditoria                   |
+| `PATCH /orgs/members/{userId}/status`        | ⬜     |                                                            |
+| `POST /orgs/members/{userId}/password-reset` | ⬜     |                                                            |
+| `DELETE /orgs/members/{userId}`              | ⬜     |                                                            |
+| `GET /audit-logs`                            | ⬜     | tabela existe, **falta expor**                             |
 
 ### M3 — Games (`src/modules/games`)
 

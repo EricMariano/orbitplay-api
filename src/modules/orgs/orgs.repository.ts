@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
+import { AppException } from '../../shared/errors/app.exception';
 import { newId } from '../../infra/database/schema/_helpers';
 import { memberships } from '../../infra/database/schema/memberships';
 import { organizations, type OrganizationRow } from '../../infra/database/schema/organizations';
@@ -74,6 +75,29 @@ export class OrgsRepository {
       .where(and(eq(organizations.id, organizationId), isNull(organizations.deletedAt)))
       .limit(1);
     return rows[0] ?? null;
+  }
+
+  /** Slug uniqueness check (organizations_slug_unique is global, not per-org). */
+  async findBySlug(slug: string): Promise<OrganizationRow | null> {
+    const rows = await this.db
+      .select()
+      .from(organizations)
+      .where(and(eq(organizations.slug, slug), isNull(organizations.deletedAt)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  async updateById(
+    organizationId: string,
+    patch: Partial<Pick<OrganizationRow, 'name' | 'slug'>>,
+  ): Promise<OrganizationRow> {
+    const rows = await this.db
+      .update(organizations)
+      .set(patch)
+      .where(and(eq(organizations.id, organizationId), isNull(organizations.deletedAt)))
+      .returning();
+    if (rows.length === 0) throw AppException.notFound('Organização não encontrada');
+    return rows[0];
   }
 
   async listMembers(organizationId: string): Promise<MemberRecord[]> {

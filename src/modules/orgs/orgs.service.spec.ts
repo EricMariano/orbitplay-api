@@ -29,6 +29,8 @@ function makeOrg(overrides: Partial<OrganizationRow> = {}): OrganizationRow {
 describe('OrgsService inviteMember', () => {
   let repo: {
     findById: ReturnType<typeof vi.fn>;
+    findBySlug: ReturnType<typeof vi.fn>;
+    updateById: ReturnType<typeof vi.fn>;
     listMembers: ReturnType<typeof vi.fn>;
     findRoleIdByKey: ReturnType<typeof vi.fn>;
     createInvitedMember: ReturnType<typeof vi.fn>;
@@ -42,6 +44,12 @@ describe('OrgsService inviteMember', () => {
   beforeEach(() => {
     repo = {
       findById: vi.fn().mockResolvedValue(makeOrg()),
+      findBySlug: vi.fn().mockResolvedValue(null),
+      updateById: vi
+        .fn()
+        .mockImplementation((_organizationId: string, patch: Record<string, unknown>) =>
+          Promise.resolve(makeOrg(patch)),
+        ),
       listMembers: vi.fn(),
       findRoleIdByKey: vi.fn(),
       createInvitedMember: vi.fn().mockImplementation((input: Record<string, unknown>) =>
@@ -189,5 +197,60 @@ describe('OrgsService inviteMember', () => {
       service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req),
     ).rejects.toMatchObject({ status: 404 });
     expect(repo.createInvitedMember).not.toHaveBeenCalled();
+  });
+
+  describe('updateCurrent (ORB-M2-02)', () => {
+    it('updates the org name', async () => {
+      const view = await service.updateCurrent(ORG, { name: 'Novo Nome' }, req);
+
+      expect(view.name).toBe('Novo Nome');
+      expect(repo.updateById).toHaveBeenCalledWith(ORG, { name: 'Novo Nome' });
+    });
+
+    it('updates the slug after checking uniqueness', async () => {
+      const view = await service.updateCurrent(ORG, { slug: 'novo-slug' }, req);
+
+      expect(view.slug).toBe('novo-slug');
+      expect(repo.findBySlug).toHaveBeenCalledWith('novo-slug');
+      expect(repo.updateById).toHaveBeenCalledWith(ORG, { slug: 'novo-slug' });
+    });
+
+    it('skips the uniqueness check when the slug is unchanged', async () => {
+      await service.updateCurrent(ORG, { slug: 'orbitplay-studio-demo' }, req);
+
+      expect(repo.findBySlug).not.toHaveBeenCalled();
+    });
+
+    it('409s when another organization already owns the slug', async () => {
+      repo.findBySlug.mockResolvedValue(makeOrg({ id: 'outra-org', slug: 'ocupado' }));
+
+      await expect(service.updateCurrent(ORG, { slug: 'ocupado' }, req)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(repo.updateById).not.toHaveBeenCalled();
+    });
+
+    it('404s when the organization does not exist', async () => {
+      repo.findById.mockResolvedValue(null);
+
+      await expect(service.updateCurrent(ORG, { name: 'X' }, req)).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(repo.updateById).not.toHaveBeenCalled();
+    });
+
+    it('records an org.updated audit intent with before/after', async () => {
+      await service.updateCurrent(ORG, { name: 'Novo Nome' }, req);
+
+      const drafts = drainAuditDrafts(req);
+      expect(drafts).toHaveLength(1);
+      expect(drafts[0]).toMatchObject({
+        action: 'org.updated',
+        entity: 'organizations',
+        entityId: ORG,
+        before: { name: 'OrbitPlay Studio Demo' },
+        after: { name: 'Novo Nome' },
+      });
+    });
   });
 });

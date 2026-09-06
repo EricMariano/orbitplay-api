@@ -295,6 +295,40 @@
         "tags": [
           "orgs"
         ]
+      },
+      "patch": {
+        "operationId": "OrgsController_updateCurrent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateOrgDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrgDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orgs"
+        ]
       }
     },
     "/orgs/members": {
@@ -381,6 +415,28 @@
             "schema": {
               "minLength": 1,
               "type": "string"
+            }
+          },
+          {
+            "name": "q",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 200,
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "draft",
+                "active",
+                "archived"
+              ]
             }
           }
         ],
@@ -522,6 +578,132 @@
         "parameters": [
           {
             "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "games"
+        ]
+      }
+    },
+    "/games/{id}/assets/upload-url": {
+      "post": {
+        "operationId": "GamesController_createAssetUploadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetUploadUrlRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "games"
+        ]
+      }
+    },
+    "/games/{id}/assets": {
+      "post": {
+        "operationId": "GamesController_confirmAsset",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmAssetRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GameAssetDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "games"
+        ]
+      }
+    },
+    "/games/{id}/assets/{assetId}": {
+      "delete": {
+        "operationId": "GamesController_removeAsset",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "assetId",
             "required": true,
             "in": "path",
             "schema": {
@@ -953,6 +1135,22 @@
         ],
         "additionalProperties": false
       },
+      "UpdateOrgDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+          }
+        }
+      },
       "MemberListDto_Output": {
         "type": "object",
         "properties": {
@@ -1118,6 +1316,57 @@
                     "archived"
                   ]
                 },
+                "coverUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "bannerUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "metrics": {
+                  "type": "object",
+                  "properties": {
+                    "testsTotal": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "testsActive": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "sessionsValid": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "playersTotal": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "averageRating": {
+                      "type": [
+                        "number",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "testsTotal",
+                    "testsActive",
+                    "sessionsValid",
+                    "playersTotal",
+                    "averageRating"
+                  ],
+                  "additionalProperties": false
+                },
                 "createdAt": {
                   "type": "string"
                 },
@@ -1134,6 +1383,9 @@
                 "genre",
                 "platform",
                 "status",
+                "coverUrl",
+                "bannerUrl",
+                "metrics",
                 "createdAt",
                 "updatedAt"
               ],
@@ -1194,6 +1446,57 @@
               "archived"
             ]
           },
+          "coverUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "bannerUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "properties": {
+              "testsTotal": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "testsActive": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "sessionsValid": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "playersTotal": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "averageRating": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "testsTotal",
+              "testsActive",
+              "sessionsValid",
+              "playersTotal",
+              "averageRating"
+            ],
+            "additionalProperties": false
+          },
           "createdAt": {
             "type": "string"
           },
@@ -1210,6 +1513,9 @@
           "genre",
           "platform",
           "status",
+          "coverUrl",
+          "bannerUrl",
+          "metrics",
           "createdAt",
           "updatedAt"
         ],
@@ -1290,6 +1596,136 @@
           }
         }
       },
+      "AssetUploadUrlRequestDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "banner",
+              "screenshot"
+            ]
+          },
+          "contentType": {
+            "type": "string",
+            "enum": [
+              "image/png",
+              "image/jpeg",
+              "image/webp"
+            ]
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5242880
+          },
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          }
+        },
+        "required": [
+          "kind",
+          "contentType",
+          "sizeBytes",
+          "fileName"
+        ]
+      },
+      "UploadUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "maxSizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadUrl",
+          "storageKey",
+          "expiresAt"
+        ],
+        "additionalProperties": false
+      },
+      "ConfirmAssetRequestDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "banner",
+              "screenshot"
+            ]
+          },
+          "storageKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "kind",
+          "storageKey"
+        ]
+      },
+      "GameAssetDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "cover",
+              "banner",
+              "screenshot"
+            ]
+          },
+          "url": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "url",
+          "contentType",
+          "sizeBytes",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
       "RecordingUploadUrlRequestDto": {
         "type": "object",
         "properties": {
@@ -1331,34 +1767,6 @@
           "contentType",
           "sizeBytes"
         ]
-      },
-      "UploadUrlResponseDto_Output": {
-        "type": "object",
-        "properties": {
-          "uploadUrl": {
-            "type": "string"
-          },
-          "storageKey": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string"
-          },
-          "maxSizeBytes": {
-            "type": "integer",
-            "minimum": -9007199254740991,
-            "maximum": 9007199254740991
-          },
-          "uploadId": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "uploadUrl",
-          "storageKey",
-          "expiresAt"
-        ],
-        "additionalProperties": false
       },
       "RecordingCompleteRequestDto": {
         "type": "object",

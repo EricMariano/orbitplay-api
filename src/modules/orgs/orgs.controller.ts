@@ -1,11 +1,11 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, HttpStatus, Patch, Post, Req } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { Role, STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
-import { InviteMemberDto, MemberDto, MemberListDto, OrgDto } from './dto/org.dto';
+import { InviteMemberDto, MemberDto, MemberListDto, OrgDto, UpdateOrgDto } from './dto/org.dto';
 import { OrgsService } from './orgs.service';
 
 @ApiTags('orgs')
@@ -18,6 +18,18 @@ export class OrgsController {
   @ZodResponse({ type: OrgDto })
   current(@CurrentUser('organizationId') organizationId: string) {
     return this.orgs.getCurrent(organizationId);
+  }
+
+  /** ORB-M2-02 (Tela 20): only owner/admin update the org's own data. */
+  @Patch('current')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ZodResponse({ type: OrgDto })
+  updateCurrent(
+    @CurrentUser('organizationId') organizationId: string,
+    @Body() dto: UpdateOrgDto,
+    @Req() req: Request,
+  ) {
+    return this.orgs.updateCurrent(organizationId, dto, req);
   }
 
   @Get('members')

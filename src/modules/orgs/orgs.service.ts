@@ -7,7 +7,8 @@ import { AppException } from '../../shared/errors/app.exception';
 import { NOTIFICATION_PORT, type NotificationPort } from '../../shared/ports/notification.port';
 import { Role, type RoleValue } from '../../shared/auth/roles';
 import { PasswordService } from '../auth/password.service';
-import type { InviteMemberInput, MemberView, OrgView } from './dto/org.dto';
+import type { OrganizationRow } from '../../infra/database/schema/organizations';
+import type { InviteMemberInput, MemberView, OrgView, UpdateOrgInput } from './dto/org.dto';
 import { MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
 
 @Injectable()
@@ -22,12 +23,38 @@ export class OrgsService {
   async getCurrent(organizationId: string): Promise<OrgView> {
     const org = await this.repo.findById(organizationId);
     if (!org) throw AppException.notFound('Organização não encontrada');
-    return {
-      id: org.id,
-      name: org.name,
-      slug: org.slug,
-      createdAt: org.createdAt.toISOString(),
-    };
+    return toOrgView(org);
+  }
+
+  /** ORB-M2-02 (Tela 20): owner/admin update the org's own name/slug. */
+  async updateCurrent(organizationId: string, dto: UpdateOrgInput, req: Request): Promise<OrgView> {
+    const before = await this.repo.findById(organizationId);
+    if (!before) throw AppException.notFound('Organização não encontrada');
+
+    if (dto.slug && dto.slug !== before.slug) {
+      const clash = await this.repo.findBySlug(dto.slug);
+      if (clash && clash.id !== organizationId) {
+        throw AppException.conflict(`Já existe uma organização com o slug "${dto.slug}"`);
+      }
+    }
+
+    const updated = await this.repo.updateById(organizationId, {
+      ...(dto.name !== undefined ? { name: dto.name } : {}),
+      ...(dto.slug !== undefined ? { slug: dto.slug } : {}),
+    });
+
+    const beforeView = toOrgView(before);
+    const afterView = toOrgView(updated);
+
+    recordAudit(req, {
+      action: 'org.updated',
+      entity: 'organizations',
+      entityId: organizationId,
+      before: beforeView,
+      after: afterView,
+    });
+
+    return afterView;
   }
 
   async listMembers(organizationId: string): Promise<{ data: MemberView[] }> {
@@ -111,4 +138,13 @@ export class OrgsService {
 
     return created;
   }
+}
+
+function toOrgView(org: OrganizationRow): OrgView {
+  return {
+    id: org.id,
+    name: org.name,
+    slug: org.slug,
+    createdAt: org.createdAt.toISOString(),
+  };
 }
