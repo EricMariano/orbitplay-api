@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, isNull, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, isNull, lt, or, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { newId } from '../../infra/database/schema/_helpers';
 import { memberships } from '../../infra/database/schema/memberships';
@@ -7,8 +7,11 @@ import { organizations, type OrganizationRow } from '../../infra/database/schema
 import { roles } from '../../infra/database/schema/roles';
 import { users } from '../../infra/database/schema/users';
 import type { RoleValue } from '../../shared/auth/roles';
+import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
+import type { MemberListQuery } from './dto/org.dto';
 
 export interface MemberRecord {
+  id: string;
   userId: string;
   email: string;
   displayName: string;
@@ -21,7 +24,6 @@ export interface InviteMemberInput {
   email: string;
   displayName: string;
   role: RoleValue;
-  /** Placeholder hash — the invitee sets a real password via recovery (RN-04). */
   passwordHash: string;
 }
 
@@ -33,7 +35,6 @@ export interface InvitedMemberRecord {
   status: 'invited';
 }
 
-/** Thrown when `memberships_org_user_unique` is hit (race-safe invite). */
 export class MemberAlreadyExistsError extends Error {
   constructor() {
     super('Usuário já é membro da organização');
@@ -57,7 +58,6 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
     };
     if (e.code !== '23505') continue;
     if (e.constraint_name === constraint || e.constraint === constraint) return true;
-    // Fallback: postgres message embeds the constraint name in quotes.
     if (typeof e.message === 'string' && e.message.includes(`"${constraint}"`)) return true;
   }
   return false;
@@ -76,9 +76,27 @@ export class OrgsRepository {
     return rows[0] ?? null;
   }
 
-  async listMembers(organizationId: string): Promise<MemberRecord[]> {
-    return this.db
+  /**
+   * Cursor page of members (ORB-22): paginação por cursor (id da membership,
+   * mesma convenção de games/base repository), busca por nome/e-mail (q) e
+   * filtros opcionais por role/status.
+   */
+  async listMembers(organizationId: string, query: MemberListQuery): Promise<Page<MemberRecord>> {
+    const cursorId = decodeCursor(query.cursor);
+    const filters = [eq(memberships.organizationId, organizationId), isNull(memberships.deletedAt)];
+    if (cursorId) filters.push(lt(memberships.id, cursorId));
+    if (query.role) filters.push(eq(roles.key, query.role));
+    if (query.status) filters.push(eq(memberships.status, query.status));
+
+    const term = query.q?.trim();
+    if (term) {
+      const pattern = `%${escapeIlike(term)}%`;
+      filters.push(or(ilike(users.displayName, pattern), ilike(users.email, pattern))!);
+    }
+
+    const rows = await this.db
       .select({
+        id: memberships.id,
         userId: users.id,
         email: users.email,
         displayName: users.displayName,
@@ -88,8 +106,11 @@ export class OrgsRepository {
       .from(memberships)
       .innerJoin(users, eq(memberships.userId, users.id))
       .innerJoin(roles, eq(memberships.roleId, roles.id))
-      .where(and(eq(memberships.organizationId, organizationId), isNull(memberships.deletedAt)))
-      .orderBy(memberships.createdAt);
+      .where(and(...filters))
+      .orderBy(desc(memberships.id))
+      .limit(query.limit + 1);
+
+    return buildPage(rows, query.limit);
   }
 
   async findRoleIdByKey(key: RoleValue): Promise<string | null> {
@@ -119,9 +140,6 @@ export class OrgsRepository {
 
     try {
       return await this.db.transaction(async (tx) => {
-        // Deliberately NOT filtering deleted_at: users_email_unique is a plain
-        // index, so a soft-deleted row still owns the address and inserting a
-        // second one would always collide.
         const existing = await tx
           .select({ id: users.id, displayName: users.displayName })
           .from(users)
@@ -162,12 +180,15 @@ export class OrgsRepository {
       if (isUniqueViolation(err, 'memberships_org_user_unique')) {
         throw new MemberAlreadyExistsError();
       }
-      // A concurrent invite won the user insert between our select and ours;
-      // by the time we retried it would already be a member either way.
       if (isUniqueViolation(err, 'users_email_unique')) {
         throw new MemberAlreadyExistsError();
       }
       throw err;
     }
   }
+}
+
+/** Escape `\`, `%` and `_` so user search cannot broaden an ILIKE pattern. */
+function escapeIlike(value: string): string {
+  return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
 }
