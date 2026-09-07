@@ -38,10 +38,15 @@ export class OrgsService {
       }
     }
 
-    const updated = await this.repo.updateById(organizationId, {
+    const patch = {
       ...(dto.name !== undefined ? { name: dto.name } : {}),
       ...(dto.slug !== undefined ? { slug: dto.slug } : {}),
-    });
+    };
+
+    // Nothing to change (empty body): skip the write, an empty SET clause
+    // would otherwise reach Postgres and fail.
+    const updated =
+      Object.keys(patch).length === 0 ? before : await this.repo.updateById(organizationId, patch);
 
     const beforeView = toOrgView(before);
     const afterView = toOrgView(updated);
