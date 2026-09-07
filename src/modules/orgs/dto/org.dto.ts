@@ -29,11 +29,33 @@ export const inviteMemberSchema = z.object({
   role: z.enum(['owner', 'admin', 'studio', 'player']),
 });
 
+/**
+ * Shared route-param shape for every `/orgs/members/{userId}...` endpoint
+ * (ORB-M2-05). Consolidated once instead of repeating the `userId` field in
+ * each DTO — PATCH .../status and DELETE .../{userId} both extend this.
+ */
+export const memberUserIdParamSchema = z.object({
+  userId: z.string().min(1, 'userId obrigatório'),
+});
+
+/**
+ * Update a member's status (ORB-M2-05, Tela 20). Only `active`/`disabled` are
+ * caller-settable — `invited` is a lifecycle state entered exclusively via
+ * POST /orgs/members/invite, never something to transition back into.
+ */
+export const updateMemberStatusSchema = z.object({
+  status: z.enum(['active', 'disabled']),
+});
+
 export class OrgDto extends createZodDto(orgSchema) {}
 export class MemberDto extends createZodDto(memberSchema) {}
 export class MemberListDto extends createZodDto(memberListSchema) {}
 export class InviteMemberDto extends createZodDto(inviteMemberSchema) {}
+export class MemberUserIdParamDto extends createZodDto(memberUserIdParamSchema) {}
+export class UpdateMemberStatusDto extends createZodDto(updateMemberStatusSchema) {}
 
 export type OrgView = z.infer<typeof orgSchema>;
 export type MemberView = z.infer<typeof memberSchema>;
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
+export type MemberUserIdParam = z.infer<typeof memberUserIdParamSchema>;
+export type UpdateMemberStatusInput = z.infer<typeof updateMemberStatusSchema>;

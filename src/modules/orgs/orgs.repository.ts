@@ -6,7 +6,9 @@ import { memberships } from '../../infra/database/schema/memberships';
 import { organizations, type OrganizationRow } from '../../infra/database/schema/organizations';
 import { roles } from '../../infra/database/schema/roles';
 import { users } from '../../infra/database/schema/users';
-import type { RoleValue } from '../../shared/auth/roles';
+import { AppException } from '../../shared/errors/app.exception';
+import { Role, type RoleValue } from '../../shared/auth/roles';
+import { isUuid } from '../../shared/util/uuid';
 
 export interface MemberRecord {
   userId: string;
@@ -14,6 +16,16 @@ export interface MemberRecord {
   displayName: string;
   role: string;
   status: string;
+}
+
+/** A membership row joined with its role key, scoped to one organization. */
+export interface MembershipDetail {
+  membershipId: string;
+  userId: string;
+  email: string;
+  displayName: string;
+  role: RoleValue;
+  status: 'active' | 'invited' | 'disabled';
 }
 
 export interface InviteMemberInput {
@@ -99,6 +111,95 @@ export class OrgsRepository {
       .where(eq(roles.key, key))
       .limit(1);
     return rows[0]?.id ?? null;
+  }
+
+  /**
+   * Find one member's membership within an organization (ORB-M2-05). Both the
+   * `organizationId` and `userId` filters are always applied together here —
+   * never split across a service-level WHERE — so a `userId` from another
+   * organization simply doesn't match a row (RN-01: 404, never 403).
+   */
+  async findMembershipInOrg(
+    organizationId: string,
+    userId: string,
+  ): Promise<MembershipDetail | null> {
+    if (!isUuid(userId)) return null;
+    const rows = await this.db
+      .select({
+        membershipId: memberships.id,
+        userId: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        role: roles.key,
+        status: memberships.status,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(memberships.userId, users.id))
+      .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.userId, userId),
+          isNull(memberships.deletedAt),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? { ...row, role: row.role as RoleValue } : null;
+  }
+
+  /** Count active owners in the org — used to block leaving it ownerless. */
+  async countActiveOwners(organizationId: string, excludingUserId?: string): Promise<number> {
+    const rows = await this.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(memberships)
+      .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(roles.key, Role.OWNER),
+          eq(memberships.status, 'active'),
+          isNull(memberships.deletedAt),
+          excludingUserId ? sql`${memberships.userId} <> ${excludingUserId}` : undefined,
+        ),
+      );
+    return rows[0]?.count ?? 0;
+  }
+
+  /** Update a membership's status, scoped to the organization (RN-01). */
+  async updateMemberStatusInOrg(
+    organizationId: string,
+    userId: string,
+    status: 'active' | 'disabled',
+  ): Promise<void> {
+    const rows = await this.db
+      .update(memberships)
+      .set({ status })
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.userId, userId),
+          isNull(memberships.deletedAt),
+        ),
+      )
+      .returning({ id: memberships.id });
+    if (rows.length === 0) throw AppException.notFound();
+  }
+
+  /** Soft-delete (revoke) a membership, scoped to the organization (RN-01). */
+  async softDeleteMembershipInOrg(organizationId: string, userId: string): Promise<void> {
+    const rows = await this.db
+      .update(memberships)
+      .set({ deletedAt: new Date() })
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.userId, userId),
+          isNull(memberships.deletedAt),
+        ),
+      )
+      .returning({ id: memberships.id });
+    if (rows.length === 0) throw AppException.notFound();
   }
 
   /**

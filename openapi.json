@@ -359,6 +359,81 @@
         ]
       }
     },
+    "/orgs/members/{userId}/status": {
+      "patch": {
+        "operationId": "OrgsController_updateStatus",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemberStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
+    "/orgs/members/{userId}": {
+      "delete": {
+        "operationId": "OrgsController_remove",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
     "/games": {
       "get": {
         "operationId": "GamesController_list",
@@ -938,6 +1013,21 @@
           "status"
         ],
         "additionalProperties": false
+      },
+      "UpdateMemberStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "GameListDto_Output": {
         "type": "object",

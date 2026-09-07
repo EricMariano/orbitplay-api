@@ -1,11 +1,29 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { Role, STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
-import { InviteMemberDto, MemberDto, MemberListDto, OrgDto } from './dto/org.dto';
+import {
+  InviteMemberDto,
+  MemberDto,
+  MemberListDto,
+  MemberUserIdParamDto,
+  OrgDto,
+  UpdateMemberStatusDto,
+} from './dto/org.dto';
 import { OrgsService } from './orgs.service';
 
 @ApiTags('orgs')
@@ -39,5 +57,32 @@ export class OrgsController {
     @Req() req: Request,
   ) {
     return this.orgs.inviteMember(organizationId, callerRole, dto, req);
+  }
+
+  /** Same area as invite: Owner/Admin manage member status (Tela 20 RN-01). */
+  @Patch('members/:userId/status')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ZodResponse({ type: MemberDto })
+  updateStatus(
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('userId') callerUserId: string,
+    @Param() params: MemberUserIdParamDto,
+    @Body() dto: UpdateMemberStatusDto,
+    @Req() req: Request,
+  ) {
+    return this.orgs.updateMemberStatus(organizationId, callerUserId, params.userId, dto, req);
+  }
+
+  /** Same area as invite: Owner/Admin remove members (Tela 20 RN-01). */
+  @Delete('members/:userId')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async remove(
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('userId') callerUserId: string,
+    @Param() params: MemberUserIdParamDto,
+    @Req() req: Request,
+  ) {
+    await this.orgs.removeMember(organizationId, callerUserId, params.userId, req);
   }
 }
