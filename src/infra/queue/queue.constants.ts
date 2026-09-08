@@ -5,6 +5,10 @@ export const MAIN_QUEUE = 'main';
 export const JobName = {
   /** Placeholder job proving the queue wiring end-to-end. */
   PING: 'ping',
+  /** Turn the uploaded recording into a playable object + thumbnail. */
+  MEDIA_TRANSCODE: 'media.transcode',
+  /** Extract an audio sidecar so ASR can plug in later (deferred). */
+  MEDIA_EXTRACT_AUDIO: 'media.extract-audio',
 } as const;
 
 export type JobNameValue = (typeof JobName)[keyof typeof JobName];

@@ -157,4 +157,162 @@ describe('Games (e2e)', () => {
     const rows = await sql`SELECT count(*)::int AS c FROM games WHERE slug = ${slug}`;
     expect(rows[0].c).toBe(1);
   });
+
+  it('filters GET /games by q and status and always returns GameMetrics', async () => {
+    const byStatus = await request(app.getHttpServer())
+      .get('/games')
+      .query({ status: 'active' })
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(byStatus.status).toBe(200);
+    expect(byStatus.body.data.length).toBeGreaterThanOrEqual(1);
+    expect(byStatus.body.data.every((g: { status: string }) => g.status === 'active')).toBe(true);
+    expect(byStatus.body.data[0].metrics).toEqual({
+      testsTotal: expect.any(Number),
+      testsActive: expect.any(Number),
+      sessionsValid: expect.any(Number),
+      playersTotal: expect.any(Number),
+      averageRating: null,
+    });
+
+    const byQ = await request(app.getHttpServer())
+      .get('/games')
+      .query({ q: 'nebula' })
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(byQ.status).toBe(200);
+    expect(byQ.body.data.every((g: { slug: string }) => g.slug.includes('nebula'))).toBe(true);
+    expect(byQ.body.data.some((g: { id: string }) => g.id === GAME_IDS.one)).toBe(true);
+  });
+
+  it('aggregates testsTotal/testsActive from the tests table', async () => {
+    const testId = '01930000-0000-7000-8000-0000000000aa';
+    await sql`
+      INSERT INTO tests (id, organization_id, game_id, name, model_key, status)
+      VALUES (
+        ${testId},
+        ${ORG_ID},
+        ${GAME_IDS.one},
+        'E2E published test',
+        'free_exploration',
+        'published'
+      )
+      ON CONFLICT DO NOTHING`;
+
+    const res = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.metrics.testsTotal).toBeGreaterThanOrEqual(1);
+    expect(res.body.metrics.testsActive).toBeGreaterThanOrEqual(1);
+    expect(res.body.metrics.sessionsValid).toBe(0);
+    expect(res.body.metrics.playersTotal).toBe(0);
+    expect(res.body.metrics.averageRating).toBeNull();
+  });
+
+  it('issues a signed upload URL, confirms only after PUT, and deletes the asset', async () => {
+    const upload = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets/upload-url`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        kind: 'cover',
+        contentType: 'image/png',
+        sizeBytes: PNG_1X1.length,
+        fileName: 'cover.png',
+      });
+    expect(upload.status).toBe(201);
+    expect(upload.body.uploadUrl).toMatch(/^https?:\/\//);
+    expect(upload.body.storageKey).toContain(`/games/${GAME_IDS.one}/assets/cover/`);
+    expect(upload.body.maxSizeBytes).toBeGreaterThan(0);
+
+    const missing = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ kind: 'cover', storageKey: upload.body.storageKey });
+    expect(missing.status).toBe(422);
+    expect(missing.body.code).toBe('VALIDATION_ERROR');
+
+    const put = await fetch(upload.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'image/png' },
+      body: PNG_1X1,
+    });
+    expect(put.ok).toBe(true);
+
+    const confirm = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ kind: 'cover', storageKey: upload.body.storageKey });
+    expect(confirm.status).toBe(201);
+    expect(confirm.body.kind).toBe('cover');
+    expect(confirm.body.url).toMatch(/^https?:\/\//);
+    const assetId = confirm.body.id as string;
+
+    const replay = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ kind: 'cover', storageKey: upload.body.storageKey });
+    expect(replay.status).toBe(201);
+    expect(replay.body.id).toBe(assetId);
+
+    const game = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(game.status).toBe(200);
+    expect(game.body.coverUrl).toMatch(/^https?:\/\//);
+
+    const removed = await request(app.getHttpServer())
+      .delete(`/games/${GAME_IDS.one}/assets/${assetId}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(removed.status).toBe(204);
+
+    const after = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(after.body.coverUrl).toBeNull();
+  });
+
+  it('forbids a player from uploading assets and hides the rival org game', async () => {
+    const player = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets/upload-url`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({
+        kind: 'banner',
+        contentType: 'image/png',
+        sizeBytes: 16,
+        fileName: 'banner.png',
+      });
+    expect(player.status).toBe(403);
+
+    const crossOrg = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets/upload-url`)
+      .set('Authorization', `Bearer ${rivalToken}`)
+      .send({
+        kind: 'banner',
+        contentType: 'image/png',
+        sizeBytes: 16,
+        fileName: 'banner.png',
+      });
+    expect(crossOrg.status).toBe(404);
+    expect(crossOrg.body.code).toBe('NOT_FOUND');
+  });
+
+  it('rejects an invalid asset upload body with 422', async () => {
+    const res = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/assets/upload-url`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        kind: 'cover',
+        contentType: 'application/pdf',
+        sizeBytes: 12,
+        fileName: 'not-an-image.pdf',
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+    expect(res.body.fieldErrors).toHaveProperty('contentType');
+  });
 });
+
+/** 1×1 PNG — small enough to PUT to a presigned URL in e2e. */
+const PNG_1X1 = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+);

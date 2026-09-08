@@ -76,7 +76,12 @@
 ### ORB-M2-04 · `PATCH /orgs/members/{userId}/role`
 
 - **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M2-06
-- **Escopo:** exige `confirm:true` (RN-02); rebaixar **último owner ativo** → `409` (RN-03); grava `audit_log` (RN-05).
+- **Escopo:**
+  - [x] Exige `confirm:true` (RN-02) — literal, `false` é `422`.
+  - [x] Rebaixar **último owner ativo** → `409` (RN-03); contagem e escrita na mesma transação, com as memberships de owner travadas.
+  - [x] Grava `audit_log` com o papel anterior e o novo (RN-05).
+  - [x] Owner-only (RN-01) — permissões por usuário não existem; ver DECISIONS.md §3.
+  - [ ] `409` de conflito de edição concorrente — `ChangeRoleRequest` não tem versão; pendente de mudança de contrato.
 
 ### ORB-M2-05 · `PATCH /orgs/members/{userId}/status`, `DELETE /orgs/members/{userId}`, `POST .../password-reset`
 
@@ -96,16 +101,19 @@
 ### ORB-M3-01 · Métricas agregadas + filtros em `GET /games`
 
 - **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M5 (tests) para métricas reais
-- **Escopo:** `GameMetrics` (testsTotal/active, sessionsValid, playersTotal, averageRating) agregado no backend; filtros `q`, `status`, paginação. _(Métricas dependentes de testes podem entrar zeradas até M5.)_
+- **Escopo:**
+  - [x] `GameMetrics` (testsTotal/active, sessionsValid, playersTotal, averageRating) agregado no backend.
+  - [x] Filtros `q`, `status`, paginação.
+  - _(Métricas de sessão/review ficam zeradas até M8/M13; `testsTotal`/`testsActive` já leem a tabela `tests`.)_
 
 ### ORB-M3-02 · Upload de assets do jogo (`game_assets`)
 
 - **Labels:** backend, api, infra, studio · **Estimativa:** G · **Depende de:** —
 - **Contexto:** tabela `game_assets` existe **sem uso**; fluxo é trabalho novo de ponta a ponta.
 - **Escopo:**
-  - [ ] `POST /games/{id}/assets/upload-url` — valida `contentType`/`sizeBytes`, devolve URL assinada (sem proxy de binário).
-  - [ ] `POST /games/{id}/assets` — confirma objeto no storage antes de gravar a linha.
-  - [ ] `DELETE /games/{id}/assets/{assetId}`.
+  - [x] `POST /games/{id}/assets/upload-url` — valida `contentType`/`sizeBytes`, devolve URL assinada (sem proxy de binário).
+  - [x] `POST /games/{id}/assets` — confirma objeto no storage antes de gravar a linha.
+  - [x] `DELETE /games/{id}/assets/{assetId}`.
 
 ### ORB-M3-03 · Telas de leitura do jogo
 
@@ -246,12 +254,19 @@
 ### ORB-M9-01 · Schema `session_recordings`
 
 - **Labels:** backend, db · **Estimativa:** P · **Depende de:** M8-01
-- **Escopo:** tabela + enum `recording_kind`.
+- **Escopo:**
+  - [x] Tabela + enums `recording_kind` (`screen | webcam | microphone`) e `processing_status`.
+  - [x] OpenAPI (`screen_recording | audio | microphone | webcam`) mapeado na API — sem terceiro enum. `audio` é consentimento/sidecar, não `kind`.
+  - [x] Comentário no schema: gravação ausente não derruba a sessão (Tela 12 RN-03).
+  - [x] Índice em `session_id`; FK `ON DELETE CASCADE`.
 
 ### ORB-M9-02 · Upload multipart + processamento
 
 - **Labels:** backend, api, infra · **Estimativa:** G · **Depende de:** M9-01
-- **Escopo:** `POST /sessions/{id}/recordings/upload-url` (multipart por `partNumber`); `POST .../complete` (enfileira `media.transcode` + `media.extract-audio`); `GET .../playback-url` (ausente/processando não é erro: `status` + `url:null`).
+- **Escopo:**
+  - [x] `POST /sessions/{id}/recordings/upload-url` (multipart por `partNumber`).
+  - [x] `POST .../complete` (enfileira `media.transcode` + `media.extract-audio`).
+  - [x] `GET .../playback-url` (ausente/processando não é erro: `status` + `url:null`).
 
 ---
 

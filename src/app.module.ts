@@ -17,6 +17,7 @@ import { TelemetryModule } from './infra/telemetry/telemetry.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { GamesModule } from './modules/games/games.module';
 import { HealthModule } from './modules/health/health.module';
+import { MediaModule } from './modules/media/media.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
@@ -74,6 +75,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     AuthModule,
     OrgsModule,
     GamesModule,
+    MediaModule,
   ],
   providers: [
     // Order matters: authenticate, THEN authorize.

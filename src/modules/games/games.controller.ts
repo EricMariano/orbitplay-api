@@ -17,8 +17,17 @@ import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { STUDIO_ROLES } from '../../shared/auth/roles';
-import { PaginationQueryDto } from '../../shared/pagination/pagination';
-import { CreateGameDto, GameDto, GameListDto, UpdateGameDto } from './dto/game.dto';
+import {
+  AssetUploadUrlRequestDto,
+  ConfirmAssetRequestDto,
+  CreateGameDto,
+  GameAssetDto,
+  GameDto,
+  GameListDto,
+  GameListQueryDto,
+  UpdateGameDto,
+  UploadUrlResponseDto,
+} from './dto/game.dto';
 import { GamesService } from './games.service';
 
 /**
@@ -35,7 +44,7 @@ export class GamesController {
 
   @Get()
   @ZodResponse({ type: GameListDto })
-  list(@CurrentUser('organizationId') organizationId: string, @Query() query: PaginationQueryDto) {
+  list(@CurrentUser('organizationId') organizationId: string, @Query() query: GameListQueryDto) {
     return this.games.list(organizationId, query);
   }
 
@@ -78,5 +87,40 @@ export class GamesController {
     @Req() req: Request,
   ) {
     await this.games.remove(organizationId, id, req);
+  }
+
+  @Post(':id/assets/upload-url')
+  @Roles(...STUDIO_ROLES)
+  @HttpCode(HttpStatus.CREATED)
+  @ZodResponse({ status: HttpStatus.CREATED, type: UploadUrlResponseDto })
+  createAssetUploadUrl(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: AssetUploadUrlRequestDto,
+  ) {
+    return this.games.createAssetUploadUrl(organizationId, id, dto);
+  }
+
+  @Post(':id/assets')
+  @Roles(...STUDIO_ROLES)
+  @HttpCode(HttpStatus.CREATED)
+  @ZodResponse({ status: HttpStatus.CREATED, type: GameAssetDto })
+  confirmAsset(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: ConfirmAssetRequestDto,
+  ) {
+    return this.games.confirmAsset(organizationId, id, dto);
+  }
+
+  @Delete(':id/assets/:assetId')
+  @Roles(...STUDIO_ROLES)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeAsset(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Param('assetId') assetId: string,
+  ) {
+    await this.games.removeAsset(organizationId, id, assetId);
   }
 }

@@ -440,7 +440,15 @@ paths:
         RN-03: rebaixar o **último Owner ativo** é recusado com `409`.
 
         RN-05: gera registro em `audit_log` com autor, data e ação.
-      x-status: todo
+
+        Papel exigido: `owner`. A RN-01 admite "Admin com permissão
+        específica", mas permissões por usuário não existem no projeto —
+        ver DECISIONS.md §3.
+
+        O `409` de conflito de edição concorrente **não** está implementado:
+        `ChangeRoleRequest` não carrega versão nem `updatedAt`, então não há
+        o que comparar. Vale também para `ChangeStatusRequest`.
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:
@@ -566,9 +574,10 @@ paths:
       summary: Listar jogos do estúdio
       description: |
         RN-03 (Tela 03): as métricas do card são **agregadas no backend** a
-        partir dos testes do jogo. Hoje implementado sem filtros e sem métricas
-        — estender.
-      x-status: partial
+        partir dos testes do jogo. Filtros `q`/`status` e paginação por cursor.
+        `sessionsValid`, `playersTotal` e `averageRating` ficam zerados até
+        M8/M13 gravarem linhas.
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -664,7 +673,7 @@ paths:
         gravado.
 
         O binário vai direto do cliente para o storage — a API nunca faz proxy.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -691,7 +700,7 @@ paths:
       description: |
         Verifica a existência do objeto no storage antes de gravar a linha. Um
         upload que não chegou não vira asset.
-      x-status: todo
+      x-status: implemented
       requestBody:
         required: true
         content:
@@ -714,7 +723,7 @@ paths:
     delete:
       tags: [games]
       summary: Remover imagem do jogo
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
         - name: assetId
@@ -1680,7 +1689,7 @@ paths:
       description: |
         Suporta envio em partes, para gravações longas e conexões instáveis.
         Chamar uma vez por parte, informando `partNumber`.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -1704,7 +1713,7 @@ paths:
         Fecha o envio em partes e enfileira `media.transcode` e
         `media.extract-audio`. O áudio extraído fica pronto para o ASR
         (deferido) sem reprocessar o vídeo depois.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       requestBody:
@@ -1729,7 +1738,7 @@ paths:
         RN-03 (Tela 12): gravação ausente ou ainda processando **não é erro** —
         devolve `status` correspondente e `url: null`, para que o resto da tela
         continue funcionando.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
         - name: recordingId
