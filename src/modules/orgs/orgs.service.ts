@@ -8,12 +8,13 @@ import { NOTIFICATION_PORT, type NotificationPort } from '../../shared/ports/not
 import { Role, type RoleValue } from '../../shared/auth/roles';
 import { PasswordService } from '../auth/password.service';
 import type {
+  ChangeRoleInput,
   InviteMemberInput,
   MemberView,
   OrgView,
   UpdateMemberStatusInput,
 } from './dto/org.dto';
-import { MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
+import { LastOwnerError, MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
 
 @Injectable()
 export class OrgsService {
@@ -115,6 +116,55 @@ export class OrgsService {
     });
 
     return created;
+  }
+
+  /**
+   * Change a member's role (ORB-M2-04, Tela 20). Owner-only: RN-01 reserves the
+   * members area for the Owner, and "Admin com permissão específica" describes a
+   * permission system the project does not have (see DECISIONS.md §3).
+   *
+   * Demoting the last active owner is refused with 409 (RN-03); the check and
+   * the write share one transaction in the repository.
+   */
+  async changeMemberRole(
+    organizationId: string,
+    targetUserId: string,
+    dto: ChangeRoleInput,
+    req: Request,
+  ): Promise<MemberView> {
+    let result;
+    try {
+      result = await this.repo.changeMemberRole({
+        organizationId,
+        userId: targetUserId,
+        role: dto.role,
+      });
+    } catch (err) {
+      if (err instanceof LastOwnerError) {
+        throw AppException.conflict(err.message);
+      }
+      throw err;
+    }
+
+    if (!result) throw AppException.notFound('Membro não encontrado');
+
+    const view: MemberView = {
+      userId: result.member.userId,
+      email: result.member.email,
+      displayName: result.member.displayName,
+      role: result.member.role,
+      status: result.member.status as MemberView['status'],
+    };
+
+    recordAudit(req, {
+      action: 'org.member_role_changed',
+      entity: 'memberships',
+      entityId: view.userId,
+      before: { role: result.previousRole },
+      after: { role: view.role },
+    });
+
+    return view;
   }
 
   /**
