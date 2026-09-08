@@ -7,6 +7,7 @@ import { organizations, type OrganizationRow } from '../../infra/database/schema
 import { roles } from '../../infra/database/schema/roles';
 import { users } from '../../infra/database/schema/users';
 import type { RoleValue } from '../../shared/auth/roles';
+import { isUuid } from '../../shared/util/uuid';
 
 export interface MemberRecord {
   userId: string;
@@ -33,11 +34,38 @@ export interface InvitedMemberRecord {
   status: 'invited';
 }
 
+export interface ChangeMemberRoleInput {
+  organizationId: string;
+  userId: string;
+  role: RoleValue;
+}
+
+export interface MemberRoleRecord {
+  userId: string;
+  email: string;
+  displayName: string;
+  role: RoleValue;
+  status: string;
+}
+
+export interface RoleChangeResult {
+  previousRole: RoleValue;
+  member: MemberRoleRecord;
+}
+
 /** Thrown when `memberships_org_user_unique` is hit (race-safe invite). */
 export class MemberAlreadyExistsError extends Error {
   constructor() {
     super('Usuário já é membro da organização');
     this.name = 'MemberAlreadyExistsError';
+  }
+}
+
+/** Thrown when a demotion would leave the organization without an active owner. */
+export class LastOwnerError extends Error {
+  constructor() {
+    super('A organização precisa de pelo menos um owner ativo');
+    this.name = 'LastOwnerError';
   }
 }
 
@@ -169,5 +197,93 @@ export class OrgsRepository {
       }
       throw err;
     }
+  }
+
+  /**
+   * Change a member's role (ORB-M2-04). Returns null when the user is not a
+   * member of this organization — a malformed id included, so a bad path
+   * parameter answers 404 and never 500.
+   *
+   * RN-03: demoting the last ACTIVE owner is refused. The active owners are
+   * locked before the count, because two concurrent demotions would otherwise
+   * both read "two owners" and both succeed, leaving the org with none. An
+   * `invited` owner does not count: that membership cannot log in yet.
+   *
+   * `organizations.owner_user_id` is deliberately left untouched — see
+   * DECISIONS.md §3.
+   */
+  async changeMemberRole(input: ChangeMemberRoleInput): Promise<RoleChangeResult | null> {
+    if (!isUuid(input.userId)) return null;
+
+    const nextRoleId = await this.findRoleIdByKey(input.role);
+    if (!nextRoleId) {
+      throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
+    }
+    const ownerRoleId = await this.findRoleIdByKey('owner');
+    if (!ownerRoleId) {
+      throw new Error('Role "owner" missing from catalogue — run db:seed');
+    }
+
+    return this.db.transaction(async (tx) => {
+      const activeOwners = await tx
+        .select({ userId: memberships.userId })
+        .from(memberships)
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.roleId, ownerRoleId),
+            eq(memberships.status, 'active'),
+            isNull(memberships.deletedAt),
+          ),
+        )
+        .for('update');
+
+      const rows = await tx
+        .select({
+          membershipId: memberships.id,
+          userId: users.id,
+          email: users.email,
+          displayName: users.displayName,
+          role: roles.key,
+          status: memberships.status,
+        })
+        .from(memberships)
+        .innerJoin(users, eq(memberships.userId, users.id))
+        .innerJoin(roles, eq(memberships.roleId, roles.id))
+        .where(
+          and(
+            eq(memberships.organizationId, input.organizationId),
+            eq(memberships.userId, input.userId),
+            isNull(memberships.deletedAt),
+          ),
+        )
+        .limit(1);
+
+      const current = rows[0];
+      if (!current) return null;
+
+      const previousRole = current.role as RoleValue;
+      const losesAnActiveOwner =
+        previousRole === 'owner' && input.role !== 'owner' && current.status === 'active';
+      if (losesAnActiveOwner && activeOwners.length <= 1) {
+        throw new LastOwnerError();
+      }
+
+      await tx
+        .update(memberships)
+        .set({ roleId: nextRoleId })
+        .where(eq(memberships.id, current.membershipId));
+
+      return {
+        previousRole,
+        member: {
+          userId: current.userId,
+          email: current.email,
+          displayName: current.displayName,
+          role: input.role,
+          status: current.status,
+        },
+      };
+    });
   }
 }

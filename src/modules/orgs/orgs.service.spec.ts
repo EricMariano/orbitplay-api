@@ -6,7 +6,7 @@ import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { NotificationPort } from '../../shared/ports/notification.port';
 import { Role } from '../../shared/auth/roles';
 import type { PasswordService } from '../auth/password.service';
-import { MemberAlreadyExistsError, type OrgsRepository } from './orgs.repository';
+import { LastOwnerError, MemberAlreadyExistsError, type OrgsRepository } from './orgs.repository';
 import { OrgsService } from './orgs.service';
 
 const ORG = '01920000-0000-7000-8000-0000000000a1';
@@ -189,5 +189,92 @@ describe('OrgsService inviteMember', () => {
       service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req),
     ).rejects.toMatchObject({ status: 404 });
     expect(repo.createInvitedMember).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrgsService changeMemberRole', () => {
+  const TARGET = '01920000-0000-7000-8000-0000000000c2';
+
+  let repo: {
+    findById: ReturnType<typeof vi.fn>;
+    changeMemberRole: ReturnType<typeof vi.fn>;
+  };
+  let service: OrgsService;
+  let req: Request;
+
+  beforeEach(() => {
+    repo = {
+      findById: vi.fn().mockResolvedValue(makeOrg()),
+      changeMemberRole: vi.fn().mockImplementation((input: Record<string, unknown>) =>
+        Promise.resolve({
+          previousRole: 'studio',
+          member: {
+            userId: TARGET,
+            email: 'admin@orbitplay.dev',
+            displayName: 'Admin',
+            role: input.role,
+            status: 'active',
+          },
+        }),
+      ),
+    };
+
+    service = new OrgsService(
+      repo as unknown as OrgsRepository,
+      { hash: vi.fn() } as unknown as PasswordService,
+      { get: vi.fn() } as unknown as ConfigService,
+      { sendEmail: vi.fn() } as unknown as NotificationPort,
+    );
+    req = {} as Request;
+  });
+
+  it('returns the member with the new role', async () => {
+    const view = await service.changeMemberRole(ORG, TARGET, { role: 'admin', confirm: true }, req);
+
+    expect(view).toMatchObject({ userId: TARGET, role: 'admin', status: 'active' });
+    expect(repo.changeMemberRole).toHaveBeenCalledWith({
+      organizationId: ORG,
+      userId: TARGET,
+      role: 'admin',
+    });
+  });
+
+  it('maps the last-owner rule to a 409 conflict (RN-03)', async () => {
+    repo.changeMemberRole.mockRejectedValue(new LastOwnerError());
+
+    await expect(
+      service.changeMemberRole(ORG, TARGET, { role: 'studio', confirm: true }, req),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it('404s when the user is not a member of this organization', async () => {
+    repo.changeMemberRole.mockResolvedValue(null);
+
+    await expect(
+      service.changeMemberRole(ORG, TARGET, { role: 'admin', confirm: true }, req),
+    ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('records the role change with both roles in the audit trail (RN-05)', async () => {
+    await service.changeMemberRole(ORG, TARGET, { role: 'admin', confirm: true }, req);
+
+    const drafts = drainAuditDrafts(req);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]).toMatchObject({
+      action: 'org.member_role_changed',
+      entity: 'memberships',
+      entityId: TARGET,
+      before: { role: 'studio' },
+      after: { role: 'admin' },
+    });
+  });
+
+  it('records no audit when the change is refused', async () => {
+    repo.changeMemberRole.mockRejectedValue(new LastOwnerError());
+
+    await expect(
+      service.changeMemberRole(ORG, TARGET, { role: 'studio', confirm: true }, req),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(drainAuditDrafts(req)).toHaveLength(0);
   });
 });

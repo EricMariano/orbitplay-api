@@ -209,3 +209,195 @@ describe('Org members — invite (e2e)', () => {
     expect(res.status).toBe(422);
   });
 });
+
+// A separate organization with TWO active owners, so the last-owner rule can be
+// exercised without touching the seeded org other specs rely on.
+const ROLE_ORG = {
+  orgId: '01950000-0000-7000-8000-0000000000f1',
+  ownerA: { id: '01950000-0000-7000-8000-0000000000a1', email: 'owner-a@papeis.dev' },
+  ownerB: { id: '01950000-0000-7000-8000-0000000000a2', email: 'owner-b@papeis.dev' },
+  member: { id: '01950000-0000-7000-8000-0000000000a3', email: 'membro@papeis.dev' },
+};
+
+describe('Org members — change role (e2e)', () => {
+  let app: INestApplication;
+  let sql: postgres.Sql;
+  let ownerAToken: string;
+  let seededOwnerToken: string;
+  let seededAdminToken: string;
+  let seededStudioToken: string;
+  let seededPlayerToken: string;
+
+  beforeAll(async () => {
+    app = await createE2EApp();
+    sql = postgres(TEST_DATABASE_URL, { max: 1 });
+
+    for (const person of [ROLE_ORG.ownerA, ROLE_ORG.ownerB, ROLE_ORG.member]) {
+      await sql`
+        INSERT INTO users (id, email, password_hash, display_name)
+        SELECT ${person.id}, ${person.email}, password_hash, ${person.email}
+        FROM users WHERE email = ${SEED_EMAILS.studio}
+        ON CONFLICT DO NOTHING`;
+    }
+    await sql`
+      INSERT INTO organizations (id, name, slug, owner_user_id)
+      VALUES (${ROLE_ORG.orgId}, 'Papeis Studio', 'papeis-studio', ${ROLE_ORG.ownerA.id})
+      ON CONFLICT DO NOTHING`;
+    for (const [person, roleKey] of [
+      [ROLE_ORG.ownerA, 'owner'],
+      [ROLE_ORG.ownerB, 'owner'],
+      [ROLE_ORG.member, 'studio'],
+    ] as const) {
+      await sql`
+        INSERT INTO memberships (id, organization_id, user_id, role_id, status)
+        VALUES (gen_random_uuid(), ${ROLE_ORG.orgId}, ${person.id},
+                (SELECT id FROM roles WHERE key = ${roleKey}), 'active')
+        ON CONFLICT DO NOTHING`;
+    }
+
+    ownerAToken = await bearer(app, ROLE_ORG.ownerA.email);
+    seededOwnerToken = await bearer(app, SEED_EMAILS.owner);
+    seededAdminToken = await bearer(app, SEED_EMAILS.admin);
+    seededStudioToken = await bearer(app, SEED_EMAILS.studio);
+    seededPlayerToken = await bearer(app, SEED_EMAILS.player);
+  });
+
+  afterAll(async () => {
+    await sql.end({ timeout: 5 });
+    await app.close();
+  });
+
+  function patchRole(token: string, userId: string, body: Record<string, unknown>) {
+    return request(app.getHttpServer())
+      .patch(`/orgs/members/${userId}/role`)
+      .set('Authorization', `Bearer ${token}`)
+      .send(body);
+  }
+
+  it('owner promotes a studio member to admin', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.member.id, {
+      role: 'admin',
+      confirm: true,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      userId: ROLE_ORG.member.id,
+      role: 'admin',
+      status: 'active',
+    });
+  });
+
+  it('the new role shows up in the members list', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/orgs/members')
+      .set('Authorization', `Bearer ${ownerAToken}`);
+
+    const member = (res.body.data as { userId: string; role: string }[]).find(
+      (m) => m.userId === ROLE_ORG.member.id,
+    );
+    expect(member).toMatchObject({ role: 'admin' });
+  });
+
+  it('records the change in audit_log with both roles (RN-05)', async () => {
+    const rows = await sql<{ action: string; before: unknown; after: unknown }[]>`
+      SELECT action, before, after FROM audit_log
+      WHERE action = 'org.member_role_changed' AND entity_id = ${ROLE_ORG.member.id}
+      ORDER BY created_at DESC LIMIT 1`;
+
+    expect(rows[0]).toMatchObject({
+      action: 'org.member_role_changed',
+      before: { role: 'studio' },
+      after: { role: 'admin' },
+    });
+  });
+
+  it('demotes one of two active owners', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.ownerB.id, {
+      role: 'studio',
+      confirm: true,
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ userId: ROLE_ORG.ownerB.id, role: 'studio' });
+  });
+
+  it('refuses to demote the last active owner with 409 (RN-03)', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.ownerA.id, {
+      role: 'studio',
+      confirm: true,
+    });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CONFLICT');
+  });
+
+  it('admin cannot change roles: 403 (owner-only, RN-01)', async () => {
+    const res = await patchRole(seededAdminToken, ROLE_ORG.member.id, {
+      role: 'studio',
+      confirm: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('studio cannot change roles: 403', async () => {
+    const res = await patchRole(seededStudioToken, ROLE_ORG.member.id, {
+      role: 'studio',
+      confirm: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('player cannot change roles: 403', async () => {
+    const res = await patchRole(seededPlayerToken, ROLE_ORG.member.id, {
+      role: 'studio',
+      confirm: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('404s for a member of another organization (never 403)', async () => {
+    const res = await patchRole(seededOwnerToken, ROLE_ORG.member.id, {
+      role: 'studio',
+      confirm: true,
+    });
+
+    expect(res.status).toBe(404);
+    expect(res.body.code).toBe('NOT_FOUND');
+  });
+
+  it('404s for a malformed userId, never 500', async () => {
+    const res = await patchRole(ownerAToken, 'nao-e-uuid', { role: 'studio', confirm: true });
+    expect(res.status).toBe(404);
+  });
+
+  it('422s when confirm is missing (RN-02)', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.member.id, { role: 'studio' });
+
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+    expect(res.body.fieldErrors).toHaveProperty('confirm');
+  });
+
+  it('422s when confirm is false — never a silent no-op', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.member.id, {
+      role: 'studio',
+      confirm: false,
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('422s for an unknown role', async () => {
+    const res = await patchRole(ownerAToken, ROLE_ORG.member.id, {
+      role: 'superuser',
+      confirm: true,
+    });
+    expect(res.status).toBe(422);
+  });
+
+  it('leaves organizations.owner_user_id untouched (DECISIONS.md §3)', async () => {
+    const rows = await sql<{ ownerUserId: string }[]>`
+      SELECT owner_user_id AS "ownerUserId" FROM organizations WHERE id = ${ROLE_ORG.orgId}`;
+    expect(rows[0].ownerUserId).toBe(ROLE_ORG.ownerA.id);
+  });
+});

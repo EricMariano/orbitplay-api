@@ -63,11 +63,14 @@ describe('Media (e2e)', () => {
               (SELECT id FROM roles WHERE key = 'owner'))
       ON CONFLICT DO NOTHING`;
 
+    // GAME_IDS.two on purpose: games.e2e-spec asserts playersTotal === 0 for
+    // GAME_IDS.one, and the participation below would count against it whenever
+    // this file happens to run first.
     await sql`
       INSERT INTO tests (id, organization_id, game_id, model_key, status)
       VALUES
-        (${SESSION.testId}, ${ORG_ID}, ${GAME_IDS.one}, 'free_exploration', 'published'),
-        (${SESSION.noConsentTestId}, ${ORG_ID}, ${GAME_IDS.one}, 'free_exploration', 'published')
+        (${SESSION.testId}, ${ORG_ID}, ${GAME_IDS.two}, 'free_exploration', 'published'),
+        (${SESSION.noConsentTestId}, ${ORG_ID}, ${GAME_IDS.two}, 'free_exploration', 'published')
       ON CONFLICT DO NOTHING`;
     await sql`
       INSERT INTO participations (id, test_id, user_id, status)
