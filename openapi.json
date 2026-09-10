@@ -393,6 +393,51 @@
         ]
       }
     },
+    "/orgs/members/{userId}/role": {
+      "patch": {
+        "operationId": "OrgsController_changeRole",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeRoleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "orgs"
+        ]
+      }
+    },
     "/games": {
       "get": {
         "operationId": "GamesController_list",
@@ -1269,6 +1314,30 @@
           "status"
         ],
         "additionalProperties": false
+      },
+      "ChangeRoleDto": {
+        "type": "object",
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "studio",
+              "player"
+            ]
+          },
+          "confirm": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          }
+        },
+        "required": [
+          "role",
+          "confirm"
+        ]
       },
       "GameListDto_Output": {
         "type": "object",
