@@ -23,6 +23,7 @@ import {
   MemberListDto,
   MemberListQueryDto,
   OrgDto,
+  UpdateOrgDto,
 } from './dto/org.dto';
 import { OrgsService } from './orgs.service';
 
@@ -36,6 +37,18 @@ export class OrgsController {
   @ZodResponse({ type: OrgDto })
   current(@CurrentUser('organizationId') organizationId: string) {
     return this.orgs.getCurrent(organizationId);
+  }
+
+  /** ORB-M2-02 (Tela 20): only owner/admin update the org's own data. */
+  @Patch('current')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ZodResponse({ type: OrgDto })
+  updateCurrent(
+    @CurrentUser('organizationId') organizationId: string,
+    @Body() dto: UpdateOrgDto,
+    @Req() req: Request,
+  ) {
+    return this.orgs.updateCurrent(organizationId, dto, req);
   }
 
   @Get('members')
