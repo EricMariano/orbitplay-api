@@ -6,9 +6,16 @@ import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { NOTIFICATION_PORT, type NotificationPort } from '../../shared/ports/notification.port';
 import { Role, type RoleValue } from '../../shared/auth/roles';
+import type { Page } from '../../shared/pagination/pagination';
 import { PasswordService } from '../auth/password.service';
-import type { InviteMemberInput, MemberView, OrgView } from './dto/org.dto';
-import { MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
+import type {
+  ChangeRoleInput,
+  InviteMemberInput,
+  MemberListQuery,
+  MemberView,
+  OrgView,
+} from './dto/org.dto';
+import { LastOwnerError, MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
 
 @Injectable()
 export class OrgsService {
@@ -30,16 +37,17 @@ export class OrgsService {
     };
   }
 
-  async listMembers(organizationId: string): Promise<{ data: MemberView[] }> {
-    const members = await this.repo.listMembers(organizationId);
+  async listMembers(organizationId: string, query: MemberListQuery): Promise<Page<MemberView>> {
+    const page = await this.repo.listMembers(organizationId, query);
     return {
-      data: members.map((m) => ({
+      data: page.data.map((m) => ({
         userId: m.userId,
         email: m.email,
         displayName: m.displayName,
         role: m.role as MemberView['role'],
         status: m.status as MemberView['status'],
       })),
+      nextCursor: page.nextCursor,
     };
   }
 
@@ -54,9 +62,6 @@ export class OrgsService {
     dto: InviteMemberInput,
     req: Request,
   ): Promise<MemberView> {
-    // Granting `owner` is the Owner's alone: an admin could otherwise invite an
-    // address they control as owner, and activating that membership later
-    // (M2-05) would hand them the organization.
     if (dto.role === Role.OWNER && callerRole !== Role.OWNER) {
       throw AppException.forbidden('Somente owners podem convidar owners');
     }
@@ -65,12 +70,8 @@ export class OrgsService {
     if (!org) throw AppException.notFound('Organização não encontrada');
 
     const email = dto.email.toLowerCase().trim();
-    // users.display_name is NOT NULL while the contract leaves displayName
-    // optional — fall back to the address so the list never shows a blank name.
     const displayName = dto.displayName ?? email;
 
-    // The invitee has no password yet. Store the hash of random bytes nobody
-    // holds: login then fails on its own, with no change to the login path.
     const passwordHash = await this.password.hash(randomBytes(32).toString('base64url'));
 
     let created;
@@ -110,5 +111,54 @@ export class OrgsService {
     });
 
     return created;
+  }
+
+  /**
+   * Change a member's role (ORB-M2-04, Tela 20). Owner-only: RN-01 reserves the
+   * members area for the Owner, and "Admin com permissão específica" describes a
+   * permission system the project does not have (see DECISIONS.md §3).
+   *
+   * Demoting the last active owner is refused with 409 (RN-03); the check and
+   * the write share one transaction in the repository.
+   */
+  async changeMemberRole(
+    organizationId: string,
+    targetUserId: string,
+    dto: ChangeRoleInput,
+    req: Request,
+  ): Promise<MemberView> {
+    let result;
+    try {
+      result = await this.repo.changeMemberRole({
+        organizationId,
+        userId: targetUserId,
+        role: dto.role,
+      });
+    } catch (err) {
+      if (err instanceof LastOwnerError) {
+        throw AppException.conflict(err.message);
+      }
+      throw err;
+    }
+
+    if (!result) throw AppException.notFound('Membro não encontrado');
+
+    const view: MemberView = {
+      userId: result.member.userId,
+      email: result.member.email,
+      displayName: result.member.displayName,
+      role: result.member.role,
+      status: result.member.status as MemberView['status'],
+    };
+
+    recordAudit(req, {
+      action: 'org.member_role_changed',
+      entity: 'memberships',
+      entityId: view.userId,
+      before: { role: result.previousRole },
+      after: { role: view.role },
+    });
+
+    return view;
   }
 }
