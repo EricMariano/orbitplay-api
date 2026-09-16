@@ -17,4 +17,14 @@ export class HealthController {
     if (report.status !== 'ok') res.status(HttpStatus.SERVICE_UNAVAILABLE);
     return report;
   }
+
+  /** Readiness probe (M15): liveness checks + the BullMQ queue. */
+  @Public()
+  @Get('ready')
+  @HttpCode(HttpStatus.OK)
+  async ready(@Res({ passthrough: true }) res: Response) {
+    const report = await this.health.checkReady();
+    if (report.status !== 'ok') res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    return report;
+  }
 }

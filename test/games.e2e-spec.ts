@@ -309,6 +309,61 @@ describe('Games (e2e)', () => {
     expect(res.body.code).toBe('VALIDATION_ERROR');
     expect(res.body.fieldErrors).toHaveProperty('contentType');
   });
+
+  it('GET /games/:id/summary — active game is available, studio can edit', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}/summary`)
+      .set('Authorization', `Bearer ${studioToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      game: { id: GAME_IDS.one, status: 'active' },
+      availability: 'available',
+      canEdit: true,
+    });
+    expect(res.body.metrics).toEqual(res.body.game.metrics);
+  });
+
+  it('GET /games/:id/summary — draft game is unavailable, player cannot edit', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.two}/summary`)
+      .set('Authorization', `Bearer ${playerToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({
+      game: { id: GAME_IDS.two, status: 'draft' },
+      availability: 'unavailable',
+      canEdit: false,
+    });
+  });
+
+  it('GET /games/:id/summary — 404 (not 500) for another org’s game', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}/summary`)
+      .set('Authorization', `Bearer ${rivalToken}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('GET /games/:id/specs — 200 with the stub shape (pendency: Tela 04 fields undefined)', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}/specs`)
+      .set('Authorization', `Bearer ${studioToken}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      minimumRequirements: {},
+      recommendedRequirements: {},
+      supportedPlatforms: [],
+      languages: [],
+    });
+  });
+
+  it('GET /games/:id/specs — 404 (not 500) for a malformed id', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/games/not-a-uuid/specs')
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(404);
+  });
 });
 
 /** 1×1 PNG — small enough to PUT to a presigned URL in e2e. */

@@ -20,4 +20,16 @@ describe('Health (e2e)', () => {
     expect(res.body.status).toBe('ok');
     expect(res.body.checks).toEqual({ database: 'up', redis: 'up', storage: 'up' });
   });
+
+  it('GET /health/ready additionally reports the queue up (M15)', async () => {
+    const res = await request(app.getHttpServer()).get('/health/ready');
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect(res.body.checks).toEqual({ database: 'up', redis: 'up', storage: 'up', queue: 'up' });
+  });
+
+  it('GET /health/ready requires no authentication', async () => {
+    const res = await request(app.getHttpServer()).get('/health/ready');
+    expect(res.status).not.toBe(401);
+  });
 });

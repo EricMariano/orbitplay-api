@@ -11,16 +11,16 @@
 
 ## 1. Resumo executivo
 
-O que está de pé hoje é a **fundação da plataforma**: autenticação/sessão, tenancy por organização, CRUD de jogos e leitura de organização/membros. Isso corresponde grosso modo aos módulos **M1 (auth), M2 (orgs) e M3 (games)** — e mesmo esses ainda têm pontas soltas marcadas como `partial`.
+O que está de pé hoje é a **fundação da plataforma**: autenticação/sessão, tenancy por organização, CRUD de jogos, gestão completa de organização/membros e auditoria. Isso corresponde grosso modo aos módulos **M1 (auth), M2 (orgs), M3 (games) e M15 (health)** — M1, M2 e M15 já estão fechados; M3 tem só duas pontas soltas, ambas **bloqueadas** por módulos que ainda não existem (M5, M12).
 
 Todo o **núcleo do domínio** (testes, builds, participações, sessões, gravação, relatórios, feed do jogador, gamificação, comunidade, notificações) está **apenas desenhado** — existe contrato OpenAPI e modelo de dados, mas **nenhuma tabela migrada nem endpoint implementado**.
 
 | Camada            | Situação                                                                                 |
 | ----------------- | ---------------------------------------------------------------------------------------- |
-| Endpoints HTTP    | **~14 implementados/parciais** de **~90 desenhados** (≈ 15%)                             |
+| Endpoints HTTP    | **~21 implementados/parciais** de **~90 desenhados** (≈ 23%)                             |
 | Tabelas no banco  | **12 migradas** de **~40 desenhadas** (+ `telemetry_events` particionada manual)         |
 | Enums             | **3 criados** (`game_status`, `membership_status`, `trigger_type`) de **~16 desenhados** |
-| Módulos completos | Nenhum 100%; M1/M2/M3 parcialmente prontos, M4–M15 pendentes                             |
+| Módulos completos | M1, M2, M15 prontos; M3 parcial (bloqueado por M5/M12); M4–M14 pendentes                 |
 
 ---
 
@@ -51,34 +51,34 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `PATCH /orgs/current`                        | ✅     | atualiza `name`/`slug`; owner/admin; 409 no slug duplicado |
 | `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin                 |
 | `PATCH /orgs/members/{userId}/role`          | ✅     | owner-only; `confirm:true`; último owner → 409             |
-| `PATCH /orgs/members/{userId}/status`        | ⬜     |                                                            |
-| `POST /orgs/members/{userId}/password-reset` | ⬜     |                                                            |
-| `DELETE /orgs/members/{userId}`              | ⬜     |                                                            |
-| `GET /audit-logs`                            | ⬜     | tabela existe, **falta expor**                             |
+| `PATCH /orgs/members/{userId}/status`        | ✅     | owner/admin; `confirm:true`; último owner ativo → 409      |
+| `POST /orgs/members/{userId}/password-reset` | ✅     | owner/admin; dispara e-mail, nunca expõe a senha           |
+| `DELETE /orgs/members/{userId}`              | ✅     | owner-only; desativação lógica; último owner ativo → 409   |
+| `GET /audit-logs`                            | ✅     | paginação por cursor + filtros actor/action/from/to        |
 
 ### M3 — Games (`src/modules/games`)
 
-| Endpoint                              | Status | Observação                                      |
-| ------------------------------------- | ------ | ----------------------------------------------- |
-| `POST /games`                         | ✅     | tenancy forçada (org do token)                  |
-| `GET /games/{id}`                     | ✅     |                                                 |
-| `PATCH /games/{id}`                   | ✅     |                                                 |
-| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                 |
-| `GET /games`                          | ✅     | filtros `q`/`status`, paginação e `GameMetrics` |
-| `POST /games/{id}/assets/upload-url`  | ✅     | URL assinada (PNG/JPEG/WebP, até 5 MiB)         |
-| `POST /games/{id}/assets`             | ✅     | confirma objeto no storage antes de gravar      |
-| `DELETE /games/{id}/assets/{assetId}` | ✅     | exclusão lógica + remove o objeto               |
-| `GET /games/{id}/summary`             | ⬜     |                                                 |
-| `GET /games/{id}/tests`               | ⬜     |                                                 |
-| `GET /games/{id}/achievements`        | ⬜     |                                                 |
-| `GET /games/{id}/specs`               | ⬜     |                                                 |
+| Endpoint                              | Status | Observação                                               |
+| ------------------------------------- | ------ | -------------------------------------------------------- |
+| `POST /games`                         | ✅     | tenancy forçada (org do token)                           |
+| `GET /games/{id}`                     | ✅     |                                                          |
+| `PATCH /games/{id}`                   | ✅     |                                                          |
+| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                          |
+| `GET /games`                          | ✅     | filtros `q`/`status`, paginação e `GameMetrics`          |
+| `POST /games/{id}/assets/upload-url`  | ✅     | URL assinada (PNG/JPEG/WebP, até 5 MiB)                  |
+| `POST /games/{id}/assets`             | ✅     | confirma objeto no storage antes de gravar               |
+| `DELETE /games/{id}/assets/{assetId}` | ✅     | exclusão lógica + remove o objeto                        |
+| `GET /games/{id}/summary`             | ✅     | banner, disponibilidade, `canEdit`, métricas             |
+| `GET /games/{id}/tests`               | ⬜     | bloqueado — depende de M5 (tabela `tests`)               |
+| `GET /games/{id}/achievements`        | ⬜     | bloqueado — depende de M12 (gamificação)                 |
+| `GET /games/{id}/specs`               | ✅     | stub vazio — campos da Tela 04 ainda indefinidos (§9 #1) |
 
 ### M15 — Health (`src/modules/health`)
 
-| Endpoint            | Status | Observação                        |
-| ------------------- | ------ | --------------------------------- |
-| `GET /health`       | ✅     | checa Postgres, Redis, storage    |
-| `GET /health/ready` | ⬜     | readiness incluindo fila (BullMQ) |
+| Endpoint            | Status | Observação                     |
+| ------------------- | ------ | ------------------------------ |
+| `GET /health`       | ✅     | checa Postgres, Redis, storage |
+| `GET /health/ready` | ✅     | idem + fila (BullMQ)           |
 
 ### M9 — Media (`src/modules/media`)
 
@@ -116,7 +116,7 @@ Enums criados: `game_status`, `membership_status`, `trigger_type`, `recording_ki
 Ressalvas sobre o que existe mas não é usado de ponta a ponta:
 
 - **`game_assets`** — tabela criada e consumida pelo fluxo de upload de capa/banner/screenshot.
-- **`audit_log`** — existe e é escrita, mas **não há endpoint** que a exponha (`GET /audit-logs` é ⬜).
+- **`audit_log`** — escrita pelo `AuditInterceptor` e exposta via `GET /audit-logs` (paginação por cursor + filtros `actorUserId`/`action`/`from`/`to`, owner/admin).
 - **`plugin_manifests.build_id`** — hoje é `uuid` **sem FK**, porque `builds` ainda não existe (dívida a quitar quando `builds` for criada).
 - **`session_recordings`** — consumida pelo fluxo de upload/playback do M9. Gravação ausente **não** derruba a sessão (Tela 12 RN-03).
 
@@ -156,10 +156,8 @@ Não estão nem no contrato ativo nem para implementar agora: cobrança do estú
 
 Seguindo as dependências do domínio (cada linha destrava a próxima):
 
-1. **Fechar M1/M2/M3** (pontas `partial`): paginação/filtros e métricas em `GET /orgs/members` e `GET /games`; signup studio/player; expor `GET /audit-logs`; assets de jogo.
-2. **M4 test-models** (catálogo, sem dependência pesada).
-3. **M5 tests + M6 builds** (núcleo do estúdio): tabelas `tests`, `test_*`, `builds`, `build_validation_steps` e o wizard.
-4. **M7/M8** (jogador): feed, participações, sessões, consentimentos.
-5. **M9 media** e **M10 reports** (dependem de sessões existirem).
-6. **M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**
-7. **M15** `/health/ready`.
+1. **M4 test-models** (catálogo, sem dependência pesada). As duas pontas restantes de M3 (`/tests`, `/achievements`) destravam sozinhas quando M5 e M12, respectivamente, existirem — não há mais trabalho independente ali.
+2. **M5 tests + M6 builds** (núcleo do estúdio): tabelas `tests`, `test_*`, `builds`, `build_validation_steps` e o wizard.
+3. **M7/M8** (jogador): feed, participações, sessões, consentimentos.
+4. **M9 media** e **M10 reports** (dependem de sessões existirem).
+5. **M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**

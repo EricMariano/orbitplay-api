@@ -7,10 +7,12 @@ import { AppException } from '../../shared/errors/app.exception';
 import { NOTIFICATION_PORT, type NotificationPort } from '../../shared/ports/notification.port';
 import { Role, type RoleValue } from '../../shared/auth/roles';
 import type { Page } from '../../shared/pagination/pagination';
+import { AuthService } from '../auth/auth.service';
 import { PasswordService } from '../auth/password.service';
 import type { OrganizationRow } from '../../infra/database/schema/organizations';
 import type {
   ChangeRoleInput,
+  ChangeStatusInput,
   InviteMemberInput,
   MemberListQuery,
   MemberView,
@@ -25,6 +27,7 @@ export class OrgsService {
     private readonly repo: OrgsRepository,
     private readonly password: PasswordService,
     private readonly config: ConfigService,
+    private readonly auth: AuthService,
     @Inject(NOTIFICATION_PORT) private readonly mail: NotificationPort,
   ) {}
 
@@ -193,6 +196,106 @@ export class OrgsService {
     });
 
     return view;
+  }
+
+  /**
+   * Change a member's status (ORB-M2-05, Tela 20). Owner/admin. RN-03/RN-06:
+   * disabling the org's last active owner is refused with 409 — same
+   * transactional guard as changeMemberRole, in the repository.
+   */
+  async changeMemberStatus(
+    organizationId: string,
+    targetUserId: string,
+    dto: ChangeStatusInput,
+    req: Request,
+  ): Promise<MemberView> {
+    let result;
+    try {
+      result = await this.repo.changeMemberStatus({
+        organizationId,
+        userId: targetUserId,
+        status: dto.status,
+      });
+    } catch (err) {
+      if (err instanceof LastOwnerError) {
+        throw AppException.conflict(err.message);
+      }
+      throw err;
+    }
+
+    if (!result) throw AppException.notFound('Membro não encontrado');
+
+    const view: MemberView = {
+      userId: result.member.userId,
+      email: result.member.email,
+      displayName: result.member.displayName,
+      role: result.member.role,
+      status: result.member.status as MemberView['status'],
+    };
+
+    recordAudit(req, {
+      action: 'org.member_status_changed',
+      entity: 'memberships',
+      entityId: view.userId,
+      before: { status: result.previousStatus },
+      after: { status: view.status },
+    });
+
+    return view;
+  }
+
+  /**
+   * Remove a member (ORB-M2-06, Tela 20). Owner-only (design table, stricter
+   * than status/role which admins can also touch). RN-06: always a logical
+   * deactivation, never a physical delete; RN-03: refuses to remove the last
+   * active owner with 409.
+   */
+  async removeMember(organizationId: string, targetUserId: string, req: Request): Promise<void> {
+    let result;
+    try {
+      result = await this.repo.removeMember(organizationId, targetUserId);
+    } catch (err) {
+      if (err instanceof LastOwnerError) {
+        throw AppException.conflict(err.message);
+      }
+      throw err;
+    }
+
+    if (!result) throw AppException.notFound('Membro não encontrado');
+
+    recordAudit(req, {
+      action: 'org.member_removed',
+      entity: 'memberships',
+      entityId: targetUserId,
+      before: { status: result.previousStatus },
+      after: { status: 'disabled', deletedAt: true },
+    });
+  }
+
+  /**
+   * Trigger a password reset e-mail for a member (ORB-M2-07, Tela 20 RN-04).
+   * Owner/admin never sets or sees the password — only dispatches the same
+   * recovery flow as the self-service "Esqueci minha senha".
+   */
+  async triggerMemberPasswordReset(
+    organizationId: string,
+    targetUserId: string,
+    req: Request,
+  ): Promise<{ message: string }> {
+    const member = await this.repo.findMembership(organizationId, targetUserId);
+    if (!member) throw AppException.notFound('Membro não encontrado');
+
+    await this.auth.triggerPasswordReset(targetUserId);
+
+    recordAudit(req, {
+      action: 'org.member_password_reset_triggered',
+      entity: 'users',
+      entityId: targetUserId,
+      before: null,
+      after: null,
+    });
+
+    return { message: 'E-mail de redefinição enviado.' };
   }
 }
 

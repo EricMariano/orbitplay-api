@@ -7,10 +7,12 @@ import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import type { Page } from '../../shared/pagination/pagination';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
+import { STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
 import { slugify } from '../../shared/util/slugify';
 import {
   ASSET_UPLOAD_TTL_SECONDS,
   EMPTY_GAME_METRICS,
+  EMPTY_GAME_SPECS,
   MAX_GAME_ASSET_BYTES,
   type AssetKind,
   type AssetUploadUrlRequest,
@@ -19,6 +21,8 @@ import {
   type GameAssetView,
   type GameListQuery,
   type GameMetricsView,
+  type GameSpecsView,
+  type GameSummaryView,
   type GameView,
   type UpdateGameDto,
   type UploadUrlResponse,
@@ -50,6 +54,34 @@ export class GamesService {
     const row = await this.repo.getByIdInOrgOrThrow(organizationId, id);
     const [view] = await this.toViews(organizationId, [row]);
     return view;
+  }
+
+  /**
+   * Tela 05 header + indicators. `availability` mirrors the game's own
+   * status until M5 (tests) exists to drive it for real — a draft/archived
+   * game has nothing playable regardless of test state anyway.
+   * `canEdit` (RN-03) reflects the caller's role: the project has no
+   * per-user permission system (DECISIONS.md §3), so studio+ is the whole
+   * of "can edit" here.
+   */
+  async summary(
+    organizationId: string,
+    id: string,
+    callerRole: RoleValue,
+  ): Promise<GameSummaryView> {
+    const game = await this.get(organizationId, id);
+    return {
+      game,
+      availability: game.status === 'active' ? 'available' : 'unavailable',
+      metrics: game.metrics,
+      canEdit: STUDIO_ROLES.includes(callerRole),
+    };
+  }
+
+  /** See EMPTY_GAME_SPECS: stub pending the Tela 04 field decision. */
+  async specs(organizationId: string, id: string): Promise<GameSpecsView> {
+    await this.repo.getByIdInOrgOrThrow(organizationId, id);
+    return EMPTY_GAME_SPECS;
   }
 
   async create(organizationId: string, dto: CreateGameDto, req: Request): Promise<GameView> {

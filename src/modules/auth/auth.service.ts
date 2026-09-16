@@ -194,37 +194,53 @@ export class AuthService {
     const user = await this.repo.findUserByEmail(email);
     // Never reveal whether the account exists.
     if (user && user.isActive) {
-      const rawToken = randomBytes(32).toString('base64url');
-      const tokenHash = this.token.hashToken(rawToken);
-      const ttlMs = this.config.get<number>('auth.passwordResetTtlMs')!;
-      const expiresAt = new Date(Date.now() + ttlMs);
-
-      await this.repo.invalidateUnusedTokens(user.id);
-      await this.repo.insertPasswordResetToken({
-        id: newId(),
-        userId: user.id,
-        tokenHash,
-        expiresAt,
-      });
-
-      const origin = this.config.get<string>('web.origin')!;
-      const link = `${origin}/redefinir-senha?token=${rawToken}`;
-      await this.mail.sendEmail({
-        to: user.email,
-        subject: 'Recuperação de senha — OrbitPlay',
-        text: [
-          'Recebemos um pedido para redefinir sua senha.',
-          '',
-          `Abra o link (válido por tempo limitado): ${link}`,
-          '',
-          `Se preferir, use o token diretamente: ${rawToken}`,
-          '',
-          'Se você não solicitou isso, ignore este e-mail.',
-        ].join('\n'),
-      });
+      await this.issuePasswordResetToken(user);
     }
 
     return { message: GENERIC_FORGOT_MESSAGE };
+  }
+
+  /**
+   * Admin-triggered reset (ORB-M2-07, Tela 20 RN-04): same token/e-mail flow
+   * as `forgotPassword`, for a member an owner/admin already identified via
+   * the members list — no need to hide whether the account exists, unlike the
+   * anonymous `forgotPassword` entry point.
+   */
+  async triggerPasswordReset(userId: string): Promise<void> {
+    const user = await this.repo.findUserById(userId);
+    if (!user || !user.isActive) return;
+    await this.issuePasswordResetToken(user);
+  }
+
+  private async issuePasswordResetToken(user: { id: string; email: string }): Promise<void> {
+    const rawToken = randomBytes(32).toString('base64url');
+    const tokenHash = this.token.hashToken(rawToken);
+    const ttlMs = this.config.get<number>('auth.passwordResetTtlMs')!;
+    const expiresAt = new Date(Date.now() + ttlMs);
+
+    await this.repo.invalidateUnusedTokens(user.id);
+    await this.repo.insertPasswordResetToken({
+      id: newId(),
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
+
+    const origin = this.config.get<string>('web.origin')!;
+    const link = `${origin}/redefinir-senha?token=${rawToken}`;
+    await this.mail.sendEmail({
+      to: user.email,
+      subject: 'Recuperação de senha — OrbitPlay',
+      text: [
+        'Recebemos um pedido para redefinir sua senha.',
+        '',
+        `Abra o link (válido por tempo limitado): ${link}`,
+        '',
+        `Se preferir, use o token diretamente: ${rawToken}`,
+        '',
+        'Se você não solicitou isso, ignore este e-mail.',
+      ].join('\n'),
+    });
   }
 
   async resetPassword(dto: ResetPasswordDto, req: Request): Promise<{ message: string }> {

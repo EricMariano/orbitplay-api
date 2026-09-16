@@ -69,6 +69,30 @@ export const gameListQuerySchema = paginationQuerySchema.extend({
   status: z.enum(gameStatusValues).optional(),
 });
 
+/** Tela 05 — header + aggregates for the game detail screen. */
+export const gameSummarySchema = z.object({
+  game: gameSchema,
+  availability: z.enum(['available', 'unavailable']),
+  metrics: gameMetricsSchema,
+  canEdit: z.boolean(),
+});
+
+export const platformValues = ['windows', 'macos', 'linux', 'android', 'ios', 'web'] as const;
+
+/**
+ * Stub (BACKEND-SPEC.md §9, pendência #1): the "Novo jogo" (Tela 04) fields —
+ * supported platforms, languages, min/recommended requirements — are still
+ * undefined in the handoff, and `games` has no columns for them yet. Every
+ * field is optional in the design contract; returning empty defaults now
+ * closes the endpoint's shape without inventing schema ahead of that call.
+ */
+export const gameSpecsSchema = z.object({
+  minimumRequirements: z.record(z.string(), z.string()).optional(),
+  recommendedRequirements: z.record(z.string(), z.string()).optional(),
+  supportedPlatforms: z.array(z.enum(platformValues)).optional(),
+  languages: z.array(z.string()).optional(),
+});
+
 export const assetUploadUrlRequestSchema = z.object({
   kind: z.enum(assetKindValues),
   contentType: z.enum(assetContentTypeValues),
@@ -107,6 +131,8 @@ export class GameDto extends createZodDto(gameSchema) {}
 export class GameListDto extends createZodDto(gameListSchema) {}
 export class GameListQueryDto extends createZodDto(gameListQuerySchema) {}
 export class GameMetricsDto extends createZodDto(gameMetricsSchema) {}
+export class GameSummaryDto extends createZodDto(gameSummarySchema) {}
+export class GameSpecsDto extends createZodDto(gameSpecsSchema) {}
 export class AssetUploadUrlRequestDto extends createZodDto(assetUploadUrlRequestSchema) {}
 export class ConfirmAssetRequestDto extends createZodDto(confirmAssetRequestSchema) {}
 export class UploadUrlResponseDto extends createZodDto(uploadUrlResponseSchema) {}
@@ -115,6 +141,8 @@ export class GameAssetDto extends createZodDto(gameAssetSchema) {}
 export type GameView = z.infer<typeof gameSchema>;
 export type GameMetricsView = z.infer<typeof gameMetricsSchema>;
 export type GameListQuery = z.infer<typeof gameListQuerySchema>;
+export type GameSummaryView = z.infer<typeof gameSummarySchema>;
+export type GameSpecsView = z.infer<typeof gameSpecsSchema>;
 export type AssetKind = (typeof assetKindValues)[number];
 export type AssetUploadUrlRequest = z.infer<typeof assetUploadUrlRequestSchema>;
 export type ConfirmAssetRequest = z.infer<typeof confirmAssetRequestSchema>;
@@ -127,4 +155,11 @@ export const EMPTY_GAME_METRICS: GameMetricsView = {
   sessionsValid: 0,
   playersTotal: 0,
   averageRating: null,
+};
+
+export const EMPTY_GAME_SPECS: GameSpecsView = {
+  minimumRequirements: {},
+  recommendedRequirements: {},
+  supportedPlatforms: [],
+  languages: [],
 };

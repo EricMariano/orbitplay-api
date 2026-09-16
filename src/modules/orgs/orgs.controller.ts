@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -16,8 +17,10 @@ import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { Role, STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
+import { MessageResponseDto } from '../auth/dto/auth.dto';
 import {
   ChangeRoleDto,
+  ChangeStatusDto,
   InviteMemberDto,
   MemberDto,
   MemberListDto,
@@ -90,5 +93,43 @@ export class OrgsController {
     @Req() req: Request,
   ) {
     return this.orgs.changeMemberRole(organizationId, userId, dto, req);
+  }
+
+  /** Owner/admin — activate/disable a member (Tela 20 RN-06). */
+  @Patch('members/:userId/status')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @ZodResponse({ type: MemberDto })
+  changeStatus(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('userId') userId: string,
+    @Body() dto: ChangeStatusDto,
+    @Req() req: Request,
+  ) {
+    return this.orgs.changeMemberStatus(organizationId, userId, dto, req);
+  }
+
+  /** Owner/admin — never sets/sees the password, only dispatches the reset e-mail (RN-04). */
+  @Post('members/:userId/password-reset')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ZodResponse({ status: HttpStatus.ACCEPTED, type: MessageResponseDto })
+  triggerPasswordReset(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('userId') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.orgs.triggerMemberPasswordReset(organizationId, userId, req);
+  }
+
+  /** Owner-only — logical deactivation, RN-06. */
+  @Delete('members/:userId')
+  @Roles(Role.OWNER)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeMember(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('userId') userId: string,
+    @Req() req: Request,
+  ) {
+    await this.orgs.removeMember(organizationId, userId, req);
   }
 }

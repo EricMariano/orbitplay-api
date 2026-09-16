@@ -40,6 +40,6 @@ import { TokenService } from './token.service';
   ],
   controllers: [AuthController],
   providers: [AuthService, AuthRepository, PasswordService, TokenService],
-  exports: [JwtModule, PasswordService],
+  exports: [JwtModule, PasswordService, AuthService],
 })
 export class AuthModule {}

@@ -66,6 +66,16 @@ export const changeRoleSchema = z.object({
   confirm: z.literal(true, 'Confirmação explícita obrigatória'),
 });
 
+/**
+ * Change a member's status (ORB-M2-05, Tela 20). Same RN-02 treatment as role
+ * changes — critical action, explicit `confirm: true`. RN-03/RN-06: disabling
+ * the last active owner is refused (409); never a physical delete.
+ */
+export const changeStatusSchema = z.object({
+  status: z.enum(['active', 'invited', 'disabled']),
+  confirm: z.literal(true, 'Confirmação explícita obrigatória'),
+});
+
 export class OrgDto extends createZodDto(orgSchema) {}
 export class MemberDto extends createZodDto(memberSchema) {}
 export class MemberListQueryDto extends createZodDto(memberListQuerySchema) {}
@@ -73,6 +83,7 @@ export class MemberListDto extends createZodDto(memberListSchema) {}
 export class InviteMemberDto extends createZodDto(inviteMemberSchema) {}
 export class UpdateOrgDto extends createZodDto(updateOrgSchema) {}
 export class ChangeRoleDto extends createZodDto(changeRoleSchema) {}
+export class ChangeStatusDto extends createZodDto(changeStatusSchema) {}
 
 export type OrgView = z.infer<typeof orgSchema>;
 export type MemberView = z.infer<typeof memberSchema>;
@@ -80,3 +91,4 @@ export type MemberListQuery = z.infer<typeof memberListQuerySchema>;
 export type InviteMemberInput = z.infer<typeof inviteMemberSchema>;
 export type UpdateOrgInput = z.infer<typeof updateOrgSchema>;
 export type ChangeRoleInput = z.infer<typeof changeRoleSchema>;
+export type ChangeStatusInput = z.infer<typeof changeStatusSchema>;

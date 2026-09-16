@@ -16,7 +16,7 @@ import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
-import { STUDIO_ROLES } from '../../shared/auth/roles';
+import { STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
 import {
   AssetUploadUrlRequestDto,
   ConfirmAssetRequestDto,
@@ -25,6 +25,8 @@ import {
   GameDto,
   GameListDto,
   GameListQueryDto,
+  GameSpecsDto,
+  GameSummaryDto,
   UpdateGameDto,
   UploadUrlResponseDto,
 } from './dto/game.dto';
@@ -52,6 +54,22 @@ export class GamesController {
   @ZodResponse({ type: GameDto })
   get(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
     return this.games.get(organizationId, id);
+  }
+
+  @Get(':id/summary')
+  @ZodResponse({ type: GameSummaryDto })
+  summary(
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('role') role: RoleValue,
+    @Param('id') id: string,
+  ) {
+    return this.games.summary(organizationId, id, role);
+  }
+
+  @Get(':id/specs')
+  @ZodResponse({ type: GameSpecsDto })
+  specs(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
+    return this.games.specs(organizationId, id);
   }
 
   @Post()

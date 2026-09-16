@@ -56,6 +56,21 @@ export interface RoleChangeResult {
   member: MemberRoleRecord;
 }
 
+export interface ChangeMemberStatusInput {
+  organizationId: string;
+  userId: string;
+  status: 'active' | 'invited' | 'disabled';
+}
+
+export interface StatusChangeResult {
+  previousStatus: string;
+  member: MemberRoleRecord;
+}
+
+export interface RemoveMemberResult {
+  previousStatus: string;
+}
+
 /** Thrown when `memberships_org_user_unique` is hit (race-safe invite). */
 export class MemberAlreadyExistsError extends Error {
   constructor() {
@@ -260,50 +275,15 @@ export class OrgsRepository {
     if (!nextRoleId) {
       throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
     }
-    const ownerRoleId = await this.findRoleIdByKey('owner');
-    if (!ownerRoleId) {
-      throw new Error('Role "owner" missing from catalogue — run db:seed');
-    }
+    const ownerRoleId = await this.requireOwnerRoleId();
 
     return this.db.transaction(async (tx) => {
-      const activeOwners = await tx
-        .select({ userId: memberships.userId })
-        .from(memberships)
-        .where(
-          and(
-            eq(memberships.organizationId, input.organizationId),
-            eq(memberships.roleId, ownerRoleId),
-            eq(memberships.status, 'active'),
-            isNull(memberships.deletedAt),
-          ),
-        )
-        .for('update');
+      const activeOwners = await lockActiveOwners(tx, input.organizationId, ownerRoleId);
 
-      const rows = await tx
-        .select({
-          membershipId: memberships.id,
-          userId: users.id,
-          email: users.email,
-          displayName: users.displayName,
-          role: roles.key,
-          status: memberships.status,
-        })
-        .from(memberships)
-        .innerJoin(users, eq(memberships.userId, users.id))
-        .innerJoin(roles, eq(memberships.roleId, roles.id))
-        .where(
-          and(
-            eq(memberships.organizationId, input.organizationId),
-            eq(memberships.userId, input.userId),
-            isNull(memberships.deletedAt),
-          ),
-        )
-        .limit(1);
-
-      const current = rows[0];
+      const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
       if (!current) return null;
 
-      const previousRole = current.role as RoleValue;
+      const previousRole = current.role;
       const losesAnActiveOwner =
         previousRole === 'owner' && input.role !== 'owner' && current.status === 'active';
       if (losesAnActiveOwner && activeOwners.length <= 1) {
@@ -327,9 +307,149 @@ export class OrgsRepository {
       };
     });
   }
+
+  /**
+   * Change a member's status (ORB-M2-05). Same last-active-owner guard as
+   * `changeMemberRole` (RN-03/RN-06): disabling the org's only active owner
+   * is refused with a 409, never silently allowed.
+   */
+  async changeMemberStatus(input: ChangeMemberStatusInput): Promise<StatusChangeResult | null> {
+    if (!isUuid(input.userId)) return null;
+
+    const ownerRoleId = await this.requireOwnerRoleId();
+
+    return this.db.transaction(async (tx) => {
+      const activeOwners = await lockActiveOwners(tx, input.organizationId, ownerRoleId);
+
+      const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
+      if (!current) return null;
+
+      const losesAnActiveOwner =
+        current.role === 'owner' && current.status === 'active' && input.status !== 'active';
+      if (losesAnActiveOwner && activeOwners.length <= 1) {
+        throw new LastOwnerError();
+      }
+
+      await tx
+        .update(memberships)
+        .set({ status: input.status })
+        .where(eq(memberships.id, current.membershipId));
+
+      return {
+        previousStatus: current.status,
+        member: {
+          userId: current.userId,
+          email: current.email,
+          displayName: current.displayName,
+          role: current.role,
+          status: input.status,
+        },
+      };
+    });
+  }
+
+  /**
+   * Remove a member (ORB-M2-06). RN-06: always a logical deactivation
+   * (`deleted_at` + `status: disabled`), never a physical delete — history
+   * (audit, past test participation) stays intact. Same last-owner guard.
+   */
+  async removeMember(organizationId: string, userId: string): Promise<RemoveMemberResult | null> {
+    if (!isUuid(userId)) return null;
+
+    const ownerRoleId = await this.requireOwnerRoleId();
+
+    return this.db.transaction(async (tx) => {
+      const activeOwners = await lockActiveOwners(tx, organizationId, ownerRoleId);
+
+      const current = await findMembershipForUpdate(tx, organizationId, userId);
+      if (!current) return null;
+
+      const losesAnActiveOwner = current.role === 'owner' && current.status === 'active';
+      if (losesAnActiveOwner && activeOwners.length <= 1) {
+        throw new LastOwnerError();
+      }
+
+      await tx
+        .update(memberships)
+        .set({ status: 'disabled', deletedAt: new Date() })
+        .where(eq(memberships.id, current.membershipId));
+
+      return { previousStatus: current.status };
+    });
+  }
+
+  private async requireOwnerRoleId(): Promise<string> {
+    const ownerRoleId = await this.findRoleIdByKey('owner');
+    if (!ownerRoleId) {
+      throw new Error('Role "owner" missing from catalogue — run db:seed');
+    }
+    return ownerRoleId;
+  }
+
+  /** Read-only membership lookup — no row lock, used outside mutating flows. */
+  async findMembership(organizationId: string, userId: string): Promise<MemberRoleRecord | null> {
+    const row = await findMembershipForUpdate(this.db, organizationId, userId);
+    return row ?? null;
+  }
 }
 
 /** Escape `\`, `%` and `_` so user search cannot broaden an ILIKE pattern. */
 function escapeIlike(value: string): string {
   return value.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+}
+
+type Tx = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/**
+ * Locks every active owner row of the org `FOR UPDATE` so two concurrent
+ * demotions/disables/removals can't each read "two owners" and both succeed,
+ * leaving none. Shared by changeMemberRole, changeMemberStatus and
+ * removeMember (RN-03).
+ */
+async function lockActiveOwners(
+  tx: Tx,
+  organizationId: string,
+  ownerRoleId: string,
+): Promise<{ userId: string }[]> {
+  return tx
+    .select({ userId: memberships.userId })
+    .from(memberships)
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.roleId, ownerRoleId),
+        eq(memberships.status, 'active'),
+        isNull(memberships.deletedAt),
+      ),
+    )
+    .for('update');
+}
+
+async function findMembershipForUpdate(
+  db: Database | Tx,
+  organizationId: string,
+  userId: string,
+): Promise<(MemberRoleRecord & { membershipId: string }) | undefined> {
+  const rows = await db
+    .select({
+      membershipId: memberships.id,
+      userId: users.id,
+      email: users.email,
+      displayName: users.displayName,
+      role: roles.key,
+      status: memberships.status,
+    })
+    .from(memberships)
+    .innerJoin(users, eq(memberships.userId, users.id))
+    .innerJoin(roles, eq(memberships.roleId, roles.id))
+    .where(
+      and(
+        eq(memberships.organizationId, organizationId),
+        eq(memberships.userId, userId),
+        isNull(memberships.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] as (MemberRoleRecord & { membershipId: string }) | undefined;
 }

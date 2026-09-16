@@ -119,7 +119,7 @@ paths:
         (BullMQ). Serve como readiness probe do deploy — uma instância que não
         consegue enfileirar job não deve receber tráfego.
       security: []
-      x-status: todo
+      x-status: implemented
       responses:
         '200':
           description: Pronto para receber tráfego
@@ -478,7 +478,7 @@ paths:
       description: |
         RN-06 (Tela 20): desativação lógica; não há exclusão física quando há
         histórico de testes associado. Desativar o último Owner ativo → `409`.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/UserId'
       requestBody:
@@ -507,7 +507,7 @@ paths:
       description: |
         RN-04 (Tela 20): o administrador **nunca** define nem vê a senha de
         outro usuário; apenas dispara o fluxo de redefinição.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
@@ -525,7 +525,7 @@ paths:
       summary: Remover membro
       description: |
         RN-06: desativação lógica quando há histórico associado. Papel `owner`.
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/UserId'
       responses:
@@ -543,7 +543,7 @@ paths:
       tags: [orgs]
       summary: Consultar trilha de auditoria
       description: 'Papéis: `owner`, `admin`. Escopado pela organização.'
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
@@ -740,7 +740,7 @@ paths:
       tags: [games]
       summary: Resumo do jogo para a tela de detalhes
       description: 'Tela 05. Banner, disponibilidade e indicadores agregados.'
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:
@@ -800,7 +800,7 @@ paths:
     get:
       tags: [games]
       summary: Especificações técnicas do jogo
-      x-status: todo
+      x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Id'
       responses:

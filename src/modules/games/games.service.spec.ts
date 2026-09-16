@@ -4,7 +4,7 @@ import type { GameAssetRow } from '../../infra/database/schema/game-assets';
 import type { GameRow } from '../../infra/database/schema/games';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { StoragePort } from '../../shared/ports/storage.port';
-import { EMPTY_GAME_METRICS, MAX_GAME_ASSET_BYTES } from './dto/game.dto';
+import { EMPTY_GAME_METRICS, EMPTY_GAME_SPECS, MAX_GAME_ASSET_BYTES } from './dto/game.dto';
 import { GamesService } from './games.service';
 import type { GamesRepository } from './games.repository';
 
@@ -248,5 +248,45 @@ describe('GamesService', () => {
 
     expect(view.id).toBe(asset.id);
     expect(repo.createAssetInOrg).not.toHaveBeenCalled();
+  });
+
+  describe('summary', () => {
+    it('marks an active game available and a draft one unavailable', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow({ status: 'active' }));
+      const active = await service.summary(ORG, GAME_ID, 'owner');
+      expect(active.availability).toBe('available');
+
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow({ status: 'draft' }));
+      const draft = await service.summary(ORG, GAME_ID, 'owner');
+      expect(draft.availability).toBe('unavailable');
+    });
+
+    it('sets canEdit from the caller role — studio+ true, player false', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow());
+
+      expect((await service.summary(ORG, GAME_ID, 'studio')).canEdit).toBe(true);
+      expect((await service.summary(ORG, GAME_ID, 'player')).canEdit).toBe(false);
+    });
+
+    it('embeds the full game view and its metrics', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow());
+      const result = await service.summary(ORG, GAME_ID, 'owner');
+
+      expect(result.game.id).toBe(GAME_ID);
+      expect(result.metrics).toEqual(EMPTY_GAME_METRICS);
+    });
+  });
+
+  describe('specs', () => {
+    it('returns the empty stub shape once the game is confirmed to exist', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow());
+      const result = await service.specs(ORG, GAME_ID);
+      expect(result).toEqual(EMPTY_GAME_SPECS);
+    });
+
+    it('propagates the repository 404 for a missing game', async () => {
+      repo.getByIdInOrgOrThrow.mockRejectedValue(Object.assign(new Error('nf'), { status: 404 }));
+      await expect(service.specs(ORG, 'missing')).rejects.toMatchObject({ status: 404 });
+    });
   });
 });
