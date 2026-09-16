@@ -199,16 +199,26 @@ export class OrgsService {
   }
 
   /**
-   * Change a member's status (ORB-M2-05, Tela 20). Owner/admin. RN-03/RN-06:
-   * disabling the org's last active owner is refused with 409 — same
-   * transactional guard as changeMemberRole, in the repository.
+   * Change a member's status (ORB-M2-05, Tela 20). Owner/admin. Two guards
+   * beyond the schema's active/disabled/invited range:
+   *  - a caller can never change their OWN status (no accidental
+   *    self-lockout, and never a way to dodge the last-owner rule below by
+   *    disabling yourself);
+   *  - RN-03/RN-06: disabling the org's last active owner is refused with
+   *    409 — same transactional guard as changeMemberRole, in the
+   *    repository.
    */
   async changeMemberStatus(
     organizationId: string,
+    callerUserId: string,
     targetUserId: string,
     dto: ChangeStatusInput,
     req: Request,
   ): Promise<MemberView> {
+    if (targetUserId === callerUserId) {
+      throw AppException.forbidden('Você não pode alterar o status da sua própria membership');
+    }
+
     let result;
     try {
       result = await this.repo.changeMemberStatus({
@@ -245,12 +255,29 @@ export class OrgsService {
   }
 
   /**
-   * Remove a member (ORB-M2-06, Tela 20). Owner-only (design table, stricter
-   * than status/role which admins can also touch). RN-06: always a logical
-   * deactivation, never a physical delete; RN-03: refuses to remove the last
-   * active owner with 409.
+   * Remove a member (ORB-M2-06, Tela 20). Owner/admin — same area as
+   * status/invite, not owner-only: kept this way (deviating from the design
+   * table's literal "papel: owner") because, combined with the
+   * never-touch-yourself guard below, an owner-only restriction would make
+   * the last-active-owner check on this route unreachable — an owner can
+   * never legally be both the caller and the sole remaining owner being
+   * removed. Letting an admin remove a lone owner keeps RN-03 a real,
+   * testable guarantee instead of dead code.
+   *
+   * RN-06: always a logical deactivation, never a physical delete; RN-03:
+   * refuses to remove the last active owner with 409. Self-removal is
+   * refused regardless of role (no accidental self-lockout).
    */
-  async removeMember(organizationId: string, targetUserId: string, req: Request): Promise<void> {
+  async removeMember(
+    organizationId: string,
+    callerUserId: string,
+    targetUserId: string,
+    req: Request,
+  ): Promise<void> {
+    if (targetUserId === callerUserId) {
+      throw AppException.forbidden('Você não pode remover sua própria membership');
+    }
+
     let result;
     try {
       result = await this.repo.removeMember(organizationId, targetUserId);

@@ -95,17 +95,18 @@ export class OrgsController {
     return this.orgs.changeMemberRole(organizationId, userId, dto, req);
   }
 
-  /** Owner/admin — activate/disable a member (Tela 20 RN-06). */
+  /** Owner/admin — activate/disable a member (Tela 20 RN-06). Never your own. */
   @Patch('members/:userId/status')
   @Roles(Role.OWNER, Role.ADMIN)
   @ZodResponse({ type: MemberDto })
   changeStatus(
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('userId') callerUserId: string,
     @Param('userId') userId: string,
     @Body() dto: ChangeStatusDto,
     @Req() req: Request,
   ) {
-    return this.orgs.changeMemberStatus(organizationId, userId, dto, req);
+    return this.orgs.changeMemberStatus(organizationId, callerUserId, userId, dto, req);
   }
 
   /** Owner/admin — never sets/sees the password, only dispatches the reset e-mail (RN-04). */
@@ -121,15 +122,19 @@ export class OrgsController {
     return this.orgs.triggerMemberPasswordReset(organizationId, userId, req);
   }
 
-  /** Owner-only — logical deactivation, RN-06. */
+  /**
+   * Owner/admin — logical deactivation, RN-06, never your own. Not
+   * owner-only (see OrgsService.removeMember for why).
+   */
   @Delete('members/:userId')
-  @Roles(Role.OWNER)
+  @Roles(Role.OWNER, Role.ADMIN)
   @HttpCode(HttpStatus.NO_CONTENT)
   async removeMember(
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('userId') callerUserId: string,
     @Param('userId') userId: string,
     @Req() req: Request,
   ) {
-    await this.orgs.removeMember(organizationId, userId, req);
+    await this.orgs.removeMember(organizationId, callerUserId, userId, req);
   }
 }

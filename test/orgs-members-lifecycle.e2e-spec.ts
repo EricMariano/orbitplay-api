@@ -23,11 +23,13 @@ const STATUS_ORG = {
   member: { id: '01960000-0000-7000-8000-0000000000a3', email: 'membro@status-org.dev' },
 };
 
-/** A separate org (single owner + one member) for the DELETE tests. */
+/** A separate org (owner + admin + two members) for the DELETE tests. */
 const REMOVE_ORG = {
   orgId: '01970000-0000-7000-8000-0000000000f1',
   owner: { id: '01970000-0000-7000-8000-0000000000a1', email: 'owner@remove-org.dev' },
+  admin: { id: '01970000-0000-7000-8000-0000000000a4', email: 'admin@remove-org.dev' },
   member: { id: '01970000-0000-7000-8000-0000000000a2', email: 'membro@remove-org.dev' },
+  member2: { id: '01970000-0000-7000-8000-0000000000a3', email: 'membro2@remove-org.dev' },
 };
 
 async function seedOrg(
@@ -150,8 +152,19 @@ describe('Org members — change status (e2e)', () => {
     expect(res.status).toBe(403);
   });
 
+  it('refuses to let a caller change their own status: 403 (self-protection)', async () => {
+    const res = await patchStatus(adminToken, STATUS_ORG.admin.id, {
+      status: 'disabled',
+      confirm: true,
+    });
+    expect(res.status).toBe(403);
+  });
+
   it('refuses to disable the last active owner with 409 (RN-03/RN-06)', async () => {
-    const res = await patchStatus(ownerToken, STATUS_ORG.owner.id, {
+    // Admin (not the owner) disables the sole owner — self-protection above
+    // guards the "same person" case; this exercises the last-owner guard on
+    // its own, with a different caller than the target.
+    const res = await patchStatus(adminToken, STATUS_ORG.owner.id, {
       status: 'disabled',
       confirm: true,
     });
@@ -267,7 +280,7 @@ describe('Org members — remove (e2e)', () => {
   let app: INestApplication;
   let sql: postgres.Sql;
   let ownerToken: string;
-  let seededAdminToken: string;
+  let adminToken: string;
 
   beforeAll(async () => {
     app = await createE2EApp();
@@ -275,11 +288,13 @@ describe('Org members — remove (e2e)', () => {
 
     await seedOrg(sql, { orgId: REMOVE_ORG.orgId, name: 'Remove Org', slug: 'remove-org' }, [
       { ...REMOVE_ORG.owner, role: 'owner' },
+      { ...REMOVE_ORG.admin, role: 'admin' },
       { ...REMOVE_ORG.member, role: 'studio' },
+      { ...REMOVE_ORG.member2, role: 'studio' },
     ]);
 
     ownerToken = await bearer(app, REMOVE_ORG.owner.email);
-    seededAdminToken = await bearer(app, SEED_EMAILS.admin);
+    adminToken = await bearer(app, REMOVE_ORG.admin.email);
   });
 
   afterAll(async () => {
@@ -287,10 +302,10 @@ describe('Org members — remove (e2e)', () => {
     await app.close();
   });
 
-  it('admin cannot remove a member: 403 (owner-only)', async () => {
+  it('refuses to let a caller remove themselves: 403 (self-protection)', async () => {
     const res = await request(app.getHttpServer())
-      .delete(`/orgs/members/${REMOVE_ORG.member.id}`)
-      .set('Authorization', `Bearer ${seededAdminToken}`);
+      .delete(`/orgs/members/${REMOVE_ORG.owner.id}`)
+      .set('Authorization', `Bearer ${ownerToken}`);
     expect(res.status).toBe(403);
   });
 
@@ -331,10 +346,20 @@ describe('Org members — remove (e2e)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('admin also removes a member: 204 (not owner-only — see OrgsService.removeMember)', async () => {
+    const res = await request(app.getHttpServer())
+      .delete(`/orgs/members/${REMOVE_ORG.member2.id}`)
+      .set('Authorization', `Bearer ${adminToken}`);
+    expect(res.status).toBe(204);
+  });
+
   it('refuses to remove the last active owner with 409 (RN-03)', async () => {
+    // Admin (not the owner) removes the sole owner — self-protection above
+    // guards the "same person" case; this exercises the last-owner guard on
+    // its own, with a different caller than the target.
     const res = await request(app.getHttpServer())
       .delete(`/orgs/members/${REMOVE_ORG.owner.id}`)
-      .set('Authorization', `Bearer ${ownerToken}`);
+      .set('Authorization', `Bearer ${adminToken}`);
 
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('CONFLICT');

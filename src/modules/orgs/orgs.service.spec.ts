@@ -349,6 +349,7 @@ describe('OrgsService changeMemberRole', () => {
 
 describe('OrgsService changeMemberStatus', () => {
   const TARGET = '01920000-0000-7000-8000-0000000000c3';
+  const CALLER = '01920000-0000-7000-8000-0000000000c6';
 
   let repo: { changeMemberStatus: ReturnType<typeof vi.fn> };
   let service: OrgsService;
@@ -383,6 +384,7 @@ describe('OrgsService changeMemberStatus', () => {
   it('returns the member with the new status', async () => {
     const view = await service.changeMemberStatus(
       ORG,
+      CALLER,
       TARGET,
       { status: 'disabled', confirm: true },
       req,
@@ -396,11 +398,18 @@ describe('OrgsService changeMemberStatus', () => {
     });
   });
 
+  it('refuses to let a caller change their own status: 403', async () => {
+    await expect(
+      service.changeMemberStatus(ORG, TARGET, TARGET, { status: 'disabled', confirm: true }, req),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(repo.changeMemberStatus).not.toHaveBeenCalled();
+  });
+
   it('maps the last-owner rule to a 409 conflict (RN-03/RN-06)', async () => {
     repo.changeMemberStatus.mockRejectedValue(new LastOwnerError());
 
     await expect(
-      service.changeMemberStatus(ORG, TARGET, { status: 'disabled', confirm: true }, req),
+      service.changeMemberStatus(ORG, CALLER, TARGET, { status: 'disabled', confirm: true }, req),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -408,12 +417,18 @@ describe('OrgsService changeMemberStatus', () => {
     repo.changeMemberStatus.mockResolvedValue(null);
 
     await expect(
-      service.changeMemberStatus(ORG, TARGET, { status: 'disabled', confirm: true }, req),
+      service.changeMemberStatus(ORG, CALLER, TARGET, { status: 'disabled', confirm: true }, req),
     ).rejects.toMatchObject({ status: 404 });
   });
 
   it('records the status change in the audit trail (RN-05)', async () => {
-    await service.changeMemberStatus(ORG, TARGET, { status: 'disabled', confirm: true }, req);
+    await service.changeMemberStatus(
+      ORG,
+      CALLER,
+      TARGET,
+      { status: 'disabled', confirm: true },
+      req,
+    );
 
     const drafts = drainAuditDrafts(req);
     expect(drafts).toHaveLength(1);
@@ -429,6 +444,7 @@ describe('OrgsService changeMemberStatus', () => {
 
 describe('OrgsService removeMember', () => {
   const TARGET = '01920000-0000-7000-8000-0000000000c4';
+  const CALLER = '01920000-0000-7000-8000-0000000000c7';
 
   let repo: { removeMember: ReturnType<typeof vi.fn> };
   let service: OrgsService;
@@ -450,24 +466,35 @@ describe('OrgsService removeMember', () => {
   });
 
   it('removes the member', async () => {
-    await service.removeMember(ORG, TARGET, req);
+    await service.removeMember(ORG, CALLER, TARGET, req);
     expect(repo.removeMember).toHaveBeenCalledWith(ORG, TARGET);
+  });
+
+  it('refuses to let a caller remove themselves: 403', async () => {
+    await expect(service.removeMember(ORG, TARGET, TARGET, req)).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(repo.removeMember).not.toHaveBeenCalled();
   });
 
   it('maps the last-owner rule to a 409 conflict (RN-03)', async () => {
     repo.removeMember.mockRejectedValue(new LastOwnerError());
 
-    await expect(service.removeMember(ORG, TARGET, req)).rejects.toMatchObject({ status: 409 });
+    await expect(service.removeMember(ORG, CALLER, TARGET, req)).rejects.toMatchObject({
+      status: 409,
+    });
   });
 
   it('404s when the user is not a member of this organization', async () => {
     repo.removeMember.mockResolvedValue(null);
 
-    await expect(service.removeMember(ORG, TARGET, req)).rejects.toMatchObject({ status: 404 });
+    await expect(service.removeMember(ORG, CALLER, TARGET, req)).rejects.toMatchObject({
+      status: 404,
+    });
   });
 
   it('records a logical-deactivation audit entry (RN-05/RN-06)', async () => {
-    await service.removeMember(ORG, TARGET, req);
+    await service.removeMember(ORG, CALLER, TARGET, req);
 
     const drafts = drainAuditDrafts(req);
     expect(drafts).toHaveLength(1);

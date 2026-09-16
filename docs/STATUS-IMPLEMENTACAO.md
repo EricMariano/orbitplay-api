@@ -44,17 +44,19 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 ### M2 — Orgs (`src/modules/orgs` + `src/modules/audit`)
 
-| Endpoint                                     | Status | Observação                                                 |
-| -------------------------------------------- | ------ | ---------------------------------------------------------- |
-| `GET /orgs/current`                          | ✅     |                                                            |
-| `GET /orgs/members`                          | ✅     | paginação por cursor + filtros `q`/`role`/`status`         |
-| `PATCH /orgs/current`                        | ✅     | atualiza `name`/`slug`; owner/admin; 409 no slug duplicado |
-| `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin                 |
-| `PATCH /orgs/members/{userId}/role`          | ✅     | owner-only; `confirm:true`; último owner → 409             |
-| `PATCH /orgs/members/{userId}/status`        | ✅     | owner/admin; `confirm:true`; último owner ativo → 409      |
-| `POST /orgs/members/{userId}/password-reset` | ✅     | owner/admin; dispara e-mail, nunca expõe a senha           |
-| `DELETE /orgs/members/{userId}`              | ✅     | owner-only; desativação lógica; último owner ativo → 409   |
-| `GET /audit-logs`                            | ✅     | paginação por cursor + filtros actor/action/from/to        |
+| Endpoint                                     | Status | Observação                                                                                              |
+| -------------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------- |
+| `GET /orgs/current`                          | ✅     |                                                                                                         |
+| `GET /orgs/members`                          | ✅     | paginação por cursor + filtros `q`/`role`/`status`                                                      |
+| `PATCH /orgs/current`                        | ✅     | atualiza `name`/`slug`; owner/admin; 409 no slug duplicado                                              |
+| `POST /orgs/members/invite`                  | ✅     | membership `invited` + e-mail; owner/admin                                                              |
+| `PATCH /orgs/members/{userId}/role`          | ✅     | owner-only; `confirm:true`; último owner → 409                                                          |
+| `PATCH /orgs/members/{userId}/status`        | ✅     | owner/admin; `confirm:true`; nunca a si mesmo; último owner ativo → 409                                 |
+| `POST /orgs/members/{userId}/password-reset` | ✅     | owner/admin; dispara e-mail, nunca expõe a senha                                                        |
+| `DELETE /orgs/members/{userId}`              | ✅     | owner/admin (não owner-only — ver nota); nunca a si mesmo; desativação lógica; último owner ativo → 409 |
+| `GET /audit-logs`                            | ✅     | paginação por cursor + filtros actor/action/from/to                                                     |
+
+> **Nota (desvio do design):** `DELETE /orgs/members/{userId}` está como `owner`/`admin`, não "owner" puro como a tabela do `BACKEND-SPEC.md` §3 lista. Combinado com a auto-proteção (ninguém altera/remove a própria membership), "owner-only" tornaria a regra do último owner ativo (RN-03) **inalcançável** nesse endpoint — um owner nunca pode ser ao mesmo tempo quem chama e o único owner restante. Permitir admin mantém a regra testável de fato.
 
 ### M3 — Games (`src/modules/games`)
 

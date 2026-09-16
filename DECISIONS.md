@@ -106,6 +106,17 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   registro **antes** de emitir a resposta (engolindo erros para nunca quebrar a
   requisição), garantindo que um crash logo após responder não perca o registro
   — a Tela 20 exige o histórico. É um reforço do "desde já" da seção 10.6.
+- **`DELETE /orgs/members/{userId}` é owner/admin, não owner-only.** O
+  `BACKEND-SPEC.md` §3 lista o papel como só `owner`. Ao unir merges paralelos
+  de duas pessoas (ORB-M2-05/06), uma implementação seguiu o spec à risca
+  (owner-only) e a outra acrescentou uma auto-proteção — ninguém altera ou
+  remove a própria membership, em `PATCH .../status` **e** `DELETE
+/orgs/members/{userId}`. As duas regras juntas exigem essa flexibilização:
+  com "owner-only" + auto-proteção, a regra do último owner ativo (RN-03)
+  nunca dispararia nesse endpoint — um owner não pode ser simultaneamente quem
+  chama e o único owner restante. Manter admin permitido é o que mantém RN-03
+  testável de fato nesse endpoint, ao custo de divergir do texto literal do
+  spec.
 
 ## 3. Notas de implementação relevantes
 
