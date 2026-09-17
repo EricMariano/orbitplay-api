@@ -9,6 +9,8 @@ export const JobName = {
   MEDIA_TRANSCODE: 'media.transcode',
   /** Extract an audio sidecar so ASR can plug in later (deferred). */
   MEDIA_EXTRACT_AUDIO: 'media.extract-audio',
+  /** Run the build validation pipeline (checksum, malware scan, metadata). */
+  BUILD_VALIDATE: 'build.validate',
 } as const;
 
 export type JobNameValue = (typeof JobName)[keyof typeof JobName];

@@ -20,6 +20,8 @@ import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
+import { TestModelsModule } from './modules/test-models/test-models.module';
+import { TestsModule } from './modules/tests/tests.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
@@ -76,6 +78,8 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     OrgsModule,
     GamesModule,
     MediaModule,
+    TestModelsModule,
+    TestsModule,
   ],
   providers: [
     // Order matters: authenticate, THEN authorize.

@@ -1,5 +1,6 @@
 import type { Job } from 'bullmq';
 import { JobName } from '../infra/queue/queue.constants';
+import { processBuildValidate } from './build.processor';
 import type { WorkerDeps } from './deps';
 import { processMediaExtractAudio, processMediaTranscode } from './media.processor';
 
@@ -13,6 +14,9 @@ export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
     case JobName.MEDIA_EXTRACT_AUDIO:
       await processMediaExtractAudio(deps, job.data.recordingId as string);
       return { recordingId: job.data.recordingId };
+    case JobName.BUILD_VALIDATE:
+      await processBuildValidate(deps, job.data.buildId as string);
+      return { buildId: job.data.buildId };
     default:
       throw new Error(`Unknown job: ${job.name}`);
   }

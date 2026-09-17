@@ -156,3 +156,56 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   é `status = 'active'`: um owner convidado ainda não consegue entrar
   (`findActiveMembership` exige `active`), então contá-lo permitiria rebaixar o
   único owner real e deixar a organização sem ninguém que possa agir.
+- **Catálogo de `GET /test-models` (M4) é estático no código, com copy
+  placeholder.** `src/modules/test-models/test-models.catalog.ts` não lê de
+  tabela nem de env — é uma constante em memória, como o `BACKEND-SPEC.md`
+  pede ("requisitos técnicos vêm da configuração do backend"). `name`,
+  `description`, `deliverables` e `technicalRequirements` dos 4 modelos são
+  texto **provisório**, sem handoff de produto/Figma para essa tela; os campos
+  que o contrato de fato governa (`key`, `requiresTelemetry`,
+  `available`/`unavailableReason`) seguem `BACKEND-SPEC.md` §M4 à risca —
+  `free_exploration_telemetry` é o único `available:false` (Orbit Plug-in
+  deferido, §10). Substituir a copy quando o conteúdo oficial chegar; não
+  requer migração.
+- **M5 (wizard de testes) expõe os enums do Drizzle, não os do
+  `openapi.design.yaml`.** O design ficou desatualizado em relação à migração
+  0002: `TestStatus` no design é `draft/active/paused/closed/expired`, o banco
+  tem `draft/published/paused/finished/expired`; o mesmo vale para
+  `QuestionType` (`open_text`/`nps` no banco vs. `short_text`/`rating` no
+  design) e para `Build.status`/`ValidationStep.status`/`.key`
+  (`plugin_manifest` no banco vs. `platform_support` no design). Como em todo
+  o resto do projeto, o schema já migrado é a fonte da verdade — a API expõe
+  os valores do enum diretamente, sem camada de tradução. `PendingValidation`
+  segue o formato do design (`{step, code, message}`); o `422` de
+  `POST /tests/{id}/publish` usa `fieldErrors` (`code → message`) porque o
+  `HttpExceptionFilter` só repassa `code`/`message`/`fieldErrors` de qualquer
+  exceção.
+- **`estimatedReach` (Etapa 4) é calculado de verdade, com o que existe hoje.**
+  Conta jogadores ativos (`memberships.role = player`, `status = active`) cuja
+  `birthdate` cai dentro de `[ageMin, ageMax]`, limitado a `quantity`.
+  `locations`/`archetypes`/`deviceRequirements` são persistidos mas **não**
+  filtram a contagem — `users` não tem essas colunas nesta fase (mesmo padrão
+  de stub documentado do `GameSpecs`). Zero jogadores elegíveis →
+  `estimatedReach: 0`, que é o que bloqueia o publish (RN-01), não uma
+  validação especial na própria rota de audiência.
+- **Uma build por teste é regra de aplicação, não de schema.** `builds` não
+  tem UNIQUE em `test_id` (DECISIONS.md §1.3 já registrava isso). O confirm
+  (`POST /tests/{id}/build`) troca automaticamente uma build `failed`
+  (RN-05 — falha permite nova tentativa sem passo extra); uma build
+  `processing`/`validated` exige `DELETE /tests/{id}/build` explícito antes de
+  enviar outra. Depois de publicado, tanto o confirm quanto o DELETE recusam
+  com `409` — a build fica congelada.
+- **`currentStep` só anda para frente.** Cada etapa bem-sucedida avança o
+  ponteiro para, no mínimo, a próxima etapa; editar uma etapa já concluída
+  (ex.: trocar o modelo depois de já ter enviado o formulário) não retrocede o
+  wizard. A única exceção é `DELETE /tests/{id}/build`, que volta o ponteiro
+  para `build` de propósito — build removida é build que precisa ser reenviada
+  antes de seguir. `pendingValidations` é sempre recalculado a partir dos
+  dados reais (não do `currentStep`), então ele é o que de fato bloqueia o
+  publish.
+- **`POST /tests/{id}/publish` responde `200`, não `201`.** É uma transição de
+  estado sobre um recurso que já existe (`draft` → `published`), não uma
+  criação — segue o mesmo raciocínio de `PATCH`. Um teste já publicado
+  responde `200` com o estado atual em qualquer `Idempotency-Key`, mesmo uma
+  nova: a garantia forte contra duplicar é o UNIQUE em
+  `tests.publish_idempotency_key`, não a comparação de chave em si.

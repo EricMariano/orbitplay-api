@@ -1240,6 +1240,546 @@
           "media"
         ]
       }
+    },
+    "/test-models": {
+      "get": {
+        "operationId": "TestModelsController_list",
+        "parameters": [],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestModelListDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "test-models"
+        ]
+      }
+    },
+    "/test-models/{key}": {
+      "get": {
+        "operationId": "TestModelsController_get",
+        "parameters": [
+          {
+            "name": "key",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestModelDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "test-models"
+        ]
+      }
+    },
+    "/games/{gameId}/tests": {
+      "post": {
+        "operationId": "TestsController_create",
+        "parameters": [
+          {
+            "name": "gameId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}": {
+      "get": {
+        "operationId": "TestsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/model": {
+      "patch": {
+        "operationId": "TestsController_setModel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetModelDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/form": {
+      "put": {
+        "operationId": "TestsController_putForm",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutFormDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestFormDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/form/preview": {
+      "get": {
+        "operationId": "TestsController_formPreview",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestFormDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/build/upload-url": {
+      "post": {
+        "operationId": "TestsController_createBuildUploadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildUploadUrlRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/build": {
+      "post": {
+        "operationId": "TestsController_confirmBuild",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmBuildRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      },
+      "get": {
+        "operationId": "TestsController_getBuild",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      },
+      "delete": {
+        "operationId": "TestsController_deleteBuild",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/audience": {
+      "patch": {
+        "operationId": "TestsController_setAudience",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AudienceRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/publish": {
+      "post": {
+        "operationId": "TestsController_publish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
+    },
+    "/tests/{id}/status": {
+      "patch": {
+        "operationId": "TestsController_setStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "tests"
+        ]
+      }
     }
   },
   "info": {
@@ -2372,15 +2912,13 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
-          },
-          "uploadId": {
-            "type": "string"
           }
         },
         "required": [
           "uploadUrl",
           "storageKey",
-          "expiresAt"
+          "expiresAt",
+          "maxSizeBytes"
         ],
         "additionalProperties": false
       },
@@ -2624,6 +3162,931 @@
           "thumbnailUrl"
         ],
         "additionalProperties": false
+      },
+      "TestModelListDto_Output": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "free_exploration_telemetry",
+                    "free_exploration",
+                    "ab_test",
+                    "ab_test_images"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "deliverables": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "technicalRequirements": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "requiresTelemetry": {
+                  "type": "boolean"
+                },
+                "available": {
+                  "type": "boolean"
+                },
+                "unavailableReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "name",
+                "description",
+                "deliverables",
+                "technicalRequirements",
+                "requiresTelemetry",
+                "available",
+                "unavailableReason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "data"
+        ],
+        "additionalProperties": false
+      },
+      "TestModelDto_Output": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "free_exploration_telemetry",
+              "free_exploration",
+              "ab_test",
+              "ab_test_images"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "deliverables": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "technicalRequirements": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "requiresTelemetry": {
+            "type": "boolean"
+          },
+          "available": {
+            "type": "boolean"
+          },
+          "unavailableReason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "description",
+          "deliverables",
+          "technicalRequirements",
+          "requiresTelemetry",
+          "available",
+          "unavailableReason"
+        ],
+        "additionalProperties": false
+      },
+      "CreateTestDto": {
+        "type": "object",
+        "properties": {
+          "testModelKey": {
+            "type": "string",
+            "enum": [
+              "free_exploration_telemetry",
+              "free_exploration",
+              "ab_test",
+              "ab_test_images"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "testModelKey"
+        ]
+      },
+      "TestDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "gameId": {
+            "type": "string"
+          },
+          "organizationId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "published",
+              "paused",
+              "finished",
+              "expired"
+            ]
+          },
+          "testModelKey": {
+            "type": "string",
+            "enum": [
+              "free_exploration_telemetry",
+              "free_exploration",
+              "ab_test",
+              "ab_test_images"
+            ]
+          },
+          "currentStep": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "pendingValidations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "step": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "code": {
+                  "type": "string"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "step",
+                "code",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "audience": {
+            "type": "object",
+            "properties": {
+              "locations": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "archetypes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "ageMin": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "ageMax": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "quantity": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "durationDays": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "deviceRequirements": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "windows",
+                    "macos",
+                    "linux",
+                    "android",
+                    "ios",
+                    "web"
+                  ]
+                }
+              },
+              "keepActive": {
+                "type": "boolean"
+              },
+              "estimatedReach": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "locations",
+              "archetypes",
+              "ageMin",
+              "ageMax",
+              "quantity",
+              "durationDays",
+              "deviceRequirements",
+              "keepActive",
+              "estimatedReach"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          },
+          "build": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "testId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "awaiting_upload",
+                  "uploading",
+                  "processing",
+                  "validated",
+                  "failed"
+                ]
+              },
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "windows",
+                  "macos",
+                  "linux",
+                  "android",
+                  "ios",
+                  "web",
+                  null
+                ],
+                "nullable": true
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "checksum": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "validationSteps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "enum": [
+                        "checksum",
+                        "malware_scan",
+                        "metadata",
+                        "plugin_manifest"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "processing",
+                        "ready",
+                        "failed",
+                        "unavailable"
+                      ]
+                    },
+                    "message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "status",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "failureReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "testId",
+              "status",
+              "platform",
+              "version",
+              "sizeBytes",
+              "checksum",
+              "validationSteps",
+              "failureReason",
+              "createdAt"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          },
+          "spotsTotal": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "spotsTaken": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "rewardCents": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "expiresAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "publishedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "gameId",
+          "organizationId",
+          "title",
+          "status",
+          "testModelKey",
+          "currentStep",
+          "pendingValidations",
+          "audience",
+          "build",
+          "spotsTotal",
+          "spotsTaken",
+          "rewardCents",
+          "expiresAt",
+          "publishedAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "SetModelDto": {
+        "type": "object",
+        "properties": {
+          "testModelKey": {
+            "type": "string",
+            "enum": [
+              "free_exploration_telemetry",
+              "free_exploration",
+              "ab_test",
+              "ab_test_images"
+            ]
+          }
+        },
+        "required": [
+          "testModelKey"
+        ]
+      },
+      "PutFormDto": {
+        "type": "object",
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "scale",
+                    "single_choice",
+                    "multiple_choice",
+                    "open_text",
+                    "boolean",
+                    "nps"
+                  ]
+                },
+                "prompt": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                },
+                "helpText": {
+                  "type": "string",
+                  "maxLength": 1000
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "position": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "label",
+                      "position"
+                    ]
+                  }
+                },
+                "scaleMin": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "scaleMax": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "type",
+                "prompt",
+                "required",
+                "position"
+              ]
+            }
+          }
+        },
+        "required": [
+          "questions"
+        ]
+      },
+      "TestFormDto_Output": {
+        "type": "object",
+        "properties": {
+          "testId": {
+            "type": "string"
+          },
+          "questions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "scale",
+                    "single_choice",
+                    "multiple_choice",
+                    "open_text",
+                    "boolean",
+                    "nps"
+                  ]
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "helpText": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "required": {
+                  "type": "boolean"
+                },
+                "position": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "options": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "position": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "label",
+                      "position"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "scaleMin": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "nullable": true
+                },
+                "scaleMax": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "prompt",
+                "helpText",
+                "required",
+                "position",
+                "options",
+                "scaleMin",
+                "scaleMax"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "testId",
+          "questions"
+        ],
+        "additionalProperties": false
+      },
+      "BuildUploadUrlRequestDto": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255
+          },
+          "contentType": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 150
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5368709120
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "windows",
+              "macos",
+              "linux",
+              "android",
+              "ios",
+              "web"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "fileName",
+          "contentType",
+          "sizeBytes",
+          "platform"
+        ]
+      },
+      "ConfirmBuildRequestDto": {
+        "type": "object",
+        "properties": {
+          "storageKey": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "windows",
+              "macos",
+              "linux",
+              "android",
+              "ios",
+              "web"
+            ]
+          },
+          "version": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "checksum": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "storageKey",
+          "platform"
+        ]
+      },
+      "BuildDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "testId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_upload",
+              "uploading",
+              "processing",
+              "validated",
+              "failed"
+            ]
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "windows",
+              "macos",
+              "linux",
+              "android",
+              "ios",
+              "web",
+              null
+            ],
+            "nullable": true
+          },
+          "version": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "checksum": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "validationSteps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "checksum",
+                    "malware_scan",
+                    "metadata",
+                    "plugin_manifest"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "processing",
+                    "ready",
+                    "failed",
+                    "unavailable"
+                  ]
+                },
+                "message": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "status",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "failureReason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "testId",
+          "status",
+          "platform",
+          "version",
+          "sizeBytes",
+          "checksum",
+          "validationSteps",
+          "failureReason",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "AudienceRequestDto": {
+        "type": "object",
+        "properties": {
+          "locations": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 10
+            }
+          },
+          "archetypes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          "ageMin": {
+            "type": "integer",
+            "minimum": 18,
+            "maximum": 9007199254740991
+          },
+          "ageMax": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 120
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "durationDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "deviceRequirements": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "windows",
+                "macos",
+                "linux",
+                "android",
+                "ios",
+                "web"
+              ]
+            }
+          },
+          "keepActive": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ageMin",
+          "ageMax",
+          "quantity",
+          "durationDays"
+        ]
+      },
+      "SetStatusDto": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "paused",
+              "published",
+              "finished"
+            ]
+          }
+        },
+        "required": [
+          "status"
+        ]
       }
     }
   }

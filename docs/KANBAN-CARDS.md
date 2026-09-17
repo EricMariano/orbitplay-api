@@ -127,7 +127,12 @@
 ### ORB-M4-01 · `GET /test-models` e `GET /test-models/{key}`
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** —
-- **Escopo:** catálogo com requisitos técnicos vindos da config; `free_exploration_telemetry` retorna `available:false` + `unavailableReason` (plug-in deferido).
+- **Escopo:**
+  - [x] Catálogo estático dos 4 modelos (`test-models.catalog.ts`), com requisitos técnicos vindos da config do backend, nunca da UI.
+  - [x] `free_exploration_telemetry` retorna `available:false` + `unavailableReason` (plug-in deferido).
+  - [x] `key` desconhecida em `GET /test-models/{key}` → 404 no envelope padrão.
+  - [x] Ambas as rotas `studio+` (`STUDIO_ROLES`); jogador recebe 403.
+- **Aceite:** e2e cobrindo listagem, detalhe, 403 de jogador e 404 de chave inválida.
 
 ---
 
@@ -138,41 +143,69 @@
 - **Labels:** backend, db · **Estimativa:** G · **Depende de:** —
 - **Escopo:** migração de `tests`, `test_audience_criteria`, `test_form_questions`, `test_form_options` + enums (`test_status`, `wizard_step`, `test_model_key`, `question_type`, `report_stage`).
 - **Atenção:** UNIQUE `tests.publish_idempotency_key`; UNIQUE `(test_id, position)` nas perguntas; `slots_taken` como contador concorrente.
+- **Status:** ✅ feito em `0002_flowery_thunderbolt.sql` (junto com o restante do domínio), antes da camada de aplicação existir.
 
 ### ORB-M5-02 · Rascunho do wizard: criar e ler teste
 
 - **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M5-01
-- **Escopo:** `POST /games/{gameId}/tests` (nasce `draft`), `GET /tests/{id}` com `currentStep` + `pendingValidations` decididos no backend.
+- **Escopo:**
+  - [x] `POST /games/{gameId}/tests` (nasce `draft`, `modelKey` obrigatório na criação, `currentStep` já avança para `form`).
+  - [x] `GET /tests/{id}` com `currentStep` (1-5) + `pendingValidations` decididos no backend, sempre recalculados a partir dos dados reais.
+- **Aceite:** e2e cobrindo o wizard completo (ver M5-07), 404 cross-org e 403 de jogador.
 
 ### ORB-M5-03 · Etapa 1 — modelo (`PATCH /tests/{id}/model`)
 
 - **Labels:** backend, api · **Estimativa:** P · **Depende de:** M5-02, M4-01
-- **Escopo:** seleção única/obrigatória; modelo indisponível → `422`.
+- **Escopo:**
+  - [x] Seleção única/obrigatória validada contra o catálogo do M4; modelo indisponível (`available:false`) → `422`.
+  - [x] Só em `draft`; teste publicado/pausado/encerrado → `409`.
+- **Aceite:** unit (`tests.service.spec.ts`) + e2e cobrindo `free_exploration_telemetry` → 422.
 
 ### ORB-M5-04 · Etapa 2 — formulário (`PUT /tests/{id}/form` + preview)
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** M5-01
-- **Escopo:** substitui o conjunto inteiro de perguntas em **uma transação** (reordenação atômica); `position` é autoridade; tipos com opções exigem mínimo; `GET .../form/preview`.
+- **Escopo:**
+  - [x] Substitui o conjunto inteiro de perguntas em **uma transação** (delete + insert, reordenação atômica); `position` do payload é autoridade.
+  - [x] Tipos com opções (`single_choice`/`multiple_choice`) exigem mínimo de 2 alternativas — `422` senão.
+  - [x] `GET /tests/{id}/form/preview` com o mesmo shape que o jogador vai receber.
+- **Aceite:** e2e cobrindo salvar com 2 perguntas (uma de escolha) e o preview.
 
 ### ORB-M5-05 · Etapa 3 — build (upload + validação)
 
 - **Labels:** backend, api, infra · **Estimativa:** G · **Depende de:** M6-01
-- **Escopo:** `POST /tests/{id}/build/upload-url`; `POST /tests/{id}/build` enfileira `build.validate` (retorna `202 processing`); `GET`/`DELETE` da build; falha preserva formulário e traz `failureReason`.
+- **Escopo:**
+  - [x] `POST /tests/{id}/build/upload-url` — URL assinada única (sem multipart), até 5 GiB; nenhuma linha criada no banco ainda.
+  - [x] `POST /tests/{id}/build` confirma o objeto no storage (`stat()`, nunca confia no cliente), cria a build + 3 `build_validation_steps` (`checksum`/`malware_scan`/`metadata`), enfileira `build.validate` e devolve `202 processing`.
+  - [x] `GET /tests/{id}/build` com `validationSteps[]` e `failureReason` quando falha.
+  - [x] `DELETE /tests/{id}/build` — teste publicado → `409`; senão remove a build e o objeto do storage.
+  - [x] Falha (objeto ausente) preserva o formulário e permite nova tentativa — confirmar de novo troca a build `failed` automaticamente, sem precisar de `DELETE`.
+- **Nota:** M6-01 (schema `builds`/`build_validation_steps`) já estava migrado desde `0002` (mesmo pacote do M5-01) — não houve trabalho de schema separado aqui, só a aplicação e o worker `build.validate` (`src/workers/build.processor.ts`, 3 etapas fake, mesmo padrão de stub do `media.transcode`; `plugin_manifest` fica reservado, sem etapa instanciada).
+- **Aceite:** e2e com worker real em processo, aguardando `status: validated`.
 
 ### ORB-M5-06 · Etapa 4 — público (`PATCH /tests/{id}/audience`)
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** M5-01
-- **Escopo:** valida `ageMin<=ageMax` (18+), calcula `estimatedReach` (>0 para publicar).
+- **Escopo:**
+  - [x] Valida `ageMin <= ageMax` (18+) — `422` senão.
+  - [x] Calcula `estimatedReach` de verdade: jogadores ativos elegíveis por faixa etária (`users.birthdate`), limitado a `quantity`. `locations`/`archetypes`/`deviceRequirements` são persistidos mas não filtram ainda (sem essas colunas em `users` — ver `DECISIONS.md` §3).
+- **Aceite:** e2e com o jogador seedado contando para `estimatedReach >= 1`.
 
 ### ORB-M5-07 · Etapa 5 — publicar (`POST /tests/{id}/publish`)
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** M5-03..06
-- **Escopo:** `Idempotency-Key` **obrigatório** (recarregar não cria 2º teste — via UNIQUE); `422` listando `pendingValidations` se etapa incompleta.
+- **Escopo:**
+  - [x] `Idempotency-Key` **obrigatório** — ausente → `422`; recarregar com a mesma chave devolve o mesmo teste (nunca cria um 2º).
+  - [x] `422` com `fieldErrors` listando os `pendingValidations` (`code → message`) se alguma etapa estiver incompleta.
+  - [x] Responde `200` (transição de estado, não criação); teste já publicado responde `200` com o estado atual em qualquer chave — o UNIQUE em `tests.publish_idempotency_key` é a garantia forte.
+- **Aceite:** e2e cobrindo o wizard completo até publish + replay da mesma chave (conta linhas em `tests` para confirmar que não duplicou).
 
 ### ORB-M5-08 · `PATCH /tests/{id}/status` (pausar/encerrar)
 
 - **Labels:** backend, api · **Estimativa:** P · **Depende de:** M5-07
-- **Escopo:** transições válidas; transição inválida → `409`.
+- **Escopo:**
+  - [x] Transições válidas: `published⇄paused`, `published|paused→finished`.
+  - [x] Transição inválida (incl. repetir o mesmo status) → `409`.
+- **Aceite:** e2e cobrindo pausar, retomar e uma transição inválida.
 
 ---
 
