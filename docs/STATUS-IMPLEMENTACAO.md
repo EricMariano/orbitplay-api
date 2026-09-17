@@ -11,18 +11,18 @@
 
 ## 1. Resumo executivo
 
-O que está de pé hoje é a **fundação da plataforma** mais o fluxo de mídia, o núcleo do estúdio e a comunidade do jogador: autenticação/sessão, tenancy por organização, CRUD de jogos, gestão completa de organização/membros, auditoria, catálogo de modelos de teste, upload/playback de gravação, o **wizard de criação de teste completo** e **posts/moderação/avaliações do jogo**. Isso corresponde aos módulos **M1 (auth), M2 (orgs), M4 (test-models), M5 (tests/wizard), M9 (media), M13 (comunidade) e M15 (health)** — todos fechados — e ao **M3 (games)**, que tem só uma ponta solta (`/games/{id}/achievements`), **bloqueada** pelo M12 (gamificação), que ainda não existe. A outra ponta de M3 (`/games/{id}/tests`) já não está bloqueada — o M5 existe — só falta implementá-la.
+O que está de pé hoje é a **fundação da plataforma** mais o fluxo de mídia, o núcleo do estúdio e a comunidade do jogador: autenticação/sessão, tenancy por organização, CRUD de jogos, gestão completa de organização/membros, auditoria, catálogo de modelos de teste, upload/playback de gravação, o **wizard de criação de teste completo** e **posts/moderação/avaliações do jogo**. Isso corresponde aos módulos **M1 (auth), M2 (orgs), M4 (test-models), M5 (tests/wizard), M6 (builds), M9 (media), M13 (comunidade) e M15 (health)** — todos fechados — e ao **M3 (games)**, que tem só uma ponta solta (`/games/{id}/achievements`), **bloqueada** pelo M12 (gamificação), que ainda não existe. A outra ponta de M3 (`/games/{id}/tests`) já não está bloqueada — o M5 existe — só falta implementá-la.
 
-O **restante do núcleo do domínio** (builds — validação além do que o M5 já cobre —, participações, sessões, relatórios, feed do jogador, gamificação, notificações) continua sem nenhum endpoint implementado — mas **já não está bloqueado pelo banco**. M13 furou a ordem sugerida da revisão anterior (era o passo 6) porque foi pedido fora de sequência; suas duas dependências reais (M13-01 schema, M2-06 auditoria) já estavam prontas, e a parte de avaliações não esperou o M8 — ver nota abaixo.
+O **restante do núcleo do domínio** (participações, sessões, relatórios, feed do jogador, gamificação, notificações) continua sem nenhum endpoint implementado — mas **já não está bloqueado pelo banco**. M13 furou a ordem sugerida da revisão anterior (era o passo 6) porque foi pedido fora de sequência; suas duas dependências reais (M13-01 schema, M2-06 auditoria) já estavam prontas, e a parte de avaliações não esperou o M8 — ver nota abaixo. M6 seguiu a ordem sugerida (item 3), logo após o wizard.
 
-> **Mudança desde a revisão anterior:** a migração `0002_flowery_thunderbolt.sql` criou **28 tabelas e 13 enums de uma vez**. Hoje as **41 tabelas e os 16 enums do design estão todos migrados**, com os índices/UNIQUEs dos invariantes já no lugar. Na prática, os cards de schema dos épicos pendentes (M6-01, M7-01, M8-01, M10-01, M12-01, M13-01, M14-01) **estão feitos**: o que falta nesses módulos é exclusivamente a camada de aplicação (controller/service/repository/DTO). O M5 (wizard) fechou nesta revisão, junto com um worker novo (`build.validate`) que roda sobre `builds`/`build_validation_steps` — a parte de compatibilidade/download desse par de tabelas (M6) segue em aberto.
+> **Mudança desde a revisão anterior:** a migração `0002_flowery_thunderbolt.sql` criou **28 tabelas e 13 enums de uma vez**. Hoje as **41 tabelas e os 16 enums do design estão todos migrados**, com os índices/UNIQUEs dos invariantes já no lugar. Na prática, os cards de schema dos épicos pendentes (M7-01, M8-01, M10-01, M12-01, M14-01) **estão feitos**: o que falta nesses módulos é exclusivamente a camada de aplicação (controller/service/repository/DTO). O M6 (builds) fechou nesta revisão: `GET /builds/{id}` (studio+, org-scoped), `GET /builds/{id}/compatibility` (qualquer autenticado, cross-org) e `GET /builds/{id}/download-url` (player com participação ativa) — sem trabalho de schema/worker novo, ambos já existiam desde o M5.
 
 | Camada            | Situação                                                                                  |
 | ----------------- | ----------------------------------------------------------------------------------------- |
-| Endpoints HTTP    | **53 operações implementadas** de **92 desenhadas** (≈ 58%) — 44 de 84 caminhos           |
+| Endpoints HTTP    | **56 operações implementadas** de **92 desenhadas** (≈ 61%) — 45 de 84 caminhos           |
 | Tabelas no banco  | **41 migradas** de **41 desenhadas** (+ `telemetry_events` particionada, migração manual) |
 | Enums             | **16 criados** de **16 desenhados**                                                       |
-| Módulos completos | M1, M2, M4, M5, M9, M13, M15 prontos; M3 parcial (bloqueado só por M12); M6–M8, M10–M12, M14 pendentes |
+| Módulos completos | M1, M2, M4, M5, M6, M9, M13, M15 prontos; M3 parcial (bloqueado só por M12); M7–M8, M10–M12, M14 pendentes |
 
 ---
 
@@ -105,6 +105,16 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 > **Notas:** enums (`TestStatus`, `QuestionType`, `Build.status`, `ValidationStep`) seguem o schema Drizzle migrado, não `openapi.design.yaml` (que ficou desatualizado nesses nomes) — ver `DECISIONS.md` §3. O worker `build.validate` (`src/workers/build.processor.ts`) roda 3 etapas (`checksum`, `malware_scan`, `metadata`) sem integração real de antivírus — mesmo padrão de stub documentado do `media.transcode` (M9); `plugin_manifest` fica reservado, sem etapa instanciada (ORB-M6-02). Uma build por teste é regra de aplicação (troca automática se a anterior falhou; senão exige `DELETE` explícito).
 
+### M6 — Builds (`src/modules/builds`)
+
+| Endpoint                       | Status | Observação                                                                 |
+| ------------------------------ | ------ | --------------------------------------------------------------------------- |
+| `GET /builds/{id}`             | ✅     | `studio+`, org-scoped via `builds.organization_id`                          |
+| `GET /builds/{id}/compatibility` | ✅   | qualquer autenticado, cross-org; incompatível vem `200 compatible:false`, nunca erro |
+| `GET /builds/{id}/download-url` | ✅    | `player`; exige participação ativa (403) e build `validated` (409); `Range` suportado nativamente pela URL assinada |
+
+> **Notas:** a checagem de compatibilidade compara só `platform` (`builds.platform`, texto livre gravado pelo M5) contra o `platform` da query — `os`/`arch` são aceitos (contrato) mas não têm coluna correspondente para comparar. `download-url` lê `participations` direto (tabela do M8, já migrada) para a checagem de participação ativa — mesmo padrão pré-M8 do M13 (nega até o M8 popular linhas reais); o gate de compatibilidade de dispositivo dessa rota (`409` do design) fica limitado à prontidão da build (`validated`) até o M8 existir (`PATCH /sessions/{id}/devices` é quem traria o perfil de dispositivo real). Ver `DECISIONS.md` §3.
+
 ### M13 — Comunidade e avaliações do jogo (`src/modules/community`)
 
 | Endpoint                                | Status | Observação                                                                 |
@@ -133,23 +143,21 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `POST /sessions/{id}/recordings/complete`                  | ✅     | confirma objeto, `status: processing`, enfileira transcode + extract-audio |
 | `GET /sessions/{id}/recordings/{recordingId}/playback-url` | ✅     | `url: null` enquanto `processing`/`failed`/`unavailable` (Tela 12 RN-03)   |
 
-### M6–M14 — **a fazer** (só no design, exceto M4, M5, M9 e M13)
+### M7–M14 — **a fazer** (só no design, exceto M4, M5, M6, M9 e M13)
 
-Nenhum endpoint destes módulos está implementado (M4, M5, M9 e M13 acima já saíram desta lista). **As tabelas de todos eles já existem no banco** — falta só a camada HTTP. São **39 operações** em 37 caminhos, mais as 2 pontas soltas do M3:
+Nenhum endpoint destes módulos está implementado (M4, M5, M6, M9 e M13 acima já saíram desta lista). **As tabelas de todos eles já existem no banco** — falta só a camada HTTP. São **36 operações** em 34 caminhos, mais as 2 pontas soltas do M3:
 
 | Módulo             | Operações faltando |
 | ------------------ | ------------------ |
 | M3 (pontas soltas) | 2                  |
-| M6 builds          | 3                  |
 | M7 player-feed     | 7                  |
 | M8 participações   | 11                 |
 | M10 reports        | 8                  |
 | M11 dashboard      | 2                  |
 | M12 gamificação    | 4                  |
 | M14 notificações   | 2                  |
-| **Total**          | **39**             |
+| **Total**          | **36**             |
 
-- **M6 builds:** `GET /builds/{id}`, `GET /builds/{id}/compatibility`, `GET /builds/{id}/download-url`
 - **M7 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
 - **M8 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
 - **M10 reports:** `GET /tests/{id}/report`, `.../report/evolution`, `.../report/ratings`, `.../report/testers`, `GET /tests/{id}/sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/rate`, `GET /tests/{id}/report/export`
@@ -213,7 +221,7 @@ Seguindo as dependências do domínio (cada linha destrava a próxima). Como o s
 
 1. ~~**M4 test-models** (catálogo, sem dependência pesada).~~ **Feito.**
 2. ~~**M5 tests** (wizard sobre `tests`/`test_*`, worker `build.validate` sobre `builds`/`build_validation_steps`).~~ **Feito.** A ponta solta de M3 `/games/{id}/tests` destrava sozinha agora — não há mais trabalho independente ali; `/games/{id}/achievements` segue esperando o M12.
-3. **M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.
+3. ~~**M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.~~ **Feito.** `download-url` já lê `participations` direto (pré-M8, mesmo padrão do M13); o gate de compatibilidade de dispositivo dessa rota fica completo só quando o M8 existir.
 4. **M7/M8** (jogador): feed, participações, sessões, consentimentos + worker de validação de sessão (gatilho de XP).
 5. **M10 reports** (depende de sessões existirem; o M9 media já está pronto e esperando por elas).
 6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M13 feito fora de ordem** (pedido explicitamente); M11, M12 e M14 seguem pendentes. A parte de avaliações do M13 lê `sessions`/`session_validations` direto — funciona de fato só depois que o M8 existir e popular essas tabelas.

@@ -214,17 +214,26 @@
 ### ORB-M6-01 · Schema `builds` + `build_validation_steps`
 
 - **Labels:** backend, db · **Estimativa:** M · **Depende de:** —
-- **Escopo:** tabelas + enums (`build_status`, `build_step_key`, `processing_status`); validação como **lista de etapas** (não booleano). Quitar dívida da FK `plugin_manifests.build_id`.
+- **Escopo:**
+  - [x] tabelas + enums (`build_status`, `build_step_key`, `processing_status`); validação como **lista de etapas** (não booleano).
+  - [x] Quitar dívida da FK `plugin_manifests.build_id`.
+- **Nota:** migrado em `0002`, junto do resto do pacote de schema do M5.
 
 ### ORB-M6-02 · Worker de validação de build
 
 - **Labels:** backend, infra · **Estimativa:** G · **Depende de:** M6-01
-- **Escopo:** job `build.validate` (checksum, malware_scan, metadata); `plugin_manifest` fica como etapa futura (enum já reserva).
+- **Escopo:**
+  - [x] job `build.validate` (checksum, malware_scan, metadata); `plugin_manifest` fica como etapa futura (enum já reserva).
+- **Nota:** entregue no M5-05 (`src/workers/build.processor.ts`), não separadamente.
 
 ### ORB-M6-03 · Compatibilidade e download
 
 - **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M6-01, M8-01
-- **Escopo:** `GET /builds/{id}` , `GET /builds/{id}/compatibility` (incompatível = `compatible:false`, não erro), `GET /builds/{id}/download-url` (participação ativa + compatível; suporta `Range`; `localVersion`).
+- **Escopo:**
+  - [x] `GET /builds/{id}` — `studio+`, org-scoped.
+  - [x] `GET /builds/{id}/compatibility` — qualquer autenticado, cross-org; incompatível = `compatible:false`, não erro; compara só `platform` (sem colunas de `os`/`arch`).
+  - [x] `GET /builds/{id}/download-url` — participação ativa (lida direto de `participations`, pré-M8, mesmo padrão do M13) + build `validated`; `Range` suportado nativamente pela URL assinada; `localVersion` decide `needsDownload`.
+- **Aceite:** e2e cobrindo os três papéis (studio/player/cross-org), build ainda não validada (`409`), participação ausente (`403`) e versão já atualizada (`needsDownload:false`).
 
 ---
 

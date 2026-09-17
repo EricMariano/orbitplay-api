@@ -1781,6 +1781,154 @@
         ]
       }
     },
+    "/builds/{id}": {
+      "get": {
+        "operationId": "BuildsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuildDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "builds"
+        ]
+      }
+    },
+    "/builds/{id}/compatibility": {
+      "get": {
+        "operationId": "BuildsController_checkCompatibility",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "platform",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "windows",
+                "macos",
+                "linux",
+                "android",
+                "ios",
+                "web"
+              ]
+            }
+          },
+          {
+            "name": "os",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          },
+          {
+            "name": "arch",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 50,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompatibilityReportDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "builds"
+        ]
+      }
+    },
+    "/builds/{id}/download-url": {
+      "get": {
+        "operationId": "BuildsController_getDownloadUrl",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "localVersion",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "maxLength": 100,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DownloadUrlResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "builds"
+        ]
+      }
+    },
     "/games/{gameId}/community/posts": {
       "get": {
         "operationId": "CommunityController_listPosts",
@@ -4366,6 +4514,91 @@
         "required": [
           "status"
         ]
+      },
+      "CompatibilityReportDto_Output": {
+        "type": "object",
+        "properties": {
+          "compatible": {
+            "type": "boolean"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "supportedPlatforms": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "windows",
+                "macos",
+                "linux",
+                "android",
+                "ios",
+                "web"
+              ]
+            }
+          }
+        },
+        "required": [
+          "compatible",
+          "reasons",
+          "supportedPlatforms"
+        ],
+        "additionalProperties": false
+      },
+      "DownloadUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "needsDownload": {
+            "type": "boolean"
+          },
+          "downloadUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expiresAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "checksum": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "supportsRange": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "needsDownload",
+          "downloadUrl",
+          "expiresAt",
+          "version",
+          "checksum",
+          "sizeBytes",
+          "supportsRange"
+        ],
+        "additionalProperties": false
       },
       "CommunityPostListDto_Output": {
         "type": "object",

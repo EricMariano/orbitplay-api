@@ -236,6 +236,24 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   não como um stub. Hoje ela sempre nega (nenhuma sessão real existe), e passa
   a valer sozinha assim que o M8 popular essas linhas — sem exigir revisão
   desta rota depois.
+- **M6 (builds) — compatibilidade compara só `platform`; `download-url`
+  reaproveita o padrão pré-M8 do M13 para participação ativa.**
+  `builds.platform` é texto livre (gravado pelo M5 a partir de
+  `platformValues`), sem colunas de `os`/`arch` — `GET /builds/{id}/compatibility`
+  aceita `os`/`arch` na query (o contrato pede) mas só compara `platform`;
+  incompatibilidade nunca é erro, é `200` com `compatible:false` +
+  `reasons[]` legíveis (RN-03/RN-05, Telas 14/15). `GET /builds/{id}/download-url`
+  consulta `participations` direto para a checagem de participação ativa —
+  mesma tabela do M8 (já migrada), mesmo padrão pré-M8 já registrado para
+  `CommunityService.createReview`: nega sempre até o M8 popular linhas reais,
+  sem stub, e passa a valer sozinho quando M8 existir. O `409` de
+  "dispositivo incompatível" que o design declara nessa rota não tem, hoje,
+  como checar dispositivo de verdade — não há `platform` na query dessa rota
+  (diferente de `/compatibility`) nem perfil de dispositivo persistido (isso
+  é `PATCH /sessions/{id}/devices`, M8). Por ora o `409` cobre a build ainda
+  não `validated` — um gate real e honesto, só que mais estreito que "todo o
+  dispositivo" até o M8 existir; não requer revisitar esta rota depois, só
+  ganha um segundo motivo de `409`.
 - **Bug real encontrado e corrigido: `isUniqueViolation` só olhava
   `err.code`.** O Drizzle envelopa o erro do driver num `DrizzleQueryError`
   cujo `.code` próprio é `undefined` — o `PostgresError` real (com `.code`)

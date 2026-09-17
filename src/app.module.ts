@@ -15,6 +15,7 @@ import { RedisModule } from './infra/redis/redis.module';
 import { StorageModule } from './infra/storage/storage.module';
 import { TelemetryModule } from './infra/telemetry/telemetry.module';
 import { AuditModule } from './modules/audit/audit.module';
+import { BuildsModule } from './modules/builds/builds.module';
 import { CommunityModule } from './modules/community/community.module';
 import { GamesModule } from './modules/games/games.module';
 import { HealthModule } from './modules/health/health.module';
@@ -81,6 +82,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     MediaModule,
     TestModelsModule,
     TestsModule,
+    BuildsModule,
     CommunityModule,
   ],
   providers: [
