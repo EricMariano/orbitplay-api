@@ -44,6 +44,17 @@ export class GamesService {
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
   ) {}
 
+  /**
+   * Cross-org existence check for content that isn't tenancy-scoped (M13
+   * community/reviews). Returns only what a caller from another org may
+   * legitimately learn — id/organizationId/status — never the full `GameView`.
+   */
+  async existsAnyOrg(id: string): Promise<{ id: string; organizationId: string; status: string }> {
+    const row = await this.repo.findByIdAnyOrg(id);
+    if (!row) throw AppException.notFound();
+    return { id: row.id, organizationId: row.organizationId, status: row.status };
+  }
+
   async list(organizationId: string, query: GameListQuery): Promise<Page<GameView>> {
     const page = await this.repo.listFilteredInOrg(organizationId, query);
     const views = await this.toViews(organizationId, page.data);

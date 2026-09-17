@@ -365,17 +365,28 @@
 ### M13-01 · Schema comunidade/reviews
 
 - **Labels:** backend, db · **Estimativa:** M · **Depende de:** —
-- **Escopo:** `community_posts`, `community_reports`, `game_reviews` + enum `post_status`.
+- **Escopo:**
+  - [x] Tabelas `community_posts`, `community_reports`, `game_reviews` + enum `post_status` — feito em `0002_flowery_thunderbolt.sql`, antes da camada de aplicação existir.
+- **Status:** ✅ feito.
 
 ### M13-02 · Posts e moderação
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** M13-01, M2-06 (auditoria)
-- **Escopo:** `GET|POST /games/{gameId}/community/posts`; `POST /community/posts/{id}/report`; `PATCH .../moderate` (papéis do estúdio dono, gera auditoria).
+- **Escopo:**
+  - [x] `GET|POST /games/{gameId}/community/posts` — leitura por qualquer autenticado (qualquer org); criação `player`-only; só posts `visible` na listagem.
+  - [x] `POST /community/posts/{id}/report` — qualquer autenticado; `202` sem corpo; post inexistente → 404.
+  - [x] `PATCH /community/posts/{id}/moderate` — `studio+` **da org dona do jogo** (403 se não for); grava `audit_log` com before/after.
+  - [x] `action` é `hide | restore | remove` (schema real, `post_status = visible|hidden|removed`) — **desvio do `openapi.design.yaml`**, que lista `hide|restore|pin|unpin` sobre um `pinned` que não existe no banco. Ver `DECISIONS.md` §3.
+- **Aceite:** e2e cobrindo posting cross-role, moderação restrita à org dona (403, não 404 — conteúdo é público), transição de status, 422 em ação/motivo inválidos.
 
 ### M13-03 · Avaliações do jogo
 
 - **Labels:** backend, api · **Estimativa:** M · **Depende de:** M13-01, M8-06
-- **Escopo:** `GET|POST /games/{gameId}/reviews` — só quem concluiu ≥1 sessão válida, 1x por jogador (UNIQUE).
+- **Escopo:**
+  - [x] `GET|POST /games/{gameId}/reviews` — só quem concluiu ≥1 sessão válida, 1x por jogador (UNIQUE `game_reviews_unique`, 23505 → 409).
+  - [x] Elegibilidade consulta `sessions`/`session_validations`/`participations` **direto**, sem esperar a camada de aplicação do M8 (ainda não existe) — nega sempre até o M8 popular essas tabelas de verdade; passa a funcionar sozinho depois, sem revisão desta rota.
+- **Aceite:** e2e prova 403 sem sessão válida, 201 com sessão seedada diretamente nas tabelas do M8, 409 na segunda avaliação, `averageRating` agregado.
+- **Nota:** implementado fora da ordem sugerida (pedido explicitamente antes de M6–M12); a dependência formal de M8-06 é só a tabela, não o worker.
 
 ---
 

@@ -209,3 +209,38 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   responde `200` com o estado atual em qualquer `Idempotency-Key`, mesmo uma
   nova: a garantia forte contra duplicar é o UNIQUE em
   `tests.publish_idempotency_key`, não a comparação de chave em si.
+- **M13 (comunidade) — `post_status` real é `visible|hidden|removed`, não o
+  `visible|hidden|pinned` do `openapi.design.yaml`.** O enum migrado
+  (`enums.ts`) não tem coluna nem estado para "fixado" — divergência do mesmo
+  tipo já registrada para `DELETE /orgs/members/{userId}` (§2) e para os enums
+  do M5 (acima). `PATCH /community/posts/{id}/moderate` segue o schema real:
+  `action` é `hide | restore | remove` (não `hide | restore | pin | unpin`).
+  `hide`→`hidden`, `restore`→`visible`, `remove`→`removed`.
+- **Comunidade/avaliações são o primeiro conteúdo lido fora da própria org.**
+  Todo o resto da API é `organization_id`-scoped (RN-01): um token só lê/edita
+  recursos da própria org, cross-org vira 404. `community_posts`/`game_reviews`
+  não têm `organization_id` — são conteúdo público de um jogo, lido por
+  qualquer usuário autenticado de qualquer org. Isso exigiu um método novo,
+  deliberadamente fora do padrão `OrgScopedRepository`:
+  `GamesRepository.findByIdAnyOrg` / `GamesService.existsAnyOrg` (existência
+  apenas — nunca devolve o `GameView` completo a quem não é dono). A única
+  rota que segue tenancy de fato é a moderação: só `studio+` da organização
+  **dona do jogo** modera, e quem não é dono recebe `403` (não `404` — o post
+  é público, só não é moderável por quem não é dono; é a resposta que o
+  próprio `openapi.design.yaml` já declara para essa rota).
+- **Elegibilidade de `POST /games/{gameId}/reviews` consulta `sessions`/
+  `session_validations`/`participations` direto — sem esperar o M8.** Essas
+  tabelas já estão migradas (M8-01) mas não têm camada de aplicação ainda; a
+  regra "só quem concluiu >=1 sessão válida" (Tela 15) é implementada como uma
+  consulta direta a essas tabelas em `CommunityRepository.hasValidSessionForGame`,
+  não como um stub. Hoje ela sempre nega (nenhuma sessão real existe), e passa
+  a valer sozinha assim que o M8 popular essas linhas — sem exigir revisão
+  desta rota depois.
+- **Bug real encontrado e corrigido: `isUniqueViolation` só olhava
+  `err.code`.** O Drizzle envelopa o erro do driver num `DrizzleQueryError`
+  cujo `.code` próprio é `undefined` — o `PostgresError` real (com `.code`)
+  fica em `.cause`. `CommunityService.isUniqueViolation` agora checa os dois.
+  O mesmíssimo helper em `tests.service.ts` (M5, usado no fallback de
+  `publish()`) tem o bug idêntico, mas nunca foi pego pelos testes porque o
+  `IdempotencyInterceptor` intercepta a repetição por `Idempotency-Key` antes
+  de chegar no service — ver task sinalizada para corrigir lá também.

@@ -550,5 +550,7 @@ function dateYearsAgo(years: number): string {
 }
 
 function isUniqueViolation(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === '23505';
+  const code = (err as { code?: string } | null)?.code;
+  const causeCode = (err as { cause?: { code?: string } } | null)?.cause?.code;
+  return code === '23505' || causeCode === '23505';
 }

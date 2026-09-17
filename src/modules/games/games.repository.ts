@@ -51,6 +51,22 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
     super(db, games);
   }
 
+  /**
+   * Cross-org lookup, deliberately bypassing tenancy (RN-01 only governs a
+   * studio's OWN resources). Community posts and reviews (M13) are the first
+   * globally-readable content tied to a game — any authenticated user, of any
+   * org, can browse a game's community regardless of who owns it.
+   */
+  async findByIdAnyOrg(id: string): Promise<GameRow | null> {
+    if (!isUuid(id)) return null;
+    const rows = await this.db
+      .select()
+      .from(games)
+      .where(and(eq(games.id, id), isNull(games.deletedAt)))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
   /** Slug uniqueness check within the org (excludes soft-deleted). */
   async findBySlugInOrg(organizationId: string, slug: string): Promise<GameRow | null> {
     const rows = await this.db

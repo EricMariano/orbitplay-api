@@ -342,6 +342,33 @@ describe('TestsService', () => {
       expect(view.status).toBe('published');
       expect(repo.updateByIdInOrg).not.toHaveBeenCalled();
     });
+
+    it('replays the current state when the unique violation arrives wrapped in a Drizzle error (code on .cause, not top-level)', async () => {
+      const draft = makeTestRow({ durationDays: 7 });
+      repo.getByIdInOrgOrThrow
+        .mockResolvedValueOnce(draft)
+        .mockResolvedValueOnce(makeTestRow({ status: 'published', durationDays: 7 }));
+      repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
+      repo.findLatestBuild.mockResolvedValue({
+        build: makeBuild({ status: 'validated' }),
+        steps: makeSteps('ready'),
+      });
+      repo.findAudience.mockResolvedValue(makeAudience());
+      // Mirrors what postgres-js + Drizzle actually throw: the top-level
+      // `.code` is undefined, and the real PostgresError sits on `.cause`.
+      repo.updateByIdInOrg.mockRejectedValue(
+        Object.assign(new Error('duplicate key value violates unique constraint'), {
+          name: 'DrizzleQueryError',
+          code: undefined,
+          cause: Object.assign(new Error('duplicate key'), { code: '23505' }),
+        }),
+      );
+
+      const view = await service.publish(ORG, TEST_ID, 'idem-1', req);
+
+      expect(view.status).toBe('published');
+      expect(repo.getByIdInOrgOrThrow).toHaveBeenCalledTimes(2);
+    });
   });
 
   describe('setStatus', () => {
