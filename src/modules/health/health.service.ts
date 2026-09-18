@@ -1,11 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import type { Queue } from 'bullmq';
 import { sql } from 'drizzle-orm';
 import { Redis } from 'ioredis';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
-import { MAIN_QUEUE } from '../../infra/queue/queue.constants';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
+import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 
 export type CheckStatus = 'up' | 'down';
@@ -26,7 +24,7 @@ export class HealthService {
     @Inject(DRIZZLE) private readonly db: Database,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
-    @InjectQueue(MAIN_QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE_PORT) private readonly queue: QueuePort,
   ) {}
 
   async check(): Promise<HealthReport> {
@@ -52,7 +50,7 @@ export class HealthService {
       this.safe(() => this.db.execute(sql`SELECT 1`)),
       this.safe(() => this.redis.ping()),
       this.safe(() => this.storage.healthCheck()),
-      this.safe(() => this.queue.getJobCounts()),
+      this.safe(() => this.queue.healthCheck()),
     ]);
 
     const checks = { database, redis, storage, queue };

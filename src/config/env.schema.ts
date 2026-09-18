@@ -2,51 +2,48 @@ import { z } from 'zod';
 
 /**
  * Environment schema — the single source of truth for what the API needs to
- * boot. Every variable is REQUIRED unless it carries a default here. The app
+ * boot. Every variable is REQUIRED — none of them carry a default. The app
  * validates process.env against this on boot (see configuration.ts) and fails
  * fast, pointing at the offending variable, instead of blowing up on the first
- * request.
+ * request or silently running with a wrong value.
  */
 const durationString = z
   .string()
   .regex(/^\d+(ms|s|m|h|d)$/, 'must be a duration like "15m", "30d", "900s"');
 
 export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(3000),
+  NODE_ENV: z.enum(['development', 'test', 'production']),
+  PORT: z.coerce.number().int().positive(),
 
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
   JWT_ACCESS_SECRET: z.string().min(1, 'JWT_ACCESS_SECRET is required'),
   JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
-  ACCESS_TOKEN_TTL: durationString.default('15m'),
-  REFRESH_TOKEN_TTL: durationString.default('30d'),
+  ACCESS_TOKEN_TTL: durationString,
+  REFRESH_TOKEN_TTL: durationString,
 
   STORAGE_ENDPOINT: z.string().url('STORAGE_ENDPOINT must be a URL'),
   STORAGE_BUCKET: z.string().min(1, 'STORAGE_BUCKET is required'),
   STORAGE_ACCESS_KEY: z.string().min(1, 'STORAGE_ACCESS_KEY is required'),
   STORAGE_SECRET_KEY: z.string().min(1, 'STORAGE_SECRET_KEY is required'),
-  STORAGE_FORCE_PATH_STYLE: z
-    .enum(['true', 'false'])
-    .default('true')
-    .transform((v) => v === 'true'),
+  STORAGE_FORCE_PATH_STYLE: z.enum(['true', 'false']).transform((v) => v === 'true'),
 
   SMTP_HOST: z.string().min(1, 'SMTP_HOST is required'),
-  SMTP_PORT: z.coerce.number().int().positive().default(1025),
-  MAIL_FROM: z.string().min(1).default('no-reply@orbitplay.dev'),
+  SMTP_PORT: z.coerce.number().int().positive(),
+  MAIL_FROM: z.string().min(1, 'MAIL_FROM is required'),
 
   WEB_ORIGIN: z.string().url('WEB_ORIGIN must be a URL'),
 
-  AUTH_THROTTLE_TTL: z.coerce.number().int().positive().default(60),
-  AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive().default(5),
+  AUTH_THROTTLE_TTL: z.coerce.number().int().positive(),
+  AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive(),
 
   /** Stricter IP throttle for signup email-availability checks (anti-enumeration). */
-  AUTH_AVAILABILITY_THROTTLE_TTL: z.coerce.number().int().positive().default(60),
-  AUTH_AVAILABILITY_THROTTLE_LIMIT: z.coerce.number().int().positive().default(3),
+  AUTH_AVAILABILITY_THROTTLE_TTL: z.coerce.number().int().positive(),
+  AUTH_AVAILABILITY_THROTTLE_LIMIT: z.coerce.number().int().positive(),
 
   /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
-  PASSWORD_RESET_TTL: durationString.default('1h'),
+  PASSWORD_RESET_TTL: durationString,
 });
 
 export type Env = z.infer<typeof envSchema>;

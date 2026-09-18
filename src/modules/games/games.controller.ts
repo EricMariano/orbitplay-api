@@ -19,6 +19,7 @@ import { Roles } from '../../shared/decorators/roles.decorator';
 import { STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
 import {
   AssetUploadUrlRequestDto,
+  AssetUploadUrlResponseDto,
   ConfirmAssetRequestDto,
   CreateGameDto,
   GameAssetDto,
@@ -28,7 +29,6 @@ import {
   GameSpecsDto,
   GameSummaryDto,
   UpdateGameDto,
-  UploadUrlResponseDto,
 } from './dto/game.dto';
 import { GamesService } from './games.service';
 
@@ -110,7 +110,7 @@ export class GamesController {
   @Post(':id/assets/upload-url')
   @Roles(...STUDIO_ROLES)
   @HttpCode(HttpStatus.CREATED)
-  @ZodResponse({ status: HttpStatus.CREATED, type: UploadUrlResponseDto })
+  @ZodResponse({ status: HttpStatus.CREATED, type: AssetUploadUrlResponseDto })
   createAssetUploadUrl(
     @CurrentUser('organizationId') organizationId: string,
     @Param('id') id: string,

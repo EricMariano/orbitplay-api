@@ -97,6 +97,15 @@ describe('Games (e2e)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('treats a garbled cursor as absent instead of 500ing (VAL-01)', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/games')
+      .query({ cursor: 'not-a-real-cursor' })
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(200);
+    expect(res.body.data.length).toBeGreaterThanOrEqual(2);
+  });
+
   it('forbids a player from creating a game — 403 envelope (criterion #5)', async () => {
     const res = await request(app.getHttpServer())
       .post('/games')

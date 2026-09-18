@@ -79,6 +79,7 @@ export abstract class OrgScopedRepository<
     id: string,
     patch: Partial<TInsert>,
   ): Promise<TSelect> {
+    if (!isUuid(id)) throw AppException.notFound();
     const rows = await this.db
       .update(this.table)
       .set(patch)
@@ -92,6 +93,7 @@ export abstract class OrgScopedRepository<
     if (!this.table.deletedAt) {
       throw new Error(`${String(this.table)} has no deletedAt column to soft-delete`);
     }
+    if (!isUuid(id)) throw AppException.notFound();
     const rows = await this.db
       .update(this.table)
       .set({ deletedAt: new Date() } as unknown as Partial<TInsert>)

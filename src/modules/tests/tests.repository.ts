@@ -1,19 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
+import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
-import { games } from '../../infra/database/schema/games';
 import { memberships } from '../../infra/database/schema/memberships';
 import { roles } from '../../infra/database/schema/roles';
 import {
-  builds,
-  buildValidationSteps,
   testAudienceCriteria,
   testFormOptions,
   testFormQuestions,
   tests,
-  type BuildRow,
-  type BuildValidationStepRow,
-  type NewBuildRow,
   type NewTestRow,
   type TestAudienceCriteriaRow,
   type TestFormOptionRow,
@@ -24,15 +18,11 @@ import { newId } from '../../infra/database/schema/_helpers';
 import { users } from '../../infra/database/schema/users';
 import { OrgScopedRepository } from '../../infra/database/base.repository';
 import { AppException } from '../../shared/errors/app.exception';
+import { isUuid } from '../../shared/util/uuid';
 import type { FormQuestionInput } from './dto/test.dto';
 
 export interface FormQuestionWithOptions extends TestFormQuestionRow {
   options: TestFormOptionRow[];
-}
-
-export interface BuildWithSteps {
-  build: BuildRow;
-  steps: BuildValidationStepRow[];
 }
 
 export interface UpsertAudienceInput {
@@ -76,6 +66,7 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
     id: string,
     fn: (test: TestRow, updateTest: (patch: Partial<NewTestRow>) => Promise<TestRow>) => Promise<T>,
   ): Promise<T> {
+    if (!isUuid(id)) throw AppException.notFound();
     return this.db.transaction(async (tx) => {
       const rows = await tx
         .select()
@@ -93,21 +84,6 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
 
       return fn(test, updateTest);
     });
-  }
-
-  async gameExistsInOrg(organizationId: string, gameId: string): Promise<boolean> {
-    const rows = await this.db
-      .select({ id: games.id })
-      .from(games)
-      .where(
-        and(
-          eq(games.id, gameId),
-          eq(games.organizationId, organizationId),
-          isNull(games.deletedAt),
-        ),
-      )
-      .limit(1);
-    return rows.length > 0;
   }
 
   async findFormQuestions(testId: string): Promise<FormQuestionWithOptions[]> {
@@ -203,67 +179,6 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
       .insert(testAudienceCriteria)
       .values({ testId, ...values })
       .onConflictDoUpdate({ target: testAudienceCriteria.testId, set: values })
-      .returning();
-    return rows[0];
-  }
-
-  async findLatestBuild(testId: string): Promise<BuildWithSteps | null> {
-    // DAT-02: ascending order + limit(1) returned the OLDEST build, the
-    // opposite of what "latest" promises — harmless today (the unique
-    // constraint on test_id means at most one row exists), but wrong on its
-    // own terms and a landmine if that constraint is ever relaxed.
-    const rows = await this.db
-      .select()
-      .from(builds)
-      .where(eq(builds.testId, testId))
-      .orderBy(desc(builds.createdAt))
-      .limit(1);
-    const build = rows[0];
-    if (!build) return null;
-    const steps = await this.db
-      .select()
-      .from(buildValidationSteps)
-      .where(eq(buildValidationSteps.buildId, build.id));
-    return { build, steps };
-  }
-
-  async createBuildWithSteps(
-    values: NewBuildRow,
-    stepKeys: readonly ('checksum' | 'malware_scan' | 'metadata')[],
-  ): Promise<BuildWithSteps> {
-    return this.db.transaction(async (tx) => {
-      const [build] = await tx.insert(builds).values(values).returning();
-      const steps = await tx
-        .insert(buildValidationSteps)
-        .values(
-          stepKeys.map((key) => ({
-            id: newId(),
-            buildId: build.id,
-            key,
-            status: 'processing' as const,
-          })),
-        )
-        .returning();
-      return { build, steps };
-    });
-  }
-
-  async deleteBuild(buildId: string): Promise<void> {
-    await this.db.delete(builds).where(eq(builds.id, buildId));
-  }
-
-  /**
-   * Used when enqueueing `build.validate` fails right after the insert
-   * (OPS-01) — surfaces the build as `failed` immediately (with a reason)
-   * instead of leaving it silently stuck in `processing`, and reuses the
-   * existing "a failed build is replaced automatically on retry" rule
-   * (`confirmBuild`) so the client's natural retry just works.
-   */
-  async markBuildFailed(buildId: string, reason: string): Promise<BuildRow> {
-    const rows = await this.db
-      .update(builds)
-      .set({ status: 'failed', failureReason: reason })
-      .where(eq(builds.id, buildId))
       .returning();
     return rows[0];
   }

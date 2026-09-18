@@ -1,6 +1,5 @@
 import type { Request } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Queue } from 'bullmq';
 import type {
   BuildRow,
   BuildValidationStepRow,
@@ -8,11 +7,14 @@ import type {
   TestRow,
 } from '../../infra/database/schema/tests';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
+import type { QueuePort } from '../../shared/ports/queue.port';
 import type { StoragePort } from '../../shared/ports/storage.port';
+import type { BuildWithSteps, BuildsRepository } from '../builds/builds.repository';
+import { GamesService } from '../games/games.service';
 import { TestModelsService } from '../test-models/test-models.service';
 import { MAX_BUILD_BYTES } from './dto/test.dto';
 import { TestsService } from './tests.service';
-import type { BuildWithSteps, TestsRepository } from './tests.repository';
+import type { TestsRepository } from './tests.repository';
 
 const ORG = '01990000-0000-7000-8000-0000000000a1';
 const GAME_ID = '01990000-0000-7000-8000-0000000000b1';
@@ -89,7 +91,6 @@ function makeAudience(overrides: Partial<TestAudienceCriteriaRow> = {}): TestAud
 
 describe('TestsService', () => {
   let repo: {
-    gameExistsInOrg: ReturnType<typeof vi.fn>;
     getByIdInOrgOrThrow: ReturnType<typeof vi.fn>;
     createInOrg: ReturnType<typeof vi.fn>;
     updateByIdInOrg: ReturnType<typeof vi.fn>;
@@ -98,12 +99,15 @@ describe('TestsService', () => {
     replaceForm: ReturnType<typeof vi.fn>;
     findAudience: ReturnType<typeof vi.fn>;
     upsertAudience: ReturnType<typeof vi.fn>;
+    countEligiblePlayers: ReturnType<typeof vi.fn>;
+  };
+  let buildsRepo: {
     findLatestBuild: ReturnType<typeof vi.fn>;
     createBuildWithSteps: ReturnType<typeof vi.fn>;
     deleteBuild: ReturnType<typeof vi.fn>;
     markBuildFailed: ReturnType<typeof vi.fn>;
-    countEligiblePlayers: ReturnType<typeof vi.fn>;
   };
+  let games: { existsInOrg: ReturnType<typeof vi.fn> };
   let storage: {
     createUploadUrl: ReturnType<typeof vi.fn>;
     createDownloadUrl: ReturnType<typeof vi.fn>;
@@ -112,13 +116,12 @@ describe('TestsService', () => {
     remove: ReturnType<typeof vi.fn>;
     healthCheck: ReturnType<typeof vi.fn>;
   };
-  let queue: { add: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> };
+  let queue: { ensureEnqueued: ReturnType<typeof vi.fn>; healthCheck: ReturnType<typeof vi.fn> };
   let service: TestsService;
   let req: Request;
 
   beforeEach(() => {
     repo = {
-      gameExistsInOrg: vi.fn().mockResolvedValue(true),
       getByIdInOrgOrThrow: vi.fn(),
       createInOrg: vi.fn(),
       updateByIdInOrg: vi.fn(),
@@ -127,12 +130,15 @@ describe('TestsService', () => {
       replaceForm: vi.fn(),
       findAudience: vi.fn().mockResolvedValue(null),
       upsertAudience: vi.fn(),
+      countEligiblePlayers: vi.fn().mockResolvedValue(0),
+    };
+    buildsRepo = {
       findLatestBuild: vi.fn().mockResolvedValue(null),
       createBuildWithSteps: vi.fn(),
       deleteBuild: vi.fn().mockResolvedValue(undefined),
       markBuildFailed: vi.fn(),
-      countEligiblePlayers: vi.fn().mockResolvedValue(0),
     };
+    games = { existsInOrg: vi.fn().mockResolvedValue(true) };
     // Mimics the real TestsRepository.withRowLock: fetches the row (via the
     // same mock other tests already drive through getByIdInOrgOrThrow) and
     // gives the callback an updater backed by updateByIdInOrg — without
@@ -157,14 +163,16 @@ describe('TestsService', () => {
       healthCheck: vi.fn(),
     };
     queue = {
-      add: vi.fn().mockResolvedValue(undefined),
-      getJob: vi.fn().mockResolvedValue(undefined),
+      ensureEnqueued: vi.fn().mockResolvedValue(undefined),
+      healthCheck: vi.fn(),
     };
     service = new TestsService(
       repo as unknown as TestsRepository,
+      buildsRepo as unknown as BuildsRepository,
+      games as unknown as GamesService,
       new TestModelsService(),
       storage as unknown as StoragePort,
-      queue as unknown as Queue,
+      queue as unknown as QueuePort,
     );
     req = {} as Request;
   });
@@ -178,7 +186,7 @@ describe('TestsService', () => {
     });
 
     it('404s when the game does not exist in the org', async () => {
-      repo.gameExistsInOrg.mockResolvedValue(false);
+      games.existsInOrg.mockResolvedValue(false);
       await expect(
         service.create(ORG, GAME_ID, { testModelKey: 'free_exploration' }, req),
       ).rejects.toMatchObject({ status: 404 });
@@ -274,7 +282,7 @@ describe('TestsService', () => {
 
     it('conflicts when a non-failed build already exists for the test', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
-      repo.findLatestBuild.mockResolvedValue({
+      buildsRepo.findLatestBuild.mockResolvedValue({
         build: makeBuild({ status: 'processing' }),
         steps: makeSteps('processing'),
       } satisfies BuildWithSteps);
@@ -294,7 +302,7 @@ describe('TestsService', () => {
 
     it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
-      repo.findLatestBuild.mockResolvedValue(null);
+      buildsRepo.findLatestBuild.mockResolvedValue(null);
       storage.stat.mockResolvedValue({
         sizeBytes: MAX_BUILD_BYTES + 1,
         contentType: 'application/zip',
@@ -306,14 +314,14 @@ describe('TestsService', () => {
       ).rejects.toMatchObject({ status: 422 });
 
       expect(storage.remove).toHaveBeenCalledWith(storageKey);
-      expect(repo.createBuildWithSteps).not.toHaveBeenCalled();
+      expect(buildsRepo.createBuildWithSteps).not.toHaveBeenCalled();
     });
 
     it('enqueues build.validate and returns 202-shaped processing state on success', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
-      repo.findLatestBuild.mockResolvedValue(null);
+      buildsRepo.findLatestBuild.mockResolvedValue(null);
       storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
-      repo.createBuildWithSteps.mockResolvedValue({
+      buildsRepo.createBuildWithSteps.mockResolvedValue({
         build: makeBuild({ status: 'processing' }),
         steps: makeSteps('processing'),
       });
@@ -329,23 +337,23 @@ describe('TestsService', () => {
       );
 
       expect(view.status).toBe('processing');
-      expect(queue.add).toHaveBeenCalledWith(
+      expect(queue.ensureEnqueued).toHaveBeenCalledWith(
         'build.validate',
+        `build.validate:${BUILD_ID}`,
         { buildId: BUILD_ID },
-        { jobId: `build.validate:${BUILD_ID}` },
       );
     });
 
     it('marks the build failed instead of leaving it stuck in "processing" when enqueueing fails (OPS-01)', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
-      repo.findLatestBuild.mockResolvedValue(null);
+      buildsRepo.findLatestBuild.mockResolvedValue(null);
       storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
-      repo.createBuildWithSteps.mockResolvedValue({
+      buildsRepo.createBuildWithSteps.mockResolvedValue({
         build: makeBuild({ status: 'processing' }),
         steps: makeSteps('processing'),
       });
-      queue.add.mockRejectedValue(new Error('redis unreachable'));
-      repo.markBuildFailed.mockResolvedValue(makeBuild({ status: 'failed' }));
+      queue.ensureEnqueued.mockRejectedValue(new Error('redis unreachable'));
+      buildsRepo.markBuildFailed.mockResolvedValue(makeBuild({ status: 'failed' }));
 
       const view = await service.confirmBuild(
         ORG,
@@ -357,7 +365,7 @@ describe('TestsService', () => {
         req,
       );
 
-      expect(repo.markBuildFailed).toHaveBeenCalledWith(BUILD_ID, expect.any(String));
+      expect(buildsRepo.markBuildFailed).toHaveBeenCalledWith(BUILD_ID, expect.any(String));
       expect(view.status).toBe('failed');
     });
   });
@@ -382,7 +390,7 @@ describe('TestsService', () => {
       const draft = makeTestRow({ durationDays: 7 });
       repo.getByIdInOrgOrThrow.mockResolvedValue(draft);
       repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      repo.findLatestBuild.mockResolvedValue({
+      buildsRepo.findLatestBuild.mockResolvedValue({
         build: makeBuild({ status: 'validated' }),
         steps: makeSteps('ready'),
       });
@@ -407,7 +415,7 @@ describe('TestsService', () => {
       const draft = makeTestRow({ modelKey: 'ab_test_images', durationDays: 7 });
       repo.getByIdInOrgOrThrow.mockResolvedValue(draft);
       repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      repo.findLatestBuild.mockResolvedValue(null); // no build ever uploaded
+      buildsRepo.findLatestBuild.mockResolvedValue(null); // no build ever uploaded
       repo.findAudience.mockResolvedValue(makeAudience());
       repo.updateByIdInOrg.mockImplementation((_org, _id, patch) =>
         Promise.resolve({ ...draft, ...patch }),
@@ -434,7 +442,7 @@ describe('TestsService', () => {
         .mockResolvedValueOnce(draft)
         .mockResolvedValueOnce(makeTestRow({ status: 'published', durationDays: 7 }));
       repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      repo.findLatestBuild.mockResolvedValue({
+      buildsRepo.findLatestBuild.mockResolvedValue({
         build: makeBuild({ status: 'validated' }),
         steps: makeSteps('ready'),
       });

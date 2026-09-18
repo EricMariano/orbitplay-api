@@ -54,7 +54,7 @@ export const recordingCompleteRequestSchema = z
     }
   });
 
-export const uploadUrlResponseSchema = z.object({
+export const recordingUploadUrlResponseSchema = z.object({
   uploadUrl: z.string(),
   storageKey: z.string(),
   expiresAt: z.string(),
@@ -80,12 +80,12 @@ export const playbackUrlResponseSchema = z.object({
 
 export class RecordingUploadUrlRequestDto extends createZodDto(recordingUploadUrlRequestSchema) {}
 export class RecordingCompleteRequestDto extends createZodDto(recordingCompleteRequestSchema) {}
-export class UploadUrlResponseDto extends createZodDto(uploadUrlResponseSchema) {}
+export class RecordingUploadUrlResponseDto extends createZodDto(recordingUploadUrlResponseSchema) {}
 export class RecordingDto extends createZodDto(recordingSchema) {}
 export class PlaybackUrlResponseDto extends createZodDto(playbackUrlResponseSchema) {}
 
 export type RecordingUploadUrlRequest = z.infer<typeof recordingUploadUrlRequestSchema>;
 export type RecordingCompleteRequest = z.infer<typeof recordingCompleteRequestSchema>;
-export type UploadUrlResponse = z.infer<typeof uploadUrlResponseSchema>;
+export type RecordingUploadUrlResponse = z.infer<typeof recordingUploadUrlResponseSchema>;
 export type RecordingView = z.infer<typeof recordingSchema>;
 export type PlaybackUrlResponse = z.infer<typeof playbackUrlResponseSchema>;

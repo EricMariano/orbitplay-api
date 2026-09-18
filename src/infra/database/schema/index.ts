@@ -19,3 +19,4 @@ export * from './participations';
 export * from './player';
 export * from './community';
 export * from './plugin';
+export * from './relations';

@@ -196,7 +196,7 @@ export const buildUploadUrlRequestSchema = z.object({
   version: z.string().max(100).optional(),
 });
 
-export const uploadUrlResponseSchema = z.object({
+export const buildUploadUrlResponseSchema = z.object({
   uploadUrl: z.string(),
   storageKey: z.string(),
   expiresAt: z.string(),
@@ -242,7 +242,7 @@ export class TestDto extends createZodDto(testSchema) {}
 export class PutFormDto extends createZodDto(putFormSchema) {}
 export class TestFormDto extends createZodDto(testFormSchema) {}
 export class BuildUploadUrlRequestDto extends createZodDto(buildUploadUrlRequestSchema) {}
-export class UploadUrlResponseDto extends createZodDto(uploadUrlResponseSchema) {}
+export class BuildUploadUrlResponseDto extends createZodDto(buildUploadUrlResponseSchema) {}
 export class ConfirmBuildRequestDto extends createZodDto(confirmBuildRequestSchema) {}
 export class BuildDto extends createZodDto(buildSchema) {}
 export class AudienceRequestDto extends createZodDto(audienceRequestSchema) {}
@@ -259,7 +259,7 @@ export type PutFormRequest = z.infer<typeof putFormSchema>;
 export type FormQuestionInput = PutFormRequest['questions'][number];
 export type TestFormView = z.infer<typeof testFormSchema>;
 export type BuildUploadUrlRequest = z.infer<typeof buildUploadUrlRequestSchema>;
-export type UploadUrlResponse = z.infer<typeof uploadUrlResponseSchema>;
+export type BuildUploadUrlResponse = z.infer<typeof buildUploadUrlResponseSchema>;
 export type ConfirmBuildRequest = z.infer<typeof confirmBuildRequestSchema>;
 export type AudienceRequest = z.infer<typeof audienceRequestSchema>;
 export type SetStatusRequest = z.infer<typeof setStatusSchema>;

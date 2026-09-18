@@ -1011,7 +1011,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                  "$ref": "#/components/schemas/AssetUploadUrlResponseDto_Output"
                 }
               }
             }
@@ -1137,7 +1137,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                  "$ref": "#/components/schemas/RecordingUploadUrlResponseDto_Output"
                 }
               }
             }
@@ -1536,7 +1536,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UploadUrlResponseDto_Output"
+                  "$ref": "#/components/schemas/BuildUploadUrlResponseDto_Output"
                 }
               }
             }
@@ -3423,7 +3423,7 @@
           "fileName"
         ]
       },
-      "UploadUrlResponseDto_Output": {
+      "AssetUploadUrlResponseDto_Output": {
         "type": "object",
         "properties": {
           "uploadUrl": {
@@ -3555,6 +3555,34 @@
           "contentType",
           "sizeBytes"
         ]
+      },
+      "RecordingUploadUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "maxSizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "uploadId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "uploadUrl",
+          "storageKey",
+          "expiresAt"
+        ],
+        "additionalProperties": false
       },
       "RecordingCompleteRequestDto": {
         "type": "object",
@@ -4398,6 +4426,32 @@
           "sizeBytes",
           "platform"
         ]
+      },
+      "BuildUploadUrlResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "uploadUrl": {
+            "type": "string"
+          },
+          "storageKey": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "maxSizeBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "uploadUrl",
+          "storageKey",
+          "expiresAt",
+          "maxSizeBytes"
+        ],
+        "additionalProperties": false
       },
       "ConfirmBuildRequestDto": {
         "type": "object",

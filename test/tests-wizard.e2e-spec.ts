@@ -313,6 +313,14 @@ describe('Tests wizard — M5 (e2e)', () => {
       .set('Authorization', `Bearer ${studioToken}`);
     expect(noBuildYet.status).toBe(404);
   });
+
+  it('returns 404 (not 500) for a malformed test id on a row-locked wizard step (VAL-01)', async () => {
+    const res = await request(app.getHttpServer())
+      .patch('/tests/not-a-uuid/model')
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration' });
+    expect(res.status).toBe(404);
+  });
 });
 
 async function waitForBuildValidated(app: INestApplication, token: string, testId: string) {

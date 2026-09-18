@@ -26,6 +26,7 @@ import { TestModelsModule } from './modules/test-models/test-models.module';
 import { TestsModule } from './modules/tests/tests.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
 import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
+import { OrgScopeGuard } from './shared/guards/org-scope.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interceptor';
 
@@ -86,8 +87,9 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     CommunityModule,
   ],
   providers: [
-    // Order matters: authenticate, THEN authorize.
+    // Order matters: authenticate, THEN assert an org scope, THEN authorize.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: OrgScopeGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // Single validation pipe (Zod) → drives both runtime validation and OpenAPI.
     { provide: APP_PIPE, useClass: ZodValidationPipe },

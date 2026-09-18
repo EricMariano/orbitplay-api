@@ -11,6 +11,14 @@ describe('pagination', () => {
     expect(decodeCursor(undefined)).toBeUndefined();
   });
 
+  // VAL-01: a decoded value that isn't a UUID must never reach a
+  // `lt(<uuid column>, cursorId)` query — that hits Postgres as an invalid
+  // literal (22P02) and surfaces as a 500 instead of just starting over.
+  it('treats a cursor that decodes to a non-UUID string as absent', () => {
+    expect(decodeCursor(encodeCursor('not-a-uuid'))).toBeUndefined();
+    expect(decodeCursor('not-a-real-cursor')).toBeUndefined();
+  });
+
   it('returns no nextCursor when rows fit within the limit', () => {
     const rows = [{ id: 'a' }, { id: 'b' }];
     const page = buildPage(rows, 5);

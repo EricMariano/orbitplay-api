@@ -1,21 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { newId } from '../../infra/database/schema/_helpers';
 import type {
   SessionConsentRow,
   SessionRecordingRow,
 } from '../../infra/database/schema/participations';
-import { ensureJobEnqueued } from '../../infra/queue/ensure-enqueued';
-import {
-  JobName,
-  MAIN_QUEUE,
-  mediaExtractAudioJobId,
-  mediaTranscodeJobId,
-} from '../../infra/queue/queue.constants';
+import { JobName, mediaExtractAudioJobId, mediaTranscodeJobId } from '../../infra/queue/queue.constants';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { AppException } from '../../shared/errors/app.exception';
+import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 import { createdAtFromUuidV7 } from '../../shared/util/uuid';
 import {
@@ -25,7 +18,7 @@ import {
   type RecordingCompleteRequest,
   type RecordingUploadUrlRequest,
   type RecordingView,
-  type UploadUrlResponse,
+  type RecordingUploadUrlResponse,
 } from './dto/media.dto';
 import { MediaRepository } from './media.repository';
 import { toDbRecordingKind, type RecordingKindApi, type RecordingKindDb } from './recording-kind';
@@ -55,7 +48,7 @@ export class MediaService {
     private readonly repo: MediaRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
-    @InjectQueue(MAIN_QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE_PORT) private readonly queue: QueuePort,
   ) {}
 
   /**
@@ -66,11 +59,10 @@ export class MediaService {
    * (OPS-01).
    */
   private async ensureRecordingJobsEnqueued(recordingId: string): Promise<void> {
-    await ensureJobEnqueued(this.queue, JobName.MEDIA_TRANSCODE, mediaTranscodeJobId(recordingId), {
+    await this.queue.ensureEnqueued(JobName.MEDIA_TRANSCODE, mediaTranscodeJobId(recordingId), {
       recordingId,
     });
-    await ensureJobEnqueued(
-      this.queue,
+    await this.queue.ensureEnqueued(
       JobName.MEDIA_EXTRACT_AUDIO,
       mediaExtractAudioJobId(recordingId),
       { recordingId },
@@ -81,7 +73,7 @@ export class MediaService {
     userId: string,
     sessionId: string,
     dto: RecordingUploadUrlRequest,
-  ): Promise<UploadUrlResponse> {
+  ): Promise<RecordingUploadUrlResponse> {
     const session = await this.requirePlayerSession(sessionId, userId);
     const apiKind: RecordingKindApi = dto.kind ?? 'screen_recording';
     const kind = toDbRecordingKind(apiKind);

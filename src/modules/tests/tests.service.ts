@@ -1,15 +1,16 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import { Queue } from 'bullmq';
 import type { Request } from 'express';
+import { toBuildView } from '../builds/build-view.mapper';
+import { BuildsRepository } from '../builds/builds.repository';
+import { GamesService } from '../games/games.service';
 import type { TestModelView } from '../test-models/dto/test-model.dto';
 import { TestModelsService } from '../test-models/test-models.service';
 import { newId } from '../../infra/database/schema/_helpers';
 import type { TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
-import { ensureJobEnqueued } from '../../infra/queue/ensure-enqueued';
-import { buildValidateJobId, JobName, MAIN_QUEUE } from '../../infra/queue/queue.constants';
+import { buildValidateJobId, JobName } from '../../infra/queue/queue.constants';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
+import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 import {
   BUILD_UPLOAD_TTL_SECONDS,
@@ -28,15 +29,11 @@ import {
   type TestFormView,
   type TestStatusValue,
   type TestView,
-  type UploadUrlResponse,
+  type BuildUploadUrlResponse,
   type WizardStepValue,
 } from './dto/test.dto';
 import { buildBuildStorageKey, parseBuildStorageKey } from './storage-key';
-import {
-  type BuildWithSteps,
-  type FormQuestionWithOptions,
-  TestsRepository,
-} from './tests.repository';
+import { type FormQuestionWithOptions, TestsRepository } from './tests.repository';
 
 const BUILD_STEP_KEYS = ['checksum', 'malware_scan', 'metadata'] as const;
 
@@ -53,9 +50,11 @@ export class TestsService {
 
   constructor(
     private readonly repo: TestsRepository,
+    private readonly builds: BuildsRepository,
+    private readonly games: GamesService,
     private readonly testModels: TestModelsService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
-    @InjectQueue(MAIN_QUEUE) private readonly queue: Queue,
+    @Inject(QUEUE_PORT) private readonly queue: QueuePort,
   ) {}
 
   async create(
@@ -64,7 +63,7 @@ export class TestsService {
     dto: CreateTestRequest,
     req: Request,
   ): Promise<TestView> {
-    const gameExists = await this.repo.gameExistsInOrg(organizationId, gameId);
+    const gameExists = await this.games.existsInOrg(organizationId, gameId);
     if (!gameExists) throw AppException.notFound('Jogo não encontrado');
 
     const model = this.requireAvailableModel(dto.testModelKey);
@@ -161,7 +160,7 @@ export class TestsService {
     organizationId: string,
     id: string,
     dto: BuildUploadUrlRequest,
-  ): Promise<UploadUrlResponse> {
+  ): Promise<BuildUploadUrlResponse> {
     const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
     this.assertDraft(test);
 
@@ -204,10 +203,10 @@ export class TestsService {
     const result = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
       this.assertDraft(test);
 
-      const existing = await this.repo.findLatestBuild(id);
+      const existing = await this.builds.findLatestBuild(id);
       if (existing) {
         if (existing.build.status === 'failed') {
-          await this.repo.deleteBuild(existing.build.id);
+          await this.builds.deleteBuild(existing.build.id);
         } else {
           throw AppException.conflict(
             'Já existe uma build para este teste — remova antes de enviar outra',
@@ -231,7 +230,7 @@ export class TestsService {
         });
       }
 
-      const created = await this.repo.createBuildWithSteps(
+      const created = await this.builds.createBuildWithSteps(
         {
           id: parsed.buildId,
           organizationId,
@@ -257,19 +256,14 @@ export class TestsService {
     // in "processing" forever. Surface it as `failed` right away, which
     // reuses the wizard's existing "a failed build is replaced
     // automatically on retry" rule, so the client's natural retry recovers
-    // on its own. `ensureJobEnqueued`'s deterministic id also makes this
+    // on its own. `ensureEnqueued`'s deterministic id also makes this
     // safe if a reconciliation sweep or a client retry races it later.
     try {
-      await ensureJobEnqueued(
-        this.queue,
-        JobName.BUILD_VALIDATE,
-        buildValidateJobId(result.build.id),
-        {
-          buildId: result.build.id,
-        },
-      );
+      await this.queue.ensureEnqueued(JobName.BUILD_VALIDATE, buildValidateJobId(result.build.id), {
+        buildId: result.build.id,
+      });
     } catch (err) {
-      result.build = await this.repo.markBuildFailed(
+      result.build = await this.builds.markBuildFailed(
         result.build.id,
         'Falha ao agendar validação — tente reenviar a build',
       );
@@ -288,7 +282,7 @@ export class TestsService {
 
   async getBuild(organizationId: string, id: string): Promise<BuildView> {
     await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    const build = await this.repo.findLatestBuild(id);
+    const build = await this.builds.findLatestBuild(id);
     if (!build) throw AppException.notFound('Este teste ainda não tem build enviada');
     return toBuildView(build);
   }
@@ -298,10 +292,10 @@ export class TestsService {
     if (test.status === 'published') {
       throw AppException.conflict('Teste já publicado — build não pode ser trocada');
     }
-    const existing = await this.repo.findLatestBuild(id);
+    const existing = await this.builds.findLatestBuild(id);
     if (!existing) throw AppException.notFound('Este teste ainda não tem build enviada');
 
-    await this.repo.deleteBuild(existing.build.id);
+    await this.builds.deleteBuild(existing.build.id);
     await this.storage.remove(existing.build.storageKey).catch(() => undefined);
     await this.repo.updateByIdInOrg(organizationId, id, { currentStep: 'build' });
 
@@ -495,7 +489,7 @@ export class TestsService {
     // on one — ab_test_images compares static images and is explicitly
     // advertised as not requiring a build (test-models.catalog.ts).
     if (model.requiresBuild) {
-      const buildWithSteps = await this.repo.findLatestBuild(test.id);
+      const buildWithSteps = await this.builds.findLatestBuild(test.id);
       if (!buildWithSteps || buildWithSteps.build.status !== 'validated') {
         pending.push({
           step: 3,
@@ -520,7 +514,7 @@ export class TestsService {
   private async toView(test: TestRow): Promise<TestView> {
     const [audience, build, pendingValidations] = await Promise.all([
       this.repo.findAudience(test.id),
-      this.repo.findLatestBuild(test.id),
+      this.builds.findLatestBuild(test.id),
       this.pendingValidationsFor(test),
     ]);
 
@@ -571,21 +565,6 @@ function toAudienceView(row: TestAudienceCriteriaRow, durationDays: number | nul
     deviceRequirements: (row.platforms ?? []) as AudienceView['deviceRequirements'],
     keepActive: row.keepActive,
     estimatedReach: row.estimatedReach ?? 0,
-  };
-}
-
-function toBuildView({ build, steps }: BuildWithSteps): BuildView {
-  return {
-    id: build.id,
-    testId: build.testId,
-    status: build.status,
-    platform: build.platform as BuildView['platform'],
-    version: build.version,
-    sizeBytes: build.sizeBytes,
-    checksum: build.checksum,
-    validationSteps: steps.map((s) => ({ key: s.key, status: s.status, message: s.message })),
-    failureReason: build.failureReason,
-    createdAt: build.createdAt.toISOString(),
   };
 }
 

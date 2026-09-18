@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { SessionRecordingRow, SessionRow } from '../../infra/database/schema/participations';
 import {
@@ -8,6 +7,7 @@ import {
   mediaTranscodeJobId,
 } from '../../infra/queue/queue.constants';
 import { AppException } from '../../shared/errors/app.exception';
+import type { QueuePort } from '../../shared/ports/queue.port';
 import type { StoragePort } from '../../shared/ports/storage.port';
 import { MAX_RECORDING_BYTES } from './dto/media.dto';
 import { MediaService } from './media.service';
@@ -70,7 +70,7 @@ describe('MediaService', () => {
     get: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
-  let queue: { add: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> };
+  let queue: { ensureEnqueued: ReturnType<typeof vi.fn>; healthCheck: ReturnType<typeof vi.fn> };
   let service: MediaService;
 
   beforeEach(() => {
@@ -100,14 +100,14 @@ describe('MediaService', () => {
     };
     redis = { set: vi.fn(), get: vi.fn(), del: vi.fn() };
     queue = {
-      add: vi.fn().mockResolvedValue(undefined),
-      getJob: vi.fn().mockResolvedValue(undefined),
+      ensureEnqueued: vi.fn().mockResolvedValue(undefined),
+      healthCheck: vi.fn(),
     };
     service = new MediaService(
       repo as unknown as MediaRepository,
       storage as unknown as StoragePort,
       redis as unknown as Redis,
-      queue as unknown as Queue,
+      queue as unknown as QueuePort,
     );
   });
 
@@ -207,15 +207,15 @@ describe('MediaService', () => {
 
     expect(out.status).toBe('processing');
     expect(out.sessionId).toBe(SESSION);
-    expect(queue.add).toHaveBeenCalledWith(
+    expect(queue.ensureEnqueued).toHaveBeenCalledWith(
       JobName.MEDIA_TRANSCODE,
+      mediaTranscodeJobId(RECORDING),
       { recordingId: RECORDING },
-      { jobId: mediaTranscodeJobId(RECORDING) },
     );
-    expect(queue.add).toHaveBeenCalledWith(
+    expect(queue.ensureEnqueued).toHaveBeenCalledWith(
       JobName.MEDIA_EXTRACT_AUDIO,
+      mediaExtractAudioJobId(RECORDING),
       { recordingId: RECORDING },
-      { jobId: mediaExtractAudioJobId(RECORDING) },
     );
   });
 
@@ -236,7 +236,7 @@ describe('MediaService', () => {
     storage.stat.mockResolvedValue({ contentType: 'video/webm', sizeBytes: 128 });
     const row = makeRecording({ storageKey: key, status: 'processing' });
     repo.insertRecording.mockResolvedValue(row);
-    queue.add.mockRejectedValue(new Error('redis unreachable'));
+    queue.ensureEnqueued.mockRejectedValue(new Error('redis unreachable'));
     repo.updateRecording.mockResolvedValue(makeRecording({ storageKey: key, status: 'failed' }));
 
     const out = await service.completeUpload(USER, SESSION, { storageKey: key, durationMs: 1500 });
@@ -255,15 +255,15 @@ describe('MediaService', () => {
     const out = await service.completeUpload(USER, SESSION, { storageKey: key, durationMs: 1500 });
 
     expect(out.status).toBe('processing');
-    expect(queue.add).toHaveBeenCalledWith(
+    expect(queue.ensureEnqueued).toHaveBeenCalledWith(
       JobName.MEDIA_TRANSCODE,
+      mediaTranscodeJobId(RECORDING),
       { recordingId: RECORDING },
-      { jobId: mediaTranscodeJobId(RECORDING) },
     );
-    expect(queue.add).toHaveBeenCalledWith(
+    expect(queue.ensureEnqueued).toHaveBeenCalledWith(
       JobName.MEDIA_EXTRACT_AUDIO,
+      mediaExtractAudioJobId(RECORDING),
       { recordingId: RECORDING },
-      { jobId: mediaExtractAudioJobId(RECORDING) },
     );
     expect(repo.insertRecording).not.toHaveBeenCalled();
   });

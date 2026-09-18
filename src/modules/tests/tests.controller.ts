@@ -21,6 +21,7 @@ import { STUDIO_ROLES } from '../../shared/auth/roles';
 import {
   BuildDto,
   BuildUploadUrlRequestDto,
+  BuildUploadUrlResponseDto,
   ConfirmBuildRequestDto,
   CreateTestDto,
   PutFormDto,
@@ -29,7 +30,6 @@ import {
   SetStatusDto,
   TestDto,
   TestFormDto,
-  UploadUrlResponseDto,
 } from './dto/test.dto';
 import { TestsService } from './tests.service';
 
@@ -98,7 +98,7 @@ export class TestsController {
   @Post('tests/:id/build/upload-url')
   @Roles(...STUDIO_ROLES)
   @HttpCode(HttpStatus.CREATED)
-  @ZodResponse({ status: HttpStatus.CREATED, type: UploadUrlResponseDto })
+  @ZodResponse({ status: HttpStatus.CREATED, type: BuildUploadUrlResponseDto })
   createBuildUploadUrl(
     @CurrentUser('organizationId') organizationId: string,
     @Param('id') id: string,

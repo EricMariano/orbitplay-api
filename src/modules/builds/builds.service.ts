@@ -3,6 +3,7 @@ import type { BuildRow } from '../../infra/database/schema/tests';
 import { AppException } from '../../shared/errors/app.exception';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 import type { BuildView } from '../tests/dto/test.dto';
+import { toBuildView } from './build-view.mapper';
 import { BuildsRepository } from './builds.repository';
 import {
   BUILD_DOWNLOAD_TTL_SECONDS,
@@ -22,18 +23,7 @@ export class BuildsService {
   async get(organizationId: string, id: string): Promise<BuildView> {
     const build = await this.repo.getByIdInOrgOrThrow(organizationId, id);
     const steps = await this.repo.findValidationSteps(build.id);
-    return {
-      id: build.id,
-      testId: build.testId,
-      status: build.status,
-      platform: build.platform as BuildView['platform'],
-      version: build.version,
-      sizeBytes: build.sizeBytes,
-      checksum: build.checksum,
-      validationSteps: steps.map((s) => ({ key: s.key, status: s.status, message: s.message })),
-      failureReason: build.failureReason,
-      createdAt: build.createdAt.toISOString(),
-    };
+    return toBuildView({ build, steps });
   }
 
   /**

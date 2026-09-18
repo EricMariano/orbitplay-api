@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { createZodDto } from 'nestjs-zod';
+import { isUuid } from '../util/uuid';
 
 /**
  * Single, cursor-based pagination convention for the whole API.
@@ -30,13 +31,22 @@ export function encodeCursor(id: string): string {
   return Buffer.from(id, 'utf8').toString('base64url');
 }
 
+/**
+ * Decodes and validates a cursor. Every caller feeds the result straight
+ * into a `lt(<uuid column>, cursorId)` comparison (VAL-01) — a decoded value
+ * that isn't a UUID would otherwise reach Postgres as an invalid literal
+ * (`22P02`) and surface as an unhandled 500 instead of just starting the
+ * list over, same as an absent/garbled cursor already does.
+ */
 export function decodeCursor(cursor: string | undefined): string | undefined {
   if (!cursor) return undefined;
+  let decoded: string;
   try {
-    return Buffer.from(cursor, 'base64url').toString('utf8');
+    decoded = Buffer.from(cursor, 'base64url').toString('utf8');
   } catch {
     return undefined;
   }
+  return isUuid(decoded) ? decoded : undefined;
 }
 
 /**

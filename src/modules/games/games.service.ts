@@ -25,7 +25,7 @@ import {
   type GameSummaryView,
   type GameView,
   type UpdateGameDto,
-  type UploadUrlResponse,
+  type AssetUploadUrlResponse,
 } from './dto/game.dto';
 import { GamesRepository } from './games.repository';
 
@@ -53,6 +53,12 @@ export class GamesService {
     const row = await this.repo.findByIdAnyOrg(id);
     if (!row) throw AppException.notFound();
     return { id: row.id, organizationId: row.organizationId, status: row.status };
+  }
+
+  /** Org-scoped existence check — lets other modules (e.g. `tests`) validate a `gameId` without reaching into the `games` table directly. */
+  async existsInOrg(organizationId: string, id: string): Promise<boolean> {
+    const row = await this.repo.findByIdInOrg(organizationId, id);
+    return row !== null;
   }
 
   async list(organizationId: string, query: GameListQuery): Promise<Page<GameView>> {
@@ -182,7 +188,7 @@ export class GamesService {
     organizationId: string,
     gameId: string,
     dto: AssetUploadUrlRequest,
-  ): Promise<UploadUrlResponse> {
+  ): Promise<AssetUploadUrlResponse> {
     await this.repo.getByIdInOrgOrThrow(organizationId, gameId);
 
     const ext = ASSET_EXT[dto.contentType];

@@ -9,7 +9,7 @@ import {
   RecordingCompleteRequestDto,
   RecordingDto,
   RecordingUploadUrlRequestDto,
-  UploadUrlResponseDto,
+  RecordingUploadUrlResponseDto,
 } from './dto/media.dto';
 import { MediaService } from './media.service';
 
@@ -22,7 +22,7 @@ export class MediaController {
   @Post(':id/recordings/upload-url')
   @Roles(Role.PLAYER)
   @HttpCode(HttpStatus.CREATED)
-  @ZodResponse({ status: HttpStatus.CREATED, type: UploadUrlResponseDto })
+  @ZodResponse({ status: HttpStatus.CREATED, type: RecordingUploadUrlResponseDto })
   createUploadUrl(
     @CurrentUser('userId') userId: string,
     @Param('id') id: string,

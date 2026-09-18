@@ -51,6 +51,7 @@ describe('GamesService', () => {
     listInOrg: ReturnType<typeof vi.fn>;
     listFilteredInOrg: ReturnType<typeof vi.fn>;
     getByIdInOrgOrThrow: ReturnType<typeof vi.fn>;
+    findByIdInOrg: ReturnType<typeof vi.fn>;
     findBySlugInOrg: ReturnType<typeof vi.fn>;
     createInOrg: ReturnType<typeof vi.fn>;
     updateByIdInOrg: ReturnType<typeof vi.fn>;
@@ -79,6 +80,7 @@ describe('GamesService', () => {
       listInOrg: vi.fn(),
       listFilteredInOrg: vi.fn(),
       getByIdInOrgOrThrow: vi.fn(),
+      findByIdInOrg: vi.fn(),
       findBySlugInOrg: vi.fn(),
       createInOrg: vi.fn(),
       updateByIdInOrg: vi.fn(),
@@ -106,6 +108,19 @@ describe('GamesService', () => {
       storage as unknown as StoragePort,
     );
     req = {} as Request;
+  });
+
+  describe('existsInOrg', () => {
+    it('is true when the game exists in the org (ARC-01: how other modules check a gameId)', async () => {
+      repo.findByIdInOrg.mockResolvedValue(makeRow());
+      await expect(service.existsInOrg(ORG, GAME_ID)).resolves.toBe(true);
+      expect(repo.findByIdInOrg).toHaveBeenCalledWith(ORG, GAME_ID);
+    });
+
+    it('is false when the game is missing or belongs to another org', async () => {
+      repo.findByIdInOrg.mockResolvedValue(null);
+      await expect(service.existsInOrg(ORG, GAME_ID)).resolves.toBe(false);
+    });
   });
 
   it('derives a kebab-case slug from the title when none is given', async () => {

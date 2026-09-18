@@ -109,7 +109,7 @@ export const confirmAssetRequestSchema = z.object({
   storageKey: z.string().min(1).max(500),
 });
 
-export const uploadUrlResponseSchema = z.object({
+export const assetUploadUrlResponseSchema = z.object({
   uploadUrl: z.string(),
   storageKey: z.string(),
   expiresAt: z.string(),
@@ -135,7 +135,7 @@ export class GameSummaryDto extends createZodDto(gameSummarySchema) {}
 export class GameSpecsDto extends createZodDto(gameSpecsSchema) {}
 export class AssetUploadUrlRequestDto extends createZodDto(assetUploadUrlRequestSchema) {}
 export class ConfirmAssetRequestDto extends createZodDto(confirmAssetRequestSchema) {}
-export class UploadUrlResponseDto extends createZodDto(uploadUrlResponseSchema) {}
+export class AssetUploadUrlResponseDto extends createZodDto(assetUploadUrlResponseSchema) {}
 export class GameAssetDto extends createZodDto(gameAssetSchema) {}
 
 export type GameView = z.infer<typeof gameSchema>;
@@ -146,7 +146,7 @@ export type GameSpecsView = z.infer<typeof gameSpecsSchema>;
 export type AssetKind = (typeof assetKindValues)[number];
 export type AssetUploadUrlRequest = z.infer<typeof assetUploadUrlRequestSchema>;
 export type ConfirmAssetRequest = z.infer<typeof confirmAssetRequestSchema>;
-export type UploadUrlResponse = z.infer<typeof uploadUrlResponseSchema>;
+export type AssetUploadUrlResponse = z.infer<typeof assetUploadUrlResponseSchema>;
 export type GameAssetView = z.infer<typeof gameAssetSchema>;
 
 export const EMPTY_GAME_METRICS: GameMetricsView = {
