@@ -103,7 +103,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `POST /tests/{id}/publish`         | ✅     | `Idempotency-Key` obrigatório (422 se ausente); `422` com `pendingValidations` se incompleto |
 | `PATCH /tests/{id}/status`         | ✅     | transições `published⇄paused`, `→finished`; inválida → 409                       |
 
-> **Notas:** enums (`TestStatus`, `QuestionType`, `Build.status`, `ValidationStep`) seguem o schema Drizzle migrado, não `openapi.design.yaml` (que ficou desatualizado nesses nomes) — ver `DECISIONS.md` §3. O worker `build.validate` (`src/workers/build.processor.ts`) roda 3 etapas (`checksum`, `malware_scan`, `metadata`) sem integração real de antivírus — mesmo padrão de stub documentado do `media.transcode` (M9); `plugin_manifest` fica reservado, sem etapa instanciada (ORB-M6-02). Uma build por teste é regra de aplicação (troca automática se a anterior falhou; senão exige `DELETE` explícito).
+> **Notas:** enums (`TestStatus`, `QuestionType`, `Build.status`, `ValidationStep`) seguem o schema Drizzle migrado, não `openapi.design.yaml` (que ficou desatualizado nesses nomes) — ver `DECISIONS.md` §3. O worker `build.validate` (`src/workers/build.processor.ts`) roda 3 etapas reais (`checksum` — SHA-256 calculado no servidor; `metadata` — assinatura binária do formato; `malware_scan` — sem scanner integrado nesta fase, falha fechado de propósito); `plugin_manifest` fica reservado, sem etapa instanciada (ORB-M6-02). Uma build por teste é regra de aplicação **e** invariante de banco (`builds_test_id_unique`, DAT-02) — troca automática se a anterior falhou, senão exige `DELETE` explícito.
 
 ### M6 — Builds (`src/modules/builds`)
 
@@ -142,6 +142,8 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `POST /sessions/{id}/recordings/upload-url`                | ✅     | multipart; papel `player`; URL assinada (sem proxy de binário)             |
 | `POST /sessions/{id}/recordings/complete`                  | ✅     | confirma objeto, `status: processing`, enfileira transcode + extract-audio |
 | `GET /sessions/{id}/recordings/{recordingId}/playback-url` | ✅     | `url: null` enquanto `processing`/`failed`/`unavailable` (Tela 12 RN-03)   |
+
+> **Nota (GAP-04):** `media.transcode`/`media.extract-audio` (`src/workers/media.processor.ts`) rodam ffmpeg/ffprobe de verdade (binários via `@ffmpeg-installer`/`@ffprobe-installer`, sem depender de ffmpeg instalado no host) — já não é passthrough. `transcode` valida codec/duração reais e gera thumbnail real (`session_recordings.thumbnail_key`, exposto como `thumbnailUrl`); objeto sem stream de vídeo reconhecido, ou que o ffprobe nem consegue ler, vira `failed`. `extract-audio` reencoda a trilha de áudio para AAC de verdade (não copia mais os bytes do vídeo); ausência de trilha de áudio é tratada como caso legítimo (sem consentimento de microfone, por exemplo), não como falha.
 
 ### M7–M14 — **a fazer** (só no design, exceto M4, M5, M6, M9 e M13)
 

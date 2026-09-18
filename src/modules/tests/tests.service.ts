@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { Request } from 'express';
@@ -6,7 +6,8 @@ import type { TestModelView } from '../test-models/dto/test-model.dto';
 import { TestModelsService } from '../test-models/test-models.service';
 import { newId } from '../../infra/database/schema/_helpers';
 import type { TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
-import { JobName, MAIN_QUEUE } from '../../infra/queue/queue.constants';
+import { ensureJobEnqueued } from '../../infra/queue/ensure-enqueued';
+import { buildValidateJobId, JobName, MAIN_QUEUE } from '../../infra/queue/queue.constants';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
@@ -48,6 +49,8 @@ const STEP_ORDER: readonly WizardStepValue[] = ['model', 'form', 'build', 'audie
 
 @Injectable()
 export class TestsService {
+  private readonly logger = new Logger(TestsService.name);
+
   constructor(
     private readonly repo: TestsRepository,
     private readonly testModels: TestModelsService,
@@ -99,14 +102,20 @@ export class TestsService {
     dto: SetModelRequest,
     req: Request,
   ): Promise<TestView> {
-    const before = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    this.assertDraft(before);
     const model = this.requireAvailableModel(dto.testModelKey);
 
-    const updated = await this.repo.updateByIdInOrg(organizationId, id, {
-      modelKey: model.key,
-      currentStep: this.advance(before.currentStep, 'form'),
-    });
+    const { before, updated } = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (test, updateTest) => {
+        this.assertDraft(test);
+        const updated = await updateTest({
+          modelKey: model.key,
+          currentStep: this.advance(test.currentStep, 'form'),
+        });
+        return { before: test, updated };
+      },
+    );
 
     const view = await this.toView(updated);
     recordAudit(req, {
@@ -125,12 +134,11 @@ export class TestsService {
     questions: FormQuestionInput[],
     req: Request,
   ): Promise<TestFormView> {
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    this.assertDraft(test);
-
-    const saved = await this.repo.replaceForm(id, questions);
-    await this.repo.updateByIdInOrg(organizationId, id, {
-      currentStep: this.advance(test.currentStep, 'build'),
+    const saved = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+      this.assertDraft(test);
+      const saved = await this.repo.replaceForm(id, questions);
+      await updateTest({ currentStep: this.advance(test.currentStep, 'build') });
+      return saved;
     });
 
     recordAudit(req, {
@@ -162,6 +170,7 @@ export class TestsService {
     const uploadUrl = await this.storage.createUploadUrl(
       storageKey,
       dto.contentType,
+      dto.sizeBytes,
       BUILD_UPLOAD_TTL_SECONDS,
     );
 
@@ -185,9 +194,6 @@ export class TestsService {
     dto: ConfirmBuildRequest,
     req: Request,
   ): Promise<BuildView> {
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    this.assertDraft(test);
-
     const parsed = parseBuildStorageKey(dto.storageKey);
     if (!parsed || parsed.organizationId !== organizationId || parsed.testId !== id) {
       throw AppException.validation('storageKey não pertence a este teste', {
@@ -195,59 +201,89 @@ export class TestsService {
       });
     }
 
-    const existing = await this.repo.findLatestBuild(id);
-    if (existing) {
-      if (existing.build.status === 'failed') {
-        await this.repo.deleteBuild(existing.build.id);
-      } else {
-        throw AppException.conflict(
-          'Já existe uma build para este teste — remova antes de enviar outra',
-        );
+    const result = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+      this.assertDraft(test);
+
+      const existing = await this.repo.findLatestBuild(id);
+      if (existing) {
+        if (existing.build.status === 'failed') {
+          await this.repo.deleteBuild(existing.build.id);
+        } else {
+          throw AppException.conflict(
+            'Já existe uma build para este teste — remova antes de enviar outra',
+          );
+        }
       }
-    }
 
-    const meta = await this.storage.stat(dto.storageKey);
-    if (!meta) {
-      throw AppException.validation('Objeto ausente no storage', {
-        storageKey: 'Upload não encontrado — envie o arquivo antes de confirmar',
-      });
-    }
-    if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_BUILD_BYTES) {
-      throw AppException.validation('Tamanho de build inválido', {
-        sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_BUILD_BYTES} bytes`,
-      });
-    }
+      const meta = await this.storage.stat(dto.storageKey);
+      if (!meta) {
+        throw AppException.validation('Objeto ausente no storage', {
+          storageKey: 'Upload não encontrado — envie o arquivo antes de confirmar',
+        });
+      }
+      if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_BUILD_BYTES) {
+        // Reject without leaving the oversized object behind (SEC-06) —
+        // the signed Content-Length should already stop this at upload
+        // time, but a rejected object here must never linger either.
+        await this.storage.remove(dto.storageKey).catch(() => undefined);
+        throw AppException.validation('Tamanho de build inválido', {
+          sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_BUILD_BYTES} bytes`,
+        });
+      }
 
-    const { build, steps } = await this.repo.createBuildWithSteps(
-      {
-        id: parsed.buildId,
-        organizationId,
-        testId: id,
-        fileName: parsed.fileName,
-        version: dto.version ?? null,
-        platform: dto.platform,
-        sizeBytes: meta.sizeBytes,
-        checksum: dto.checksum ?? null,
-        storageKey: dto.storageKey,
-        status: 'processing',
-      },
-      BUILD_STEP_KEYS,
-    );
+      const created = await this.repo.createBuildWithSteps(
+        {
+          id: parsed.buildId,
+          organizationId,
+          testId: id,
+          fileName: parsed.fileName,
+          version: dto.version ?? null,
+          platform: dto.platform,
+          sizeBytes: meta.sizeBytes,
+          checksum: dto.checksum ?? null,
+          storageKey: dto.storageKey,
+          status: 'processing',
+        },
+        BUILD_STEP_KEYS,
+      );
 
-    await this.repo.updateByIdInOrg(organizationId, id, {
-      currentStep: this.advance(test.currentStep, 'audience'),
+      await updateTest({ currentStep: this.advance(test.currentStep, 'audience') });
+
+      return created;
     });
 
-    await this.queue.add(JobName.BUILD_VALIDATE, { buildId: build.id });
+    // OPS-01: the insert and the enqueue are two separate operations with no
+    // shared transaction — if this fails, the row must not linger silently
+    // in "processing" forever. Surface it as `failed` right away, which
+    // reuses the wizard's existing "a failed build is replaced
+    // automatically on retry" rule, so the client's natural retry recovers
+    // on its own. `ensureJobEnqueued`'s deterministic id also makes this
+    // safe if a reconciliation sweep or a client retry races it later.
+    try {
+      await ensureJobEnqueued(
+        this.queue,
+        JobName.BUILD_VALIDATE,
+        buildValidateJobId(result.build.id),
+        {
+          buildId: result.build.id,
+        },
+      );
+    } catch (err) {
+      result.build = await this.repo.markBuildFailed(
+        result.build.id,
+        'Falha ao agendar validação — tente reenviar a build',
+      );
+      this.logger.error(`failed to enqueue build.validate for ${result.build.id}: ${String(err)}`);
+    }
 
     recordAudit(req, {
       action: 'test.build.confirmed',
       entity: 'tests',
       entityId: id,
       before: null,
-      after: { buildId: build.id },
+      after: { buildId: result.build.id },
     });
-    return toBuildView({ build, steps });
+    return toBuildView(result);
   }
 
   async getBuild(organizationId: string, id: string): Promise<BuildView> {
@@ -284,28 +320,29 @@ export class TestsService {
     dto: AudienceRequest,
     req: Request,
   ): Promise<TestView> {
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    this.assertDraft(test);
-
     const minBirthdate = dateYearsAgo(dto.ageMax + 1);
     const maxBirthdate = dateYearsAgo(dto.ageMin);
     const eligible = await this.repo.countEligiblePlayers(minBirthdate, maxBirthdate);
     const estimatedReach = Math.min(dto.quantity, eligible);
 
-    await this.repo.upsertAudience(id, {
-      countries: dto.locations ?? [],
-      archetypes: dto.archetypes ?? [],
-      platforms: dto.deviceRequirements ?? [],
-      ageMin: dto.ageMin,
-      ageMax: dto.ageMax,
-      testerCount: dto.quantity,
-      keepActive: dto.keepActive ?? false,
-      estimatedReach,
-    });
+    const updated = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+      this.assertDraft(test);
 
-    const updated = await this.repo.updateByIdInOrg(organizationId, id, {
-      durationDays: dto.durationDays,
-      currentStep: this.advance(test.currentStep, 'review'),
+      await this.repo.upsertAudience(id, {
+        countries: dto.locations ?? [],
+        archetypes: dto.archetypes ?? [],
+        platforms: dto.deviceRequirements ?? [],
+        ageMin: dto.ageMin,
+        ageMax: dto.ageMax,
+        testerCount: dto.quantity,
+        keepActive: dto.keepActive ?? false,
+        estimatedReach,
+      });
+
+      return updateTest({
+        durationDays: dto.durationDays,
+        currentStep: this.advance(test.currentStep, 'review'),
+      });
     });
 
     const view = await this.toView(updated);
@@ -338,35 +375,38 @@ export class TestsService {
       });
     }
 
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    if (test.status === 'published') {
-      return this.toView(test);
-    }
-    if (test.status !== 'draft') {
-      throw AppException.conflict('Teste não está em rascunho');
-    }
-
-    const pending = await this.pendingValidationsFor(test);
-    if (pending.length > 0) {
-      throw AppException.validation(
-        'Etapas pendentes para publicar',
-        Object.fromEntries(pending.map((p) => [p.code, p.message])),
-      );
-    }
-
-    const now = new Date();
-    const durationDays = test.durationDays ?? 0;
-    const endsAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-
-    let updated: TestRow;
+    let result: { test: TestRow; justPublished: boolean };
     try {
-      updated = await this.repo.updateByIdInOrg(organizationId, id, {
-        status: 'published',
-        currentStep: 'review',
-        publishedAt: now,
-        startsAt: now,
-        endsAt,
-        publishIdempotencyKey: idempotencyKey,
+      result = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+        if (test.status === 'published') {
+          return { test, justPublished: false };
+        }
+        if (test.status !== 'draft') {
+          throw AppException.conflict('Teste não está em rascunho');
+        }
+
+        const pending = await this.pendingValidationsFor(test);
+        if (pending.length > 0) {
+          throw AppException.validation(
+            'Etapas pendentes para publicar',
+            Object.fromEntries(pending.map((p) => [p.code, p.message])),
+          );
+        }
+
+        const now = new Date();
+        const durationDays = test.durationDays ?? 0;
+        const endsAt = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+        const updated = await updateTest({
+          status: 'published',
+          currentStep: 'review',
+          publishedAt: now,
+          startsAt: now,
+          endsAt,
+          publishIdempotencyKey: idempotencyKey,
+        });
+
+        return { test: updated, justPublished: true };
       });
     } catch (err) {
       if (isUniqueViolation(err)) {
@@ -376,14 +416,16 @@ export class TestsService {
       throw err;
     }
 
-    const view = await this.toView(updated);
-    recordAudit(req, {
-      action: 'test.published',
-      entity: 'tests',
-      entityId: id,
-      before: { status: test.status },
-      after: { status: updated.status },
-    });
+    const view = await this.toView(result.test);
+    if (result.justPublished) {
+      recordAudit(req, {
+        action: 'test.published',
+        entity: 'tests',
+        entityId: id,
+        before: { status: 'draft' },
+        after: { status: result.test.status },
+      });
+    }
     return view;
   }
 
@@ -449,13 +491,18 @@ export class TestsService {
       pending.push({ step: 2, code: 'FORM_EMPTY', message: 'Formulário sem perguntas' });
     }
 
-    const buildWithSteps = await this.repo.findLatestBuild(test.id);
-    if (!buildWithSteps || buildWithSteps.build.status !== 'validated') {
-      pending.push({
-        step: 3,
-        code: 'BUILD_NOT_VALIDATED',
-        message: buildWithSteps?.build.failureReason ?? 'Build ainda não validada',
-      });
+    // GAP-03: only models that actually need a playable build gate publish
+    // on one — ab_test_images compares static images and is explicitly
+    // advertised as not requiring a build (test-models.catalog.ts).
+    if (model.requiresBuild) {
+      const buildWithSteps = await this.repo.findLatestBuild(test.id);
+      if (!buildWithSteps || buildWithSteps.build.status !== 'validated') {
+        pending.push({
+          step: 3,
+          code: 'BUILD_NOT_VALIDATED',
+          message: buildWithSteps?.build.failureReason ?? 'Build ainda não validada',
+        });
+      }
     }
 
     const audience = await this.repo.findAudience(test.id);

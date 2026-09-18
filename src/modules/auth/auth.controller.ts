@@ -22,6 +22,7 @@ import {
   ForgotPasswordDto,
   LoginDto,
   LoginResponseDto,
+  LoginResultDto,
   MessageResponseDto,
   ResetPasswordDto,
   SignupAvailabilityDto,
@@ -50,7 +51,7 @@ export class AuthController {
   @Post('login')
   @SkipThrottle({ default: false })
   @HttpCode(HttpStatus.OK)
-  @ZodResponse({ type: LoginResponseDto })
+  @ZodResponse({ type: LoginResultDto })
   login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     return this.auth.login(dto, req, res);
   }

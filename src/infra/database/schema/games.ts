@@ -26,6 +26,12 @@ export const games = pgTable(
   (t) => [
     uniqueIndex('games_org_slug_unique').on(t.organizationId, t.slug),
     index('games_org_idx').on(t.organizationId),
+    // DAT-03: lets org-scoped children (tests, game_assets) declare a
+    // composite FK of (gameId, organizationId) → (id, organizationId) — a
+    // real DB-level guarantee that a child can never claim a different org
+    // than the game it points at actually belongs to, not just an
+    // application-level filter that a future write path could forget.
+    uniqueIndex('games_id_org_unique').on(t.id, t.organizationId),
   ],
 );
 

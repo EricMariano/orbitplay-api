@@ -136,7 +136,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LoginResponseDto_Output"
+                  "$ref": "#/components/schemas/LoginResultDto_Output"
                 }
               }
             }
@@ -2315,11 +2315,151 @@
           "password": {
             "type": "string",
             "minLength": 1
+          },
+          "organizationId": {
+            "type": "string",
+            "minLength": 1
           }
         },
         "required": [
           "email",
           "password"
+        ]
+      },
+      "LoginResultDto_Output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "accessToken": {
+                "type": "string"
+              },
+              "user": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "email": {
+                    "type": "string"
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "organizationId": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "studio",
+                      "player"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "email",
+                  "displayName",
+                  "organizationId",
+                  "role"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "accessToken",
+              "user"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "requiresOrganizationSelection": {
+                "type": "boolean",
+                "enum": [
+                  true
+                ]
+              },
+              "organizations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "organizationId": {
+                      "type": "string"
+                    },
+                    "organizationName": {
+                      "type": "string"
+                    },
+                    "role": {
+                      "type": "string",
+                      "enum": [
+                        "owner",
+                        "admin",
+                        "studio",
+                        "player"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "organizationId",
+                    "organizationName",
+                    "role"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "requiresOrganizationSelection",
+              "organizations"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "SignupStudioDto": {
+        "type": "object",
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "format": "email",
+            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 8
+          },
+          "birthdate": {
+            "type": "string",
+            "format": "date",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
+          },
+          "organizationName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "acceptedTerms": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "displayName",
+          "email",
+          "password",
+          "birthdate",
+          "organizationName"
         ]
       },
       "LoginResponseDto_Output": {
@@ -2368,46 +2508,6 @@
           "user"
         ],
         "additionalProperties": false
-      },
-      "SignupStudioDto": {
-        "type": "object",
-        "properties": {
-          "displayName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "email": {
-            "type": "string",
-            "minLength": 1,
-            "format": "email",
-            "pattern": "^(?!\\.)(?!.*\\.\\.)([A-Za-z0-9_'+\\-\\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
-          },
-          "password": {
-            "type": "string",
-            "minLength": 8
-          },
-          "birthdate": {
-            "type": "string",
-            "format": "date",
-            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$"
-          },
-          "organizationName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "acceptedTerms": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "displayName",
-          "email",
-          "password",
-          "birthdate",
-          "organizationName"
-        ]
       },
       "SignupPlayerDto": {
         "type": "object",
@@ -3628,6 +3728,9 @@
                 "requiresTelemetry": {
                   "type": "boolean"
                 },
+                "requiresBuild": {
+                  "type": "boolean"
+                },
                 "available": {
                   "type": "boolean"
                 },
@@ -3645,6 +3748,7 @@
                 "deliverables",
                 "technicalRequirements",
                 "requiresTelemetry",
+                "requiresBuild",
                 "available",
                 "unavailableReason"
               ],
@@ -3690,6 +3794,9 @@
           "requiresTelemetry": {
             "type": "boolean"
           },
+          "requiresBuild": {
+            "type": "boolean"
+          },
           "available": {
             "type": "boolean"
           },
@@ -3707,6 +3814,7 @@
           "deliverables",
           "technicalRequirements",
           "requiresTelemetry",
+          "requiresBuild",
           "available",
           "unavailableReason"
         ],

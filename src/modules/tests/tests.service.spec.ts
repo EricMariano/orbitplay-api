@@ -10,6 +10,7 @@ import type {
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { StoragePort } from '../../shared/ports/storage.port';
 import { TestModelsService } from '../test-models/test-models.service';
+import { MAX_BUILD_BYTES } from './dto/test.dto';
 import { TestsService } from './tests.service';
 import type { BuildWithSteps, TestsRepository } from './tests.repository';
 
@@ -92,6 +93,7 @@ describe('TestsService', () => {
     getByIdInOrgOrThrow: ReturnType<typeof vi.fn>;
     createInOrg: ReturnType<typeof vi.fn>;
     updateByIdInOrg: ReturnType<typeof vi.fn>;
+    withRowLock: ReturnType<typeof vi.fn>;
     findFormQuestions: ReturnType<typeof vi.fn>;
     replaceForm: ReturnType<typeof vi.fn>;
     findAudience: ReturnType<typeof vi.fn>;
@@ -99,6 +101,7 @@ describe('TestsService', () => {
     findLatestBuild: ReturnType<typeof vi.fn>;
     createBuildWithSteps: ReturnType<typeof vi.fn>;
     deleteBuild: ReturnType<typeof vi.fn>;
+    markBuildFailed: ReturnType<typeof vi.fn>;
     countEligiblePlayers: ReturnType<typeof vi.fn>;
   };
   let storage: {
@@ -109,7 +112,7 @@ describe('TestsService', () => {
     remove: ReturnType<typeof vi.fn>;
     healthCheck: ReturnType<typeof vi.fn>;
   };
-  let queue: { add: ReturnType<typeof vi.fn> };
+  let queue: { add: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> };
   let service: TestsService;
   let req: Request;
 
@@ -119,6 +122,7 @@ describe('TestsService', () => {
       getByIdInOrgOrThrow: vi.fn(),
       createInOrg: vi.fn(),
       updateByIdInOrg: vi.fn(),
+      withRowLock: vi.fn(),
       findFormQuestions: vi.fn().mockResolvedValue([]),
       replaceForm: vi.fn(),
       findAudience: vi.fn().mockResolvedValue(null),
@@ -126,8 +130,24 @@ describe('TestsService', () => {
       findLatestBuild: vi.fn().mockResolvedValue(null),
       createBuildWithSteps: vi.fn(),
       deleteBuild: vi.fn().mockResolvedValue(undefined),
+      markBuildFailed: vi.fn(),
       countEligiblePlayers: vi.fn().mockResolvedValue(0),
     };
+    // Mimics the real TestsRepository.withRowLock: fetches the row (via the
+    // same mock other tests already drive through getByIdInOrgOrThrow) and
+    // gives the callback an updater backed by updateByIdInOrg — without
+    // actually needing a database transaction/row lock in unit tests.
+    const getTest = repo.getByIdInOrgOrThrow as (orgId: string, id: string) => Promise<TestRow>;
+    const updateRow = repo.updateByIdInOrg as (
+      orgId: string,
+      id: string,
+      patch: unknown,
+    ) => Promise<TestRow>;
+    repo.withRowLock.mockImplementation(async (orgId, testId, fn) => {
+      const test = await getTest(orgId, testId);
+      const updateTest = (patch: unknown) => updateRow(orgId, testId, patch);
+      return fn(test, updateTest);
+    });
     storage = {
       createUploadUrl: vi.fn().mockResolvedValue('https://minio.local/put'),
       createDownloadUrl: vi.fn().mockResolvedValue('https://minio.local/get'),
@@ -136,7 +156,10 @@ describe('TestsService', () => {
       remove: vi.fn().mockResolvedValue(undefined),
       healthCheck: vi.fn(),
     };
-    queue = { add: vi.fn().mockResolvedValue(undefined) };
+    queue = {
+      add: vi.fn().mockResolvedValue(undefined),
+      getJob: vi.fn().mockResolvedValue(undefined),
+    };
     service = new TestsService(
       repo as unknown as TestsRepository,
       new TestModelsService(),
@@ -269,6 +292,23 @@ describe('TestsService', () => {
       ).rejects.toMatchObject({ status: 409 });
     });
 
+    it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      repo.findLatestBuild.mockResolvedValue(null);
+      storage.stat.mockResolvedValue({
+        sizeBytes: MAX_BUILD_BYTES + 1,
+        contentType: 'application/zip',
+      });
+      const storageKey = `orgs/${ORG}/tests/${TEST_ID}/builds/${BUILD_ID}/game.zip`;
+
+      await expect(
+        service.confirmBuild(ORG, TEST_ID, { storageKey, platform: 'windows' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+
+      expect(storage.remove).toHaveBeenCalledWith(storageKey);
+      expect(repo.createBuildWithSteps).not.toHaveBeenCalled();
+    });
+
     it('enqueues build.validate and returns 202-shaped processing state on success', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
       repo.findLatestBuild.mockResolvedValue(null);
@@ -289,7 +329,36 @@ describe('TestsService', () => {
       );
 
       expect(view.status).toBe('processing');
-      expect(queue.add).toHaveBeenCalledWith('build.validate', { buildId: BUILD_ID });
+      expect(queue.add).toHaveBeenCalledWith(
+        'build.validate',
+        { buildId: BUILD_ID },
+        { jobId: `build.validate:${BUILD_ID}` },
+      );
+    });
+
+    it('marks the build failed instead of leaving it stuck in "processing" when enqueueing fails (OPS-01)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      repo.findLatestBuild.mockResolvedValue(null);
+      storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
+      repo.createBuildWithSteps.mockResolvedValue({
+        build: makeBuild({ status: 'processing' }),
+        steps: makeSteps('processing'),
+      });
+      queue.add.mockRejectedValue(new Error('redis unreachable'));
+      repo.markBuildFailed.mockResolvedValue(makeBuild({ status: 'failed' }));
+
+      const view = await service.confirmBuild(
+        ORG,
+        TEST_ID,
+        {
+          storageKey: `orgs/${ORG}/tests/${TEST_ID}/builds/${BUILD_ID}/game.zip`,
+          platform: 'windows',
+        },
+        req,
+      );
+
+      expect(repo.markBuildFailed).toHaveBeenCalledWith(BUILD_ID, expect.any(String));
+      expect(view.status).toBe('failed');
     });
   });
 
@@ -332,6 +401,22 @@ describe('TestsService', () => {
       );
       const drafts = drainAuditDrafts(req);
       expect(drafts[0]).toMatchObject({ action: 'test.published' });
+    });
+
+    it('publishes an ab_test_images test with no build at all (GAP-03)', async () => {
+      const draft = makeTestRow({ modelKey: 'ab_test_images', durationDays: 7 });
+      repo.getByIdInOrgOrThrow.mockResolvedValue(draft);
+      repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
+      repo.findLatestBuild.mockResolvedValue(null); // no build ever uploaded
+      repo.findAudience.mockResolvedValue(makeAudience());
+      repo.updateByIdInOrg.mockImplementation((_org, _id, patch) =>
+        Promise.resolve({ ...draft, ...patch }),
+      );
+
+      const view = await service.publish(ORG, TEST_ID, 'idem-1', req);
+
+      expect(view.status).toBe('published');
+      expect(view.pendingValidations).toEqual([]);
     });
 
     it('replays the current state instead of re-publishing when already published', async () => {

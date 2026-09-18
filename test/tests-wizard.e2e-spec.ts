@@ -5,6 +5,7 @@ import request from 'supertest';
 import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GAME_IDS, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
+import { redisConnectionOptions } from '../src/infra/queue/connection';
 import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
 import { handleJob } from '../src/workers/handle-job';
@@ -56,13 +57,8 @@ describe('Tests wizard — M5 (e2e)', () => {
       ON CONFLICT DO NOTHING`;
 
     workerDeps = await createWorkerDeps();
-    const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
     worker = new Worker(MAIN_QUEUE, (job) => handleJob(job, workerDeps), {
-      connection: {
-        host: redisUrl.hostname,
-        port: Number(redisUrl.port || 6379),
-        maxRetriesPerRequest: null,
-      },
+      connection: redisConnectionOptions(process.env.REDIS_URL ?? 'redis://localhost:6379'),
     });
     await worker.waitUntilReady();
 
@@ -259,6 +255,33 @@ describe('Tests wizard — M5 (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`)
       .send({ testModelKey: 'free_exploration' });
     expect(forbidden.status).toBe(403);
+  });
+
+  // SEC-05: the wizard's read-only routes are documented as studio-only too
+  // (the controller's own comment says "a player token never sees a studio's
+  // draft") — these three previously carried no @Roles guard at all, so any
+  // authenticated player could read a studio's draft test/form/build state.
+  it('blocks a player token from reading draft test/form/build state', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration' });
+    const testId = create.body.id as string;
+
+    const getTest = await request(app.getHttpServer())
+      .get(`/tests/${testId}`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(getTest.status).toBe(403);
+
+    const formPreview = await request(app.getHttpServer())
+      .get(`/tests/${testId}/form/preview`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(formPreview.status).toBe(403);
+
+    const getBuild = await request(app.getHttpServer())
+      .get(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(getBuild.status).toBe(403);
   });
 
   it('lets a failed build be retried without deleting it first, and blocks a validated one until deleted', async () => {

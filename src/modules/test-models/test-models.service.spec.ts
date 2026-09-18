@@ -37,6 +37,19 @@ describe('TestModelsService', () => {
     }
   });
 
+  it('requires a build for every model except ab_test_images (GAP-03)', () => {
+    for (const key of ['free_exploration', 'free_exploration_telemetry', 'ab_test']) {
+      expect(service.get(key).requiresBuild).toBe(true);
+    }
+    expect(service.get('ab_test_images').requiresBuild).toBe(false);
+  });
+
+  it("ab_test's copy asks for one build per variant test, not two builds in one test (GAP-03)", () => {
+    const model = service.get('ab_test');
+    expect(model.description).not.toMatch(/duas builds/i);
+    expect(model.technicalRequirements.join(' ')).not.toMatch(/duas builds/i);
+  });
+
   it('throws a 404 app exception for an unknown key', () => {
     let error: unknown;
     try {

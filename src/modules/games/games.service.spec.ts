@@ -188,6 +188,7 @@ describe('GamesService', () => {
     expect(storage.createUploadUrl).toHaveBeenCalledWith(
       result.storageKey,
       'image/png',
+      1024,
       expect.any(Number),
     );
   });
@@ -212,6 +213,35 @@ describe('GamesService', () => {
       }),
     ).rejects.toMatchObject({ status: 422 });
     expect(storage.stat).not.toHaveBeenCalled();
+  });
+
+  it('deletes the object from storage when its content type is not allowed (SEC-06)', async () => {
+    repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow());
+    storage.stat.mockResolvedValue({ contentType: 'image/gif', sizeBytes: 128 });
+    const storageKey = `orgs/${ORG}/games/${GAME_ID}/assets/cover/01920000-0000-7000-8000-0000000000ac.png`;
+
+    await expect(
+      service.confirmAsset(ORG, GAME_ID, { kind: 'cover', storageKey }),
+    ).rejects.toMatchObject({ status: 422 });
+
+    expect(storage.remove).toHaveBeenCalledWith(storageKey);
+    expect(repo.createAssetInOrg).not.toHaveBeenCalled();
+  });
+
+  it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
+    repo.getByIdInOrgOrThrow.mockResolvedValue(makeRow());
+    storage.stat.mockResolvedValue({
+      contentType: 'image/png',
+      sizeBytes: MAX_GAME_ASSET_BYTES + 1,
+    });
+    const storageKey = `orgs/${ORG}/games/${GAME_ID}/assets/cover/01920000-0000-7000-8000-0000000000ad.png`;
+
+    await expect(
+      service.confirmAsset(ORG, GAME_ID, { kind: 'cover', storageKey }),
+    ).rejects.toMatchObject({ status: 422 });
+
+    expect(storage.remove).toHaveBeenCalledWith(storageKey);
+    expect(repo.createAssetInOrg).not.toHaveBeenCalled();
   });
 
   it('confirms an uploaded object and retires the previous cover', async () => {

@@ -22,6 +22,7 @@ export const TEST_MODEL_CATALOG: readonly TestModelView[] = [
       'Consentimento de gravação quando a etapa exigir',
     ],
     requiresTelemetry: false,
+    requiresBuild: true,
     available: true,
     unavailableReason: null,
   },
@@ -41,24 +42,30 @@ export const TEST_MODEL_CATALOG: readonly TestModelView[] = [
       'Build validada e compatível com o dispositivo do jogador',
     ],
     requiresTelemetry: true,
+    requiresBuild: true,
     available: false,
     unavailableReason: 'O Orbit Plug-in ainda não está disponível nesta fase da plataforma.',
   },
   {
     key: 'ab_test',
     name: 'Teste A/B',
+    // GAP-03: a build por variante — não duas builds num teste só. A
+    // plataforma segue "uma build por teste" (DECISIONS.md §1.3; reforçado
+    // pelo UNIQUE em builds.test_id); um A/B é montado como DOIS testes,
+    // cada um com a build de uma variante, comparados depois no relatório.
     description:
-      'Compara duas versões do build entre grupos de jogadores para medir diferença de comportamento e preferência.',
+      'Uma variante de um teste A/B: mesma dinâmica da exploração livre, com a build dessa variante. Para comparar duas versões, crie um segundo teste com a build alternativa — o comparativo entre as variantes entra no relatório.',
     deliverables: [
-      'Distribuição de sessões entre as variantes A e B',
-      'Comparativo de respostas do formulário por variante',
-      'Avaliação do jogador por variante',
+      'Distribuição de sessões desta variante',
+      'Respostas do formulário desta variante',
+      'Avaliação do jogador desta variante',
     ],
     technicalRequirements: [
-      'Duas builds válidas, uma por variante',
-      'Critério de distribuição definido na Etapa 3',
+      'Build validada e compatível com o dispositivo do jogador',
+      'Um segundo teste com a build da variante comparada, para o comparativo no relatório',
     ],
     requiresTelemetry: false,
+    requiresBuild: true,
     available: true,
     unavailableReason: null,
   },
@@ -67,12 +74,14 @@ export const TEST_MODEL_CATALOG: readonly TestModelView[] = [
     name: 'Teste A/B de imagens',
     description:
       'Compara duas ou mais imagens (capa, banner, arte promocional) para medir preferência do público, sem exigir um build jogável.',
-    deliverables: [
-      'Distribuição de respostas por imagem',
-      'Preferência agregada por variante',
-    ],
+    deliverables: ['Distribuição de respostas por imagem', 'Preferência agregada por variante'],
     technicalRequirements: ['Imagens das variantes em PNG, JPEG ou WebP'],
     requiresTelemetry: false,
+    // GAP-03: a única flag que efetivamente libera publish sem build
+    // validada — o gate genérico em TestsService.pendingValidationsFor
+    // (BUILD_NOT_VALIDATED) agora consulta esta flag em vez de exigir build
+    // incondicionalmente para todo modelo.
+    requiresBuild: false,
     available: true,
     unavailableReason: null,
   },

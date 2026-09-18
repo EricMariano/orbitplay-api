@@ -17,6 +17,7 @@ import type {
   ForgotPasswordDto,
   LoginDto,
   LoginResponse,
+  LoginResult,
   ResetPasswordDto,
   SignupAvailability,
   SignupPlayerInput,
@@ -46,7 +47,7 @@ export class AuthService {
     @Inject(NOTIFICATION_PORT) private readonly mail: NotificationPort,
   ) {}
 
-  async login(dto: LoginDto, req: Request, res: Response): Promise<LoginResponse> {
+  async login(dto: LoginDto, req: Request, res: Response): Promise<LoginResult> {
     const email = dto.email.toLowerCase().trim();
     await this.enforceIdentifierLimit('login', email);
 
@@ -64,10 +65,36 @@ export class AuthService {
       throw AppException.unauthorized(GENERIC_LOGIN_ERROR);
     }
 
-    const membership = await this.repo.findActiveMembership(user.id);
-    if (!membership) {
+    const memberships = await this.repo.findActiveMemberships(user.id);
+    if (memberships.length === 0) {
       // No active org → same generic error; never leak the account exists.
       throw AppException.unauthorized(GENERIC_LOGIN_ERROR);
+    }
+
+    // GAP-02: a user with more than one active membership (staff invited
+    // into a second org, e.g.) can't be resolved by guessing — `role` still
+    // never comes from the body, only *which* of the caller's own already-
+    // active memberships supplies it does.
+    let membership;
+    if (dto.organizationId) {
+      membership = memberships.find((m) => m.organizationId === dto.organizationId);
+      if (!membership) {
+        // Not a member of that org (or it doesn't exist) — same generic
+        // error as bad credentials, never confirm/deny org membership.
+        throw AppException.unauthorized(GENERIC_LOGIN_ERROR);
+      }
+    } else if (memberships.length === 1) {
+      membership = memberships[0];
+    } else {
+      await this.clearIdentifierLimit('login', email);
+      return {
+        requiresOrganizationSelection: true,
+        organizations: memberships.map((m) => ({
+          organizationId: m.organizationId,
+          organizationName: m.organizationName,
+          role: m.roleKey,
+        })),
+      };
     }
 
     await this.clearIdentifierLimit('login', email);
@@ -120,19 +147,24 @@ export class AuthService {
       this.clearRefreshCookie(res);
       throw AppException.unauthorized('Sessão inválida');
     }
-    const membership = await this.repo.findActiveMembership(user.id);
+    // Must still be active in the SAME org the refresh token was issued for —
+    // not just active in any org — otherwise a user removed from org A could
+    // rotate into a JWT for org A carrying their role in unrelated org B.
+    const membership = await this.repo.findActiveMembershipForOrg(user.id, stored.organizationId);
     if (!membership) {
       this.clearRefreshCookie(res);
       throw AppException.unauthorized('Sessão inválida');
     }
 
-    // Rotate within the same family.
+    // Rotate within the same family. The revoke-and-insert happens atomically
+    // in one transaction so two concurrent requests presenting the same
+    // token can't both mint a successor (see rotateRefreshToken).
     const next = await this.token.createRefreshToken({
       userId: user.id,
       organizationId: stored.organizationId,
       familyId: stored.familyId,
     });
-    await this.repo.insertRefreshToken({
+    const rotated = await this.repo.rotateRefreshToken(stored.id, {
       id: next.tokenId,
       userId: user.id,
       organizationId: stored.organizationId,
@@ -142,7 +174,14 @@ export class AuthService {
       ip: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
     });
-    await this.repo.revokeToken(stored.id, next.tokenId);
+    if (!rotated) {
+      // Lost the race: another request already consumed this token
+      // concurrently. Treat it the same as presenting an already-rotated
+      // token — revoke the family and force re-login.
+      await this.repo.revokeFamily(stored.familyId);
+      this.clearRefreshCookie(res);
+      throw AppException.unauthorized('Sessão inválida');
+    }
 
     const accessToken = await this.token.signAccessToken({
       sub: user.id,

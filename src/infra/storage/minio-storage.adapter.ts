@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
 import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
@@ -45,11 +46,17 @@ export class MinioStorageAdapter implements StoragePort {
     });
   }
 
-  async createUploadUrl(key: string, contentType: string, expiresInSeconds = 900): Promise<string> {
+  async createUploadUrl(
+    key: string,
+    contentType: string,
+    sizeBytes: number,
+    expiresInSeconds = 900,
+  ): Promise<string> {
     const command = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ContentType: contentType,
+      ContentLength: sizeBytes,
     });
     return getSignedUrl(this.client, command, { expiresIn: expiresInSeconds });
   }
@@ -132,6 +139,18 @@ export class MinioStorageAdapter implements StoragePort {
     );
   }
 
+  async putObject(key: string, body: Buffer, contentType: string): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentLength: body.length,
+      }),
+    );
+  }
+
   async exists(key: string): Promise<boolean> {
     return (await this.stat(key)) !== null;
   }
@@ -146,6 +165,14 @@ export class MinioStorageAdapter implements StoragePort {
     } catch {
       return null;
     }
+  }
+
+  async getObjectStream(key: string): Promise<Readable> {
+    const out = await this.client.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }));
+    if (!(out.Body instanceof Readable)) {
+      throw new Error(`MinIO did not return a readable stream for key ${key}`);
+    }
+    return out.Body;
   }
 
   async remove(key: string): Promise<void> {

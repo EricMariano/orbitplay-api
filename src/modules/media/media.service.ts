@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
@@ -7,7 +7,13 @@ import type {
   SessionConsentRow,
   SessionRecordingRow,
 } from '../../infra/database/schema/participations';
-import { JobName, MAIN_QUEUE } from '../../infra/queue/queue.constants';
+import { ensureJobEnqueued } from '../../infra/queue/ensure-enqueued';
+import {
+  JobName,
+  MAIN_QUEUE,
+  mediaExtractAudioJobId,
+  mediaTranscodeJobId,
+} from '../../infra/queue/queue.constants';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { AppException } from '../../shared/errors/app.exception';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
@@ -43,12 +49,33 @@ const UPLOAD_SESSION_PREFIX = 'recording-upload:';
  */
 @Injectable()
 export class MediaService {
+  private readonly logger = new Logger(MediaService.name);
+
   constructor(
     private readonly repo: MediaRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     @InjectQueue(MAIN_QUEUE) private readonly queue: Queue,
   ) {}
+
+  /**
+   * Ensures both processing jobs exist for a recording, using deterministic
+   * ids so this is safe to call repeatedly — the first successful insert,
+   * a client retry that finds the recording already `processing`, and the
+   * reconciliation sweep can all call this without ever double-enqueueing
+   * (OPS-01).
+   */
+  private async ensureRecordingJobsEnqueued(recordingId: string): Promise<void> {
+    await ensureJobEnqueued(this.queue, JobName.MEDIA_TRANSCODE, mediaTranscodeJobId(recordingId), {
+      recordingId,
+    });
+    await ensureJobEnqueued(
+      this.queue,
+      JobName.MEDIA_EXTRACT_AUDIO,
+      mediaExtractAudioJobId(recordingId),
+      { recordingId },
+    );
+  }
 
   async createUploadUrl(
     userId: string,
@@ -118,6 +145,17 @@ export class MediaService {
 
     const already = await this.repo.findRecordingByStorageKey(dto.storageKey);
     if (already && already.sessionId === sessionId) {
+      // OPS-01: a retry must not just hand back the row and hope — if the
+      // original request's enqueue never landed (crash, Redis blip), this
+      // is the client's only chance to get it re-ensured before the
+      // reconciliation sweep eventually notices. Best-effort: a failure
+      // here just means the row is still `processing` for the sweep to
+      // pick up later, same as if this retry never happened.
+      if (already.status === 'processing') {
+        await this.ensureRecordingJobsEnqueued(already.id).catch((err: unknown) => {
+          this.logger.warn(`retry re-enqueue failed for recording ${already.id}: ${String(err)}`);
+        });
+      }
       return toRecordingView(already);
     }
 
@@ -131,6 +169,14 @@ export class MediaService {
       try {
         await this.storage.completeMultipartUpload(dto.storageKey, dto.uploadId, dto.parts);
       } catch {
+        // A failed completion leaves the already-uploaded parts orphaned
+        // server-side unless explicitly aborted (SEC-06) — the bucket's
+        // AbortIncompleteMultipartUpload lifecycle rule is the backstop for
+        // uploads that never even reach this call, but a completion we know
+        // failed shouldn't have to wait on that.
+        await this.storage
+          .abortMultipartUpload(dto.storageKey, dto.uploadId)
+          .catch(() => undefined);
         throw AppException.validation('Partes do envio incompletas', {
           parts: 'ETags ou partNumber inválidos',
         });
@@ -145,6 +191,8 @@ export class MediaService {
       });
     }
     if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_RECORDING_BYTES) {
+      // Reject without leaving the oversized object behind (SEC-06).
+      await this.storage.remove(dto.storageKey).catch(() => undefined);
       throw AppException.validation('Tamanho de gravação inválido', {
         sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_RECORDING_BYTES} bytes`,
       });
@@ -153,7 +201,7 @@ export class MediaService {
     const kind = kindFromStorageKey(dto.storageKey);
     await this.assertConsent(session.participationId, kind);
 
-    const row = await this.repo.insertRecording({
+    let row = await this.repo.insertRecording({
       sessionId,
       kind,
       storageKey: dto.storageKey,
@@ -163,10 +211,19 @@ export class MediaService {
       status: 'processing',
     });
 
-    await Promise.all([
-      this.queue.add(JobName.MEDIA_TRANSCODE, { recordingId: row.id }),
-      this.queue.add(JobName.MEDIA_EXTRACT_AUDIO, { recordingId: row.id }),
-    ]);
+    // OPS-01: the insert and the enqueue are two separate operations with no
+    // shared transaction — if this fails, don't leave the row silently
+    // stuck in "processing" forever. Surface it as `failed` right away
+    // (the same status the transcode worker already uses when its source
+    // object goes missing), so it's visible immediately instead of only
+    // once the reconciliation sweep's grace period elapses.
+    try {
+      await this.ensureRecordingJobsEnqueued(row.id);
+    } catch (err) {
+      const failed = await this.repo.updateRecording(row.id, { status: 'failed' });
+      if (failed) row = failed;
+      this.logger.error(`failed to enqueue jobs for recording ${row.id}: ${String(err)}`);
+    }
 
     return toRecordingView(row);
   }

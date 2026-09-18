@@ -13,7 +13,23 @@
       "@swc/core",
       "argon2",
       "esbuild",
-      "msgpackr-extract"
+      "msgpackr-extract",
+      "@ffmpeg-installer/darwin-arm64",
+      "@ffmpeg-installer/darwin-x64",
+      "@ffmpeg-installer/linux-arm",
+      "@ffmpeg-installer/linux-arm64",
+      "@ffmpeg-installer/linux-ia32",
+      "@ffmpeg-installer/linux-x64",
+      "@ffmpeg-installer/win32-ia32",
+      "@ffmpeg-installer/win32-x64",
+      "@ffprobe-installer/darwin-arm64",
+      "@ffprobe-installer/darwin-x64",
+      "@ffprobe-installer/linux-arm",
+      "@ffprobe-installer/linux-arm64",
+      "@ffprobe-installer/linux-ia32",
+      "@ffprobe-installer/linux-x64",
+      "@ffprobe-installer/win32-ia32",
+      "@ffprobe-installer/win32-x64"
     ]
   },
   "scripts": {
@@ -39,6 +55,8 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1121.0",
     "@aws-sdk/s3-request-presigner": "^3.1121.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
     "@nestjs/bullmq": "^12.0.0",
     "@nestjs/common": "^12.0.1",
     "@nestjs/config": "^12.0.0",

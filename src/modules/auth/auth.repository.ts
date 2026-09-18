@@ -23,6 +23,10 @@ export interface ActiveMembership {
   roleKey: RoleValue;
 }
 
+export interface ActiveMembershipWithOrg extends ActiveMembership {
+  organizationName: string;
+}
+
 export interface CreateStudioAccountInput {
   userId: string;
   email: string;
@@ -129,12 +133,22 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
-  /** The user's active membership + role. Oldest membership wins (the owned org). */
-  async findActiveMembership(userId: string): Promise<ActiveMembership | null> {
+  /**
+   * Every org the user is an active member of, with the role and org name
+   * needed to let them pick one at login — a user invited into a second org
+   * (GAP-02) is no longer silently locked into whichever membership happens
+   * to be oldest.
+   */
+  async findActiveMemberships(userId: string): Promise<ActiveMembershipWithOrg[]> {
     const rows = await this.db
-      .select({ organizationId: memberships.organizationId, roleKey: roles.key })
+      .select({
+        organizationId: memberships.organizationId,
+        organizationName: organizations.name,
+        roleKey: roles.key,
+      })
       .from(memberships)
       .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
       .where(
         and(
           eq(memberships.userId, userId),
@@ -142,7 +156,31 @@ export class AuthRepository {
           isNull(memberships.deletedAt),
         ),
       )
-      .orderBy(memberships.createdAt)
+      .orderBy(memberships.createdAt);
+    return rows.map((row) => ({
+      organizationId: row.organizationId,
+      organizationName: row.organizationName,
+      roleKey: row.roleKey as RoleValue,
+    }));
+  }
+
+  /** The user's active membership in a specific org, or null if they no longer belong to it. */
+  async findActiveMembershipForOrg(
+    userId: string,
+    organizationId: string,
+  ): Promise<ActiveMembership | null> {
+    const rows = await this.db
+      .select({ organizationId: memberships.organizationId, roleKey: roles.key })
+      .from(memberships)
+      .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .where(
+        and(
+          eq(memberships.userId, userId),
+          eq(memberships.organizationId, organizationId),
+          eq(memberships.status, 'active'),
+          isNull(memberships.deletedAt),
+        ),
+      )
       .limit(1);
     const row = rows[0];
     return row ? { organizationId: row.organizationId, roleKey: row.roleKey as RoleValue } : null;
@@ -152,6 +190,28 @@ export class AuthRepository {
     await this.db.insert(refreshTokens).values(row);
   }
 
+  /**
+   * Atomically consume `currentId` and insert its successor in one transaction.
+   * The revoke is a conditional `WHERE revoked_at IS NULL` UPDATE — if a
+   * concurrent request already rotated/revoked this token, zero rows come
+   * back and we roll back without inserting a second successor. Without this,
+   * two racing requests could each insert their own "next" token for the same
+   * predecessor, minting two valid successors from one refresh token.
+   */
+  async rotateRefreshToken(currentId: string, next: NewRefreshTokenRow): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const updated = await tx
+        .update(refreshTokens)
+        .set({ revokedAt: new Date(), replacedByTokenId: next.id })
+        .where(and(eq(refreshTokens.id, currentId), isNull(refreshTokens.revokedAt)))
+        .returning({ id: refreshTokens.id });
+      if (updated.length === 0) return false;
+
+      await tx.insert(refreshTokens).values(next);
+      return true;
+    });
+  }
+
   async findRefreshTokenByHash(tokenHash: string): Promise<RefreshTokenRow | null> {
     const rows = await this.db
       .select()
@@ -159,13 +219,6 @@ export class AuthRepository {
       .where(eq(refreshTokens.tokenHash, tokenHash))
       .limit(1);
     return rows[0] ?? null;
-  }
-
-  async revokeToken(id: string, replacedByTokenId?: string): Promise<void> {
-    await this.db
-      .update(refreshTokens)
-      .set({ revokedAt: new Date(), replacedByTokenId: replacedByTokenId ?? null })
-      .where(and(eq(refreshTokens.id, id), isNull(refreshTokens.revokedAt)));
   }
 
   /** Reuse detected: revoke every still-active token in the family. */
@@ -219,9 +272,15 @@ export class AuthRepository {
   }
 
   /**
-   * Consume the reset token, set the new password hash, and revoke every active
-   * refresh token — all in one transaction. Returns the user id, or null when
-   * the token is invalid/expired/already used.
+   * Consume the reset token, set the new password hash, revoke every active
+   * refresh token, and accept any pending org invites for this user — all in
+   * one transaction. Setting a password IS how an invitee proves they own the
+   * account (the invite e-mail sends them straight to "Esqueci minha senha",
+   * never a password), so completing the reset is the moment their `invited`
+   * memberships become `active` (GAP-02): before this, the invite e-mail's
+   * "activate access" promise was a lie — nothing ever flipped the status, so
+   * login (which only accepts `active`) rejected the invitee forever. Returns
+   * the user id, or null when the token is invalid/expired/already used.
    */
   async applyPasswordReset(tokenHash: string, passwordHash: string): Promise<string | null> {
     return this.db.transaction(async (tx) => {
@@ -240,6 +299,16 @@ export class AuthRepository {
       if (!row) return null;
 
       await tx.update(users).set({ passwordHash }).where(eq(users.id, row.userId));
+      await tx
+        .update(memberships)
+        .set({ status: 'active' })
+        .where(
+          and(
+            eq(memberships.userId, row.userId),
+            eq(memberships.status, 'invited'),
+            isNull(memberships.deletedAt),
+          ),
+        );
       await tx
         .update(refreshTokens)
         .set({ revokedAt: new Date() })

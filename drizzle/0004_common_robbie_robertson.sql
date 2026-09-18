@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "builds_test_id_unique" ON "builds" USING btree ("test_id");

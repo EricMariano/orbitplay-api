@@ -1,13 +1,18 @@
 import type { INestApplication } from '@nestjs/common';
 import { Worker } from 'bullmq';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GAME_IDS, ORG_ID, SEED_EMAILS, SEED_PASSWORD, USER_IDS } from '../src/infra/database/seed';
+import { redisConnectionOptions } from '../src/infra/queue/connection';
 import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
 import { handleJob } from '../src/workers/handle-job';
 import { createE2EApp } from './helpers/e2e-app';
+import { generateSampleWebm } from './helpers/sample-media';
 import { TEST_DATABASE_URL } from './helpers/test-db';
 
 const SESSION = {
@@ -26,7 +31,11 @@ const RIVAL = {
   email: 'rival-owner@rival.dev',
 };
 
-const WEBM_BYTES = Buffer.from('webm-fixture');
+// A genuinely valid VP8/Opus WebM (GAP-04) — the worker now runs real ffmpeg
+// validation, so a fake buffer would legitimately end up `failed`, not
+// `ready`. Generated once in beforeAll into WEBM_BYTES below.
+let WEBM_BYTES: Buffer;
+let sampleMediaDir: string;
 
 async function bearer(app: INestApplication, email: string): Promise<string> {
   const res = await request(app.getHttpServer())
@@ -45,6 +54,11 @@ describe('Media (e2e)', () => {
   let rivalToken: string;
 
   beforeAll(async () => {
+    sampleMediaDir = await mkdtemp(join(tmpdir(), 'orbitplay-media-e2e-'));
+    const samplePath = join(sampleMediaDir, 'sample.webm');
+    await generateSampleWebm(samplePath, { durationSeconds: 1, withAudio: true });
+    WEBM_BYTES = await readFile(samplePath);
+
     app = await createE2EApp();
     sql = postgres(TEST_DATABASE_URL, { max: 1 });
 
@@ -90,13 +104,8 @@ describe('Media (e2e)', () => {
       ON CONFLICT DO NOTHING`;
 
     workerDeps = await createWorkerDeps();
-    const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
     worker = new Worker(MAIN_QUEUE, (job) => handleJob(job, workerDeps), {
-      connection: {
-        host: redisUrl.hostname,
-        port: Number(redisUrl.port || 6379),
-        maxRetriesPerRequest: null,
-      },
+      connection: redisConnectionOptions(process.env.REDIS_URL ?? 'redis://localhost:6379'),
     });
     await worker.waitUntilReady();
 
@@ -110,6 +119,7 @@ describe('Media (e2e)', () => {
     await closeWorkerDeps(workerDeps);
     await sql.end({ timeout: 5 });
     await app.close();
+    await rm(sampleMediaDir, { recursive: true, force: true }).catch(() => undefined);
   });
 
   it('uploads in parts, completes, processes, and returns playback', async () => {
@@ -141,7 +151,9 @@ describe('Media (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`)
       .send({
         storageKey: upload.body.storageKey,
-        durationMs: 1500,
+        // Deliberately wrong — the ~1s sample's real, ffprobe-measured
+        // duration must win over whatever the client claims (GAP-04).
+        durationMs: 999_999,
         uploadId: upload.body.uploadId,
         parts: [{ partNumber: 1, etag }],
       });
@@ -163,7 +175,49 @@ describe('Media (e2e)', () => {
     expect(ready.status).toBe(200);
     expect(ready.body.status).toBe('ready');
     expect(ready.body.url).toMatch(/^https?:\/\//);
-    expect(ready.body.durationMs).toBe(1500);
+    // Real ffprobe duration for the ~1s sample, not the client's 999999.
+    expect(ready.body.durationMs).toBeGreaterThan(500);
+    expect(ready.body.durationMs).toBeLessThan(2000);
+    // Real thumbnail generated from an actual video frame (GAP-04).
+    expect(ready.body.thumbnailUrl).toMatch(/^https?:\/\//);
+  });
+
+  it('fails a recording whose upload is not actually valid media (GAP-04)', async () => {
+    const garbage = Buffer.from('not a real video file');
+    const upload = await request(app.getHttpServer())
+      .post(`/sessions/${SESSION.sessionId}/recordings/upload-url`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({
+        contentType: 'video/webm',
+        sizeBytes: garbage.length,
+        partNumber: 1,
+        kind: 'screen_recording',
+      });
+    expect(upload.status).toBe(201);
+
+    const put = await fetch(upload.body.uploadUrl as string, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'video/webm' },
+      body: garbage,
+    });
+    expect(put.ok).toBe(true);
+    const etag = put.headers.get('etag');
+
+    const complete = await request(app.getHttpServer())
+      .post(`/sessions/${SESSION.sessionId}/recordings/complete`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({
+        storageKey: upload.body.storageKey,
+        durationMs: 1000,
+        uploadId: upload.body.uploadId,
+        parts: [{ partNumber: 1, etag }],
+      });
+    expect(complete.status).toBe(202);
+    const recordingId = complete.body.id as string;
+
+    const failed = await waitForStatus(app, studioToken, SESSION.sessionId, recordingId, 'failed');
+    expect(failed.body.status).toBe('failed');
+    expect(failed.body.url).toBeNull();
   });
 
   it('forbids studio from uploading and player from playback', async () => {
@@ -218,15 +272,27 @@ async function waitForReady(
   sessionId: string,
   recordingId: string,
 ) {
+  return waitForStatus(app, token, sessionId, recordingId, 'ready');
+}
+
+/** Polls playback-url until `status` matches `target`, or the opposite terminal state, or it times out. */
+async function waitForStatus(
+  app: INestApplication,
+  token: string,
+  sessionId: string,
+  recordingId: string,
+  target: 'ready' | 'failed',
+) {
+  const otherTerminal = target === 'ready' ? 'failed' : 'ready';
   for (let i = 0; i < 40; i += 1) {
     const res = await request(app.getHttpServer())
       .get(`/sessions/${sessionId}/recordings/${recordingId}/playback-url`)
       .set('Authorization', `Bearer ${token}`);
-    if (res.status === 200 && res.body.status === 'ready') return res;
-    if (res.status === 200 && res.body.status === 'failed') {
-      throw new Error('recording ended as failed');
+    if (res.status === 200 && res.body.status === target) return res;
+    if (res.status === 200 && res.body.status === otherTerminal) {
+      throw new Error(`recording ended as ${otherTerminal}, expected ${target}`);
     }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error('timeout waiting for recording to become ready');
+  throw new Error(`timeout waiting for recording to become ${target}`);
 }

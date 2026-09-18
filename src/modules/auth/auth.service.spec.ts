@@ -33,6 +33,150 @@ function makeRes(): Response {
   return { cookie: vi.fn(), clearCookie: vi.fn() } as unknown as Response;
 }
 
+const OTHER_ORG_ID = '01920000-0000-7000-8000-0000000000b7';
+
+describe('AuthService login', () => {
+  let repo: {
+    findUserByEmail: ReturnType<typeof vi.fn>;
+    findActiveMemberships: ReturnType<typeof vi.fn>;
+    insertRefreshToken: ReturnType<typeof vi.fn>;
+  };
+  let password: {
+    verify: ReturnType<typeof vi.fn>;
+    verifyDummy: ReturnType<typeof vi.fn>;
+  };
+  let token: {
+    signAccessToken: ReturnType<typeof vi.fn>;
+    createRefreshToken: ReturnType<typeof vi.fn>;
+  };
+  let config: { get: ReturnType<typeof vi.fn> };
+  let redis: {
+    incr: ReturnType<typeof vi.fn>;
+    expire: ReturnType<typeof vi.fn>;
+    del: ReturnType<typeof vi.fn>;
+  };
+  let service: AuthService;
+  let req: Request;
+  let res: Response;
+
+  beforeEach(() => {
+    repo = {
+      findUserByEmail: vi.fn().mockResolvedValue(makeUser()),
+      findActiveMemberships: vi.fn(),
+      insertRefreshToken: vi.fn().mockResolvedValue(undefined),
+    };
+    password = {
+      verify: vi.fn().mockResolvedValue(true),
+      verifyDummy: vi.fn().mockResolvedValue(undefined),
+    };
+    token = {
+      signAccessToken: vi.fn().mockResolvedValue('access-token'),
+      createRefreshToken: vi.fn().mockResolvedValue({
+        token: 'refresh-raw',
+        tokenId: 'token-id',
+        familyId: 'family-id',
+        tokenHash: 'hash:refresh-raw',
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      }),
+    };
+    config = {
+      get: vi.fn((key: string) => {
+        if (key === 'authThrottle.limit') return 5;
+        if (key === 'authThrottle.ttl') return 60;
+        if (key === 'jwt.refreshTtlMs') return 7 * 24 * 60 * 60 * 1000;
+        if (key === 'isProduction') return false;
+        return undefined;
+      }),
+    };
+    redis = {
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn().mockResolvedValue(1),
+      del: vi.fn().mockResolvedValue(1),
+    };
+    service = new AuthService(
+      repo as unknown as AuthRepository,
+      password as unknown as PasswordService,
+      token as unknown as TokenService,
+      config as unknown as ConfigService,
+      redis as unknown as Redis,
+      { sendEmail: vi.fn() } as unknown as NotificationPort,
+    );
+    req = { headers: {} } as Request;
+    res = makeRes();
+  });
+
+  it('401s with no active membership at all', async () => {
+    repo.findActiveMemberships.mockResolvedValue([]);
+
+    await expect(
+      service.login({ email: 'studio@orbitplay.dev', password: 'x' }, req, res),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(repo.insertRefreshToken).not.toHaveBeenCalled();
+  });
+
+  it('logs straight in when there is exactly one active membership', async () => {
+    repo.findActiveMemberships.mockResolvedValue([
+      { organizationId: ORG_ID, organizationName: 'Studio A', roleKey: 'owner' },
+    ]);
+
+    const result = await service.login({ email: 'studio@orbitplay.dev', password: 'x' }, req, res);
+
+    expect('accessToken' in result && result.accessToken).toBe('access-token');
+    expect('user' in result && result.user.organizationId).toBe(ORG_ID);
+    expect(repo.insertRefreshToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks the client to pick an org when more than one membership is active and none was specified', async () => {
+    repo.findActiveMemberships.mockResolvedValue([
+      { organizationId: ORG_ID, organizationName: 'Studio A', roleKey: 'owner' },
+      { organizationId: OTHER_ORG_ID, organizationName: 'Studio B', roleKey: 'admin' },
+    ]);
+
+    const result = await service.login({ email: 'studio@orbitplay.dev', password: 'x' }, req, res);
+
+    expect(result).toEqual({
+      requiresOrganizationSelection: true,
+      organizations: [
+        { organizationId: ORG_ID, organizationName: 'Studio A', role: 'owner' },
+        { organizationId: OTHER_ORG_ID, organizationName: 'Studio B', role: 'admin' },
+      ],
+    });
+    expect(repo.insertRefreshToken).not.toHaveBeenCalled();
+    expect(token.signAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('logs into the specified org when organizationId matches one of the active memberships', async () => {
+    repo.findActiveMemberships.mockResolvedValue([
+      { organizationId: ORG_ID, organizationName: 'Studio A', roleKey: 'owner' },
+      { organizationId: OTHER_ORG_ID, organizationName: 'Studio B', roleKey: 'admin' },
+    ]);
+
+    const result = await service.login(
+      { email: 'studio@orbitplay.dev', password: 'x', organizationId: OTHER_ORG_ID },
+      req,
+      res,
+    );
+
+    expect('user' in result && result.user.organizationId).toBe(OTHER_ORG_ID);
+    expect('user' in result && result.user.role).toBe('admin');
+  });
+
+  it('401s (generic) when organizationId does not match any active membership', async () => {
+    repo.findActiveMemberships.mockResolvedValue([
+      { organizationId: ORG_ID, organizationName: 'Studio A', roleKey: 'owner' },
+    ]);
+
+    await expect(
+      service.login(
+        { email: 'studio@orbitplay.dev', password: 'x', organizationId: OTHER_ORG_ID },
+        req,
+        res,
+      ),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(repo.insertRefreshToken).not.toHaveBeenCalled();
+  });
+});
+
 describe('AuthService password reset', () => {
   let repo: {
     findUserByEmail: ReturnType<typeof vi.fn>;

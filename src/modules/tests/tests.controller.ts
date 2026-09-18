@@ -58,6 +58,7 @@ export class TestsController {
   }
 
   @Get('tests/:id')
+  @Roles(...STUDIO_ROLES)
   @ZodResponse({ type: TestDto })
   get(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
     return this.tests.get(organizationId, id);
@@ -88,6 +89,7 @@ export class TestsController {
   }
 
   @Get('tests/:id/form/preview')
+  @Roles(...STUDIO_ROLES)
   @ZodResponse({ type: TestFormDto })
   formPreview(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
     return this.tests.formPreview(organizationId, id);
@@ -119,6 +121,7 @@ export class TestsController {
   }
 
   @Get('tests/:id/build')
+  @Roles(...STUDIO_ROLES)
   @ZodResponse({ type: BuildDto })
   getBuild(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
     return this.tests.getBuild(organizationId, id);

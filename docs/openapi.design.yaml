@@ -823,6 +823,10 @@ paths:
         RN-04: `requiresTelemetry` indica dependência do Orbit Plug-in. Nesta
         fase, `free_exploration_telemetry` retorna `available: false` com
         `unavailableReason`, porque o plug-in está deferido.
+
+        `requiresBuild` (GAP-03) indica se `POST /tests/{id}/publish` exige
+        uma build validada para este modelo — `false` só em
+        `ab_test_images`, que compara imagens, não uma build jogável.
       x-status: todo
       responses:
         '200':
@@ -2697,7 +2701,7 @@ components:
 
     TestModel:
       type: object
-      required: [key, name, description, requiresTelemetry, available]
+      required: [key, name, description, requiresTelemetry, requiresBuild, available]
       properties:
         key: { $ref: '#/components/schemas/TestModelKey' }
         name: { type: string }
@@ -2714,6 +2718,12 @@ components:
             'RN-04 (Tela 06): quando `true`, a Etapa 3 exige o Orbit Plug-in
             detectado e validado. O plug-in está deferido nesta fase, então
             modelos com esta flag vêm `available: false`.'
+        requiresBuild:
+          type: boolean
+          description: |
+            'GAP-03: quando `false` (só `ab_test_images`), publicar não exige
+            uma build validada — o modelo compara imagens, não uma build
+            jogável. Todo o resto exige (`true`).'
         available: { type: boolean }
         unavailableReason: { type: string, nullable: true }
 

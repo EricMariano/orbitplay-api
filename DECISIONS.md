@@ -83,6 +83,14 @@ dist/openapi.js`. Em Node 22 o `tsx` funcionaria direto.
     (`NotificationPort`).
   - `uuid` — geração de **UUID v7** em aplicação (ids ordenáveis por tempo).
   - `@types/express`, `@eslint/js` — tipos/preset necessários.
+  - `@ffmpeg-installer/ffmpeg` + `@ffprobe-installer/ffprobe` (GAP-04) —
+    binários estáticos de ffmpeg/ffprobe por plataforma, para o worker de
+    mídia não depender de ffmpeg instalado no host (dev, CI ou produção).
+    Deliberadamente **sem** `fluent-ffmpeg`: o pacote está marcado
+    `deprecated` no npm; como o uso real é só montar/rodar um `execFile` com
+    poucos argumentos fixos (probe, thumbnail, extração de áudio), um
+    wrapper próprio (`src/workers/ffmpeg.ts`) evita depender de um pacote
+    sem manutenção para algo que não precisa de abstração.
 - **`typescript@5.9` e `eslint@9` fixados.** No momento do setup, o `latest` do
   npm apontava para `typescript@7` (novo compilador nativo) e `eslint@10`, cedo
   demais para a stack de decorators do Nest. Fixados em versões estáveis
@@ -262,3 +270,46 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   `publish()`) tem o bug idêntico, mas nunca foi pego pelos testes porque o
   `IdempotencyInterceptor` intercepta a repetição por `Idempotency-Key` antes
   de chegar no service — ver task sinalizada para corrigir lá também.
+- **Bug real encontrado e corrigido: catálogo do M4 contradizia o gate real
+  do wizard (GAP-03).** `ab_test` prometia "duas builds válidas, uma por
+  variante", mas a plataforma só suporta uma build por teste (§1.3, reforçado
+  pelo UNIQUE em `builds.test_id`) — corrigido para descrever a mecânica
+  real: cada teste é uma variante com sua própria build, e o comparativo
+  entre variantes é feito com um segundo teste, no relatório. `ab_test_images`
+  já prometia "sem exigir um build jogável", mas `pendingValidationsFor`
+  exigia build validada incondicionalmente para todo modelo — `TestModel`
+  ganhou a flag `requiresBuild` (só `false` em `ab_test_images`) e o gate de
+  `BUILD_NOT_VALIDATED` agora a consulta em vez de assumir `true` sempre.
+- **Gap real encontrado e corrigido: `media.transcode`/`media.extract-audio`
+  eram passthrough (GAP-04).** Qualquer objeto virava `ready` sem nenhuma
+  verificação real, e a "extração de áudio" só copiava os bytes do vídeo
+  inteiro. Os dois jobs agora rodam ffmpeg/ffprobe de verdade
+  (`src/workers/ffmpeg.ts`): `transcode` valida que o objeto tem um stream de
+  vídeo com um codec reconhecido (rejeita — `failed` — arquivo corrompido ou
+  formato não suportado), grava a duração real (nunca a declarada pelo
+  cliente) e gera um thumbnail JPEG de um frame real; `extract-audio`
+  reencoda a trilha de áudio para AAC (uma extração de verdade) e pula sem
+  erro quando não há trilha de áudio (consentimento de microfone negado é
+  caso legítimo, não falha). Testado com vídeos VP8/Opus reais gerados pelo
+  próprio ffmpeg em `test/helpers/sample-media.ts` (sem fixture binária no
+  repo) — `src/workers/media.processor.spec.ts` e `test/media.e2e-spec.ts`
+  afirmam sobre duração/codec/áudio/thumbnail reais, não apenas "não
+  quebrou".
+- **Gap real encontrado e corrigido: FKs simples permitiam relações
+  cross-org (DAT-03).** `tests.game_id → games.id`, `builds.test_id →
+  tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
+  nada no banco impedia um `test` com `organization_id = A` apontar para um
+  `game` de B (idem build→test e asset→game). A aplicação sempre filtra por
+  org, então isso nunca acontece pelo caminho normal da API, mas não era uma
+  garantia do banco — só da aplicação lembrar de checar sempre. Cada tabela
+  "pai" ganhou um UNIQUE composto `(id, organization_id)`
+  (`games_id_org_unique`, `tests_id_org_unique`) e cada FK virou composta —
+  `(game_id, organization_id) → games(id, organization_id)` etc. — via
+  `foreignKey()` do drizzle-orm em vez do `.references()` de uma coluna só.
+  Agora um INSERT/UPDATE cross-org falha com violação de FK, não só com um
+  bug de aplicação não escrito ainda. Migração `0005` gerada por
+  `drizzle-kit generate` precisou de reordenação manual (`CREATE UNIQUE
+  INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
+  garante essa ordem dentro da mesma migração) — testado de ponta a ponta
+  (migração + seed + um INSERT cross-org rejeitado de propósito) num
+  Postgres descartável antes de commitar.

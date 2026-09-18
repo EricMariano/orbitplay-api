@@ -62,6 +62,19 @@ services:
       retries: 10
 
   # Creates the dev bucket on boot, then exits (idempotent).
+  #
+  # SEC-06 hardening — the API only ever hands out presigned URLs (uploads
+  # AND downloads), so the bucket has no legitimate reason to be publicly
+  # readable; it stays private (no `mc anonymous set`). Two more safety nets
+  # that don't depend on application code remembering to clean up:
+  #   - AbortIncompleteMultipartUpload lifecycle rule: a multipart upload
+  #     (recordings) that's abandoned mid-flight — client crash, network
+  #     drop — otherwise leaves its already-uploaded parts consuming storage
+  #     forever; MinIO's own scanner aborts anything still incomplete after
+  #     a day, regardless of whether the app-level Redis session TTL (also
+  #     ~1h, see RECORDING_UPLOAD_TTL_SECONDS) ever gets a chance to notice.
+  #   - A hard bucket quota: caps total storage this dev bucket can consume
+  #     so a runaway/abusive upload loop can't fill the disk unbounded.
   minio-init:
     image: minio/mc:latest
     depends_on:
@@ -71,8 +84,10 @@ services:
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin &&
       mc mb --ignore-existing local/orbitplay-dev &&
-      mc anonymous set download local/orbitplay-dev &&
-      echo 'bucket orbitplay-dev ready';
+      echo '{\"Rules\":[{\"ID\":\"abort-incomplete-multipart-uploads\",\"Status\":\"Enabled\",\"Filter\":{\"Prefix\":\"\"},\"AbortIncompleteMultipartUpload\":{\"DaysAfterInitiation\":1}}]}' > /tmp/lifecycle.json &&
+      mc ilm import local/orbitplay-dev < /tmp/lifecycle.json &&
+      mc quota set local/orbitplay-dev --size 20GiB &&
+      echo 'bucket orbitplay-dev ready (private, mpu-abort lifecycle, 20GiB quota)';
       "
 
   mailhog:

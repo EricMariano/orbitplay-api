@@ -1,6 +1,7 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Global, Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { redisConnectionOptions } from './connection';
 import { MAIN_QUEUE } from './queue.constants';
 
 /**
@@ -12,17 +13,9 @@ import { MAIN_QUEUE } from './queue.constants';
   imports: [
     BullModule.forRootAsync({
       inject: [ConfigService],
-      useFactory: (config: ConfigService) => {
-        const url = new URL(config.get<string>('redis.url')!);
-        return {
-          connection: {
-            host: url.hostname,
-            port: Number(url.port || 6379),
-            // Required by BullMQ blocking commands.
-            maxRetriesPerRequest: null,
-          },
-        };
-      },
+      useFactory: (config: ConfigService) => ({
+        connection: redisConnectionOptions(config.get<string>('redis.url')!),
+      }),
     }),
     BullModule.registerQueue({ name: MAIN_QUEUE }),
   ],

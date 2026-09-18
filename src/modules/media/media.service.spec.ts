@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { SessionRecordingRow, SessionRow } from '../../infra/database/schema/participations';
-import { JobName } from '../../infra/queue/queue.constants';
+import {
+  JobName,
+  mediaExtractAudioJobId,
+  mediaTranscodeJobId,
+} from '../../infra/queue/queue.constants';
 import { AppException } from '../../shared/errors/app.exception';
 import type { StoragePort } from '../../shared/ports/storage.port';
+import { MAX_RECORDING_BYTES } from './dto/media.dto';
 import { MediaService } from './media.service';
 import type { MediaRepository, PlayerSession } from './media.repository';
 import { buildRecordingStorageKey } from './storage-key';
@@ -65,7 +70,7 @@ describe('MediaService', () => {
     get: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
-  let queue: { add: ReturnType<typeof vi.fn> };
+  let queue: { add: ReturnType<typeof vi.fn>; getJob: ReturnType<typeof vi.fn> };
   let service: MediaService;
 
   beforeEach(() => {
@@ -84,15 +89,20 @@ describe('MediaService', () => {
       createMultipartUpload: vi.fn(),
       createUploadPartUrl: vi.fn(),
       completeMultipartUpload: vi.fn(),
-      abortMultipartUpload: vi.fn(),
+      abortMultipartUpload: vi.fn().mockResolvedValue(undefined),
       copyObject: vi.fn(),
+      putObject: vi.fn().mockResolvedValue(undefined),
       exists: vi.fn(),
       stat: vi.fn(),
-      remove: vi.fn(),
+      getObjectStream: vi.fn(),
+      remove: vi.fn().mockResolvedValue(undefined),
       healthCheck: vi.fn(),
     };
     redis = { set: vi.fn(), get: vi.fn(), del: vi.fn() };
-    queue = { add: vi.fn().mockResolvedValue(undefined) };
+    queue = {
+      add: vi.fn().mockResolvedValue(undefined),
+      getJob: vi.fn().mockResolvedValue(undefined),
+    };
     service = new MediaService(
       repo as unknown as MediaRepository,
       storage as unknown as StoragePort,
@@ -197,10 +207,110 @@ describe('MediaService', () => {
 
     expect(out.status).toBe('processing');
     expect(out.sessionId).toBe(SESSION);
-    expect(queue.add).toHaveBeenCalledWith(JobName.MEDIA_TRANSCODE, { recordingId: RECORDING });
-    expect(queue.add).toHaveBeenCalledWith(JobName.MEDIA_EXTRACT_AUDIO, {
-      recordingId: RECORDING,
+    expect(queue.add).toHaveBeenCalledWith(
+      JobName.MEDIA_TRANSCODE,
+      { recordingId: RECORDING },
+      { jobId: mediaTranscodeJobId(RECORDING) },
+    );
+    expect(queue.add).toHaveBeenCalledWith(
+      JobName.MEDIA_EXTRACT_AUDIO,
+      { recordingId: RECORDING },
+      { jobId: mediaExtractAudioJobId(RECORDING) },
+    );
+  });
+
+  it('marks the recording failed instead of leaving it stuck in "processing" when enqueueing fails (OPS-01)', async () => {
+    const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
+    repo.findSessionForPlayer.mockResolvedValue(makeSession());
+    repo.findConsent.mockResolvedValue({
+      participationId: PARTICIPATION,
+      screenRecording: true,
+      audio: false,
+      microphone: false,
+      webcam: false,
+      acceptedAt: new Date(),
+      ip: null,
+      userAgent: null,
     });
+    repo.findRecordingByStorageKey.mockResolvedValue(null);
+    storage.stat.mockResolvedValue({ contentType: 'video/webm', sizeBytes: 128 });
+    const row = makeRecording({ storageKey: key, status: 'processing' });
+    repo.insertRecording.mockResolvedValue(row);
+    queue.add.mockRejectedValue(new Error('redis unreachable'));
+    repo.updateRecording.mockResolvedValue(makeRecording({ storageKey: key, status: 'failed' }));
+
+    const out = await service.completeUpload(USER, SESSION, { storageKey: key, durationMs: 1500 });
+
+    expect(repo.updateRecording).toHaveBeenCalledWith(RECORDING, { status: 'failed' });
+    expect(out.status).toBe('failed');
+  });
+
+  it('re-attempts enqueueing on retry when the existing recording is still "processing" (OPS-01)', async () => {
+    const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
+    repo.findSessionForPlayer.mockResolvedValue(makeSession());
+    repo.findRecordingByStorageKey.mockResolvedValue(
+      makeRecording({ storageKey: key, status: 'processing' }),
+    );
+
+    const out = await service.completeUpload(USER, SESSION, { storageKey: key, durationMs: 1500 });
+
+    expect(out.status).toBe('processing');
+    expect(queue.add).toHaveBeenCalledWith(
+      JobName.MEDIA_TRANSCODE,
+      { recordingId: RECORDING },
+      { jobId: mediaTranscodeJobId(RECORDING) },
+    );
+    expect(queue.add).toHaveBeenCalledWith(
+      JobName.MEDIA_EXTRACT_AUDIO,
+      { recordingId: RECORDING },
+      { jobId: mediaExtractAudioJobId(RECORDING) },
+    );
+    expect(repo.insertRecording).not.toHaveBeenCalled();
+  });
+
+  it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
+    const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
+    repo.findSessionForPlayer.mockResolvedValue(makeSession());
+    repo.findRecordingByStorageKey.mockResolvedValue(null);
+    storage.stat.mockResolvedValue({
+      contentType: 'video/webm',
+      sizeBytes: MAX_RECORDING_BYTES + 1,
+    });
+
+    await expect(
+      service.completeUpload(USER, SESSION, { storageKey: key, durationMs: 1500 }),
+    ).rejects.toMatchObject({ status: 422 });
+
+    expect(storage.remove).toHaveBeenCalledWith(key);
+    expect(repo.insertRecording).not.toHaveBeenCalled();
+  });
+
+  it('aborts the multipart upload when completing it fails (SEC-06)', async () => {
+    const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
+    repo.findSessionForPlayer.mockResolvedValue(makeSession());
+    repo.findRecordingByStorageKey.mockResolvedValue(null);
+    redis.get.mockResolvedValue(
+      JSON.stringify({
+        storageKey: key,
+        sessionId: SESSION,
+        userId: USER,
+        contentType: 'video/webm',
+        kind: 'screen',
+        organizationId: ORG,
+      }),
+    );
+    storage.completeMultipartUpload.mockRejectedValue(new Error('bad etag'));
+
+    await expect(
+      service.completeUpload(USER, SESSION, {
+        storageKey: key,
+        durationMs: 1500,
+        uploadId: 'mpu-1',
+        parts: [{ partNumber: 1, etag: 'abc' }],
+      }),
+    ).rejects.toMatchObject({ status: 422 });
+
+    expect(storage.abortMultipartUpload).toHaveBeenCalledWith(key, 'mpu-1');
   });
 
   it('returns url null while processing (Tela 12 RN-03)', async () => {

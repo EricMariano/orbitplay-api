@@ -5,6 +5,7 @@ import request from 'supertest';
 import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GAME_IDS, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
+import { redisConnectionOptions } from '../src/infra/queue/connection';
 import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
 import { handleJob } from '../src/workers/handle-job';
@@ -48,7 +49,12 @@ async function uploadAndConfirmBuild(
   const uploadUrl = await request(app.getHttpServer())
     .post(`/tests/${testId}/build/upload-url`)
     .set('Authorization', `Bearer ${token}`)
-    .send({ fileName: 'game.zip', contentType: 'application/zip', sizeBytes: BUILD_BYTES.length, platform });
+    .send({
+      fileName: 'game.zip',
+      contentType: 'application/zip',
+      sizeBytes: BUILD_BYTES.length,
+      platform,
+    });
   await fetch(uploadUrl.body.uploadUrl as string, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/zip' },
@@ -61,7 +67,11 @@ async function uploadAndConfirmBuild(
   expect(confirm.status).toBe(202);
 }
 
-async function waitForBuildId(app: INestApplication, token: string, testId: string): Promise<string> {
+async function waitForBuildId(
+  app: INestApplication,
+  token: string,
+  testId: string,
+): Promise<string> {
   const deadline = Date.now() + 10_000;
   while (Date.now() < deadline) {
     const res = await request(app.getHttpServer())
@@ -105,13 +115,8 @@ describe('Builds — M6 (e2e)', () => {
       ON CONFLICT DO NOTHING`;
 
     workerDeps = await createWorkerDeps();
-    const redisUrl = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
     worker = new Worker(MAIN_QUEUE, (job) => handleJob(job, workerDeps), {
-      connection: {
-        host: redisUrl.hostname,
-        port: Number(redisUrl.port || 6379),
-        maxRetriesPerRequest: null,
-      },
+      connection: redisConnectionOptions(process.env.REDIS_URL ?? 'redis://localhost:6379'),
     });
     await worker.waitUntilReady();
 

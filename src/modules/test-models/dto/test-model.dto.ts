@@ -18,6 +18,13 @@ export const testModelSchema = z.object({
   deliverables: z.array(z.string()),
   technicalRequirements: z.array(z.string()),
   requiresTelemetry: z.boolean(),
+  /**
+   * GAP-03: whether the wizard's build step is a real publish gate for this
+   * model — `ab_test_images` compares images, not a playable build, so
+   * `publish` must not block on `BUILD_NOT_VALIDATED` for it the way it does
+   * for every other model.
+   */
+  requiresBuild: z.boolean(),
   available: z.boolean(),
   unavailableReason: z.string().nullable(),
 });

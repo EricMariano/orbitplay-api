@@ -191,6 +191,7 @@ export class GamesService {
     const uploadUrl = await this.storage.createUploadUrl(
       storageKey,
       dto.contentType,
+      dto.sizeBytes,
       ASSET_UPLOAD_TTL_SECONDS,
     );
 
@@ -231,11 +232,14 @@ export class GamesService {
       });
     }
     if (meta.contentType && !ALLOWED_CONTENT_TYPES.has(meta.contentType)) {
+      // Reject without leaving the object behind (SEC-06).
+      await this.storage.remove(dto.storageKey).catch(() => undefined);
       throw AppException.validation('Formato de imagem inválido', {
         contentType: 'Use PNG, JPEG ou WebP',
       });
     }
     if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_GAME_ASSET_BYTES) {
+      await this.storage.remove(dto.storageKey).catch(() => undefined);
       throw AppException.validation('Tamanho de imagem inválido', {
         sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_GAME_ASSET_BYTES} bytes`,
       });

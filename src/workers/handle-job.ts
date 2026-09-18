@@ -3,6 +3,7 @@ import { JobName } from '../infra/queue/queue.constants';
 import { processBuildValidate } from './build.processor';
 import type { WorkerDeps } from './deps';
 import { processMediaExtractAudio, processMediaTranscode } from './media.processor';
+import { processReconcileStuckJobs } from './reconcile.processor';
 
 export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
   switch (job.name) {
@@ -17,6 +18,9 @@ export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
     case JobName.BUILD_VALIDATE:
       await processBuildValidate(deps, job.data.buildId as string);
       return { buildId: job.data.buildId };
+    case JobName.RECONCILE_STUCK_JOBS:
+      await processReconcileStuckJobs(deps);
+      return { reconciledAt: new Date().toISOString() };
     default:
       throw new Error(`Unknown job: ${job.name}`);
   }

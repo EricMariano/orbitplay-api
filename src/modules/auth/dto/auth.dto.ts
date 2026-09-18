@@ -2,13 +2,17 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
 /**
- * Login accepts ONLY credentials. There is deliberately no role/tab field —
- * the role comes from the user's membership (server-side), never the request
- * body (RN-03, Tela 01).
+ * Login accepts credentials plus, optionally, which org to open a session
+ * for. There is still deliberately no role/tab field — the role always comes
+ * from the matched membership (server-side), never the request body (RN-03,
+ * Tela 01); `organizationId` only selects *which* of the caller's own active
+ * memberships to use when they have more than one (GAP-02) — it can never
+ * grant a role or org the account doesn't already hold.
  */
 export const loginSchema = z.object({
   email: z.string().min(1, 'E-mail obrigatório').email('E-mail inválido'),
   password: z.string().min(1, 'Senha obrigatória'),
+  organizationId: z.string().min(1).optional(),
 });
 
 export const forgotPasswordSchema = z.object({
@@ -62,6 +66,29 @@ export const loginResponseSchema = z.object({
   user: authUserSchema,
 });
 
+/**
+ * A user with more than one active membership (a studio staffer invited into
+ * a second org, e.g.) can't have `login` silently guess which one they mean
+ * (GAP-02) — this is what it returns instead, listing the orgs to choose
+ * from. The caller resubmits `POST /auth/login` with `organizationId` set to
+ * one of these ids.
+ */
+export const loginOrganizationOptionSchema = z.object({
+  organizationId: z.string(),
+  organizationName: z.string(),
+  role: z.enum(['owner', 'admin', 'studio', 'player']),
+});
+
+export const organizationSelectionRequiredSchema = z.object({
+  requiresOrganizationSelection: z.literal(true),
+  organizations: z.array(loginOrganizationOptionSchema),
+});
+
+export const loginResultSchema = z.union([
+  loginResponseSchema,
+  organizationSelectionRequiredSchema,
+]);
+
 export const messageResponseSchema = z.object({ message: z.string() });
 
 export class LoginDto extends createZodDto(loginSchema) {}
@@ -73,9 +100,19 @@ export class SignupAvailabilityQueryDto extends createZodDto(signupAvailabilityQ
 export class SignupAvailabilityDto extends createZodDto(signupAvailabilitySchema) {}
 export class AuthUserDto extends createZodDto(authUserSchema) {}
 export class LoginResponseDto extends createZodDto(loginResponseSchema) {}
+// A union schema's inferred constructor return type isn't a single object
+// type, so TS refuses `class X extends createZodDto(unionSchema) {}` here
+// (unlike every other DTO in this file) — `createZodDto`'s return value is
+// already a valid `ZodDto`, so it's used directly instead of subclassed.
+export const LoginResultDto = createZodDto(loginResultSchema);
+// Without a named subclass, Nest/Swagger falls back to an anonymous
+// "AugmentedZodDto_Output" model name in the generated OpenAPI doc.
+Object.defineProperty(LoginResultDto, 'name', { value: 'LoginResultDto', configurable: true });
 export class MessageResponseDto extends createZodDto(messageResponseSchema) {}
 
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
+export type OrganizationSelectionRequired = z.infer<typeof organizationSelectionRequiredSchema>;
+export type LoginResult = z.infer<typeof loginResultSchema>;
 export type AuthUserView = z.infer<typeof authUserSchema>;
 export type SignupStudioInput = z.infer<typeof signupStudioSchema>;
 export type SignupPlayerInput = z.infer<typeof signupPlayerSchema>;

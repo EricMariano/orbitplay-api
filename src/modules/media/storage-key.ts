@@ -16,6 +16,10 @@ export function extractedAudioKey(storageKey: string): string {
   return `${storageKey}.audio`;
 }
 
+export function thumbnailKey(storageKey: string): string {
+  return `${storageKey}.thumb.jpg`;
+}
+
 export function parseRecordingStorageKey(storageKey: string): {
   organizationId: string;
   sessionId: string;
