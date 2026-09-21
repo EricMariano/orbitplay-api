@@ -104,7 +104,7 @@
 - **Escopo:**
   - [x] `GameMetrics` (testsTotal/active, sessionsValid, playersTotal, averageRating) agregado no backend.
   - [x] Filtros `q`, `status`, paginação.
-  - _(Métricas de sessão/review ficam zeradas até M8/M13; `testsTotal`/`testsActive` já leem a tabela `tests`.)_
+  - _(Métricas de sessão/review ficam zeradas até M7/M13; `testsTotal`/`testsActive` já leem a tabela `tests`.)_
 
 ### ORB-M3-02 · Upload de assets do jogo (`game_assets`)
 
@@ -228,66 +228,66 @@
 
 ### ORB-M6-03 · Compatibilidade e download
 
-- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M6-01, M8-01
+- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M6-01, M7-01
 - **Escopo:**
   - [x] `GET /builds/{id}` — `studio+`, org-scoped.
   - [x] `GET /builds/{id}/compatibility` — qualquer autenticado, cross-org; incompatível = `compatible:false`, não erro; compara só `platform` (sem colunas de `os`/`arch`).
-  - [x] `GET /builds/{id}/download-url` — participação ativa (lida direto de `participations`, pré-M8, mesmo padrão do M13) + build `validated`; `Range` suportado nativamente pela URL assinada; `localVersion` decide `needsDownload`.
+  - [x] `GET /builds/{id}/download-url` — participação ativa (lida direto de `participations`, pré-M7, mesmo padrão do M13) + build `validated`; `Range` suportado nativamente pela URL assinada; `localVersion` decide `needsDownload`.
 - **Aceite:** e2e cobrindo os três papéis (studio/player/cross-org), build ainda não validada (`409`), participação ausente (`403`) e versão já atualizada (`needsDownload:false`).
 
 ---
 
-## Épico M7 — Feed do jogador
+## Épico M7 — Participações & Sessões
 
-### ORB-M7-01 · Schema de feed/preferências
-
-- **Labels:** backend, db, player · **Estimativa:** M · **Depende de:** M5-01
-- **Escopo:** `player_preferences`, `feed_ranking_snapshots`.
-
-### ORB-M7-02 · Feed rankeado com ranking congelado
-
-- **Labels:** backend, api, player · **Estimativa:** GG (quebrar) · **Depende de:** M7-01
-- **Escopo:** `GET /player/feed` com cursor de **ranking congelado por sessão** (seed + snapshot TTL; expirado → `422`); slots (`organic`/`promoted`); elegibilidade (`disabled`+`disabledReason`); trilhos `for_you/new/ending_soon/popular`.
-
-### ORB-M7-03 · Home, filtros e detalhes do jogador
-
-- **Labels:** backend, api, player · **Estimativa:** G · **Depende de:** M7-02, M8-01
-- **Escopo:** `GET /player/home`, `/player/feed/filters`, `/player/games/{gameId}`, `.../tests`, `/player/tests/{testId}` (com `cta` calculado no backend), `/player/participations`.
-
----
-
-## Épico M8 — Participações & Sessões
-
-### ORB-M8-01 · Schema participações/sessões
+### ORB-M7-01 · Schema participações/sessões
 
 - **Labels:** backend, db · **Estimativa:** G · **Depende de:** M5-01
 - **Escopo:** `participations`, `session_consents`, `sessions`, `session_device_events`, `session_validations`, `form_responses`, `form_answers` + enums (`participation_status`, `session_status`).
 - **Atenção:** UNIQUE parcial `(test_id, user_id)` enquanto ativo (barra participação dupla); `t_ms` como base temporal única.
 
-### ORB-M8-02 · Entrar no teste (`POST /player/tests/{testId}/participations`)
+### ORB-M7-02 · Entrar no teste (`POST /player/tests/{testId}/participations`)
 
-- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M8-01, M5-07
+- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M7-01, M5-07
 - **Escopo:** valida elegibilidade/vagas/prazo/compatibilidade **no servidor**; `slots_taken` via `UPDATE ... WHERE slots_taken<slots_total`; `Idempotency-Key` (repetição devolve a existente; sem chave, 2º pedido → `409`).
 
-### ORB-M8-03 · Consentimentos + tutorial
+### ORB-M7-03 · Consentimentos + tutorial
 
-- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M8-01
+- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M7-01
 - **Escopo:** `POST /participations/{id}/consents` (prova legal: quem/o quê/quando/IP, append-only; obrigatório recusado → `422`); `GET .../tutorial` (por modelo).
 
-### ORB-M8-04 · Ciclo de vida da sessão
+### ORB-M7-04 · Ciclo de vida da sessão
 
-- **Labels:** backend, api, player · **Estimativa:** G · **Depende de:** M8-03, M6-03
+- **Labels:** backend, api, player · **Estimativa:** G · **Depende de:** M7-03, M6-03
 - **Escopo:** `POST /participations/{id}/sessions` (só após build validada + consentimentos); `PATCH /sessions/{id}/devices` (com `tMs`); `POST /sessions/{id}/heartbeat` (timeout → incompleta); `POST /sessions/{id}/finish` (`confirmed:true`, enfileira `session.validate`, vai a `in_review`).
 
-### ORB-M8-05 · Avaliação da sessão + resultado
+### ORB-M7-05 · Avaliação da sessão + resultado
 
-- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M8-04
+- **Labels:** backend, api, player · **Estimativa:** M · **Depende de:** M7-04
 - **Escopo:** `GET /sessions/{id}/summary`; `POST /sessions/{id}/form-response` (obrigatórias → `422 fieldErrors`; UNIQUE por `session_id`; idempotente); `GET /participations/{id}/result` (XP/nota só pós-validação; leitura pura).
 
-### ORB-M8-06 · Worker de validação de sessão (gatilho de XP/recompensa)
+### ORB-M7-06 · Worker de validação de sessão (gatilho de XP/recompensa)
 
-- **Labels:** backend, infra · **Estimativa:** G · **Depende de:** M8-04, M12-01
+- **Labels:** backend, infra · **Estimativa:** G · **Depende de:** M7-04, M12-01
 - **Escopo:** `session.validate` → insert **único e transacional** em `session_validations`; credita XP via `xp_events` (UNIQUE composta impede duplicar); `reward_status=pending` (carteira deferida).
+
+---
+
+## Épico M8 — Feed do jogador
+
+### ORB-M8-01 · Schema de feed/preferências
+
+- **Labels:** backend, db, player · **Estimativa:** M · **Depende de:** M5-01
+- **Escopo:** `player_preferences`, `feed_ranking_snapshots`.
+
+### ORB-M8-02 · Feed rankeado com ranking congelado
+
+- **Labels:** backend, api, player · **Estimativa:** GG (quebrar) · **Depende de:** M8-01
+- **Escopo:** `GET /player/feed` com cursor de **ranking congelado por sessão** (seed + snapshot TTL; expirado → `422`); slots (`organic`/`promoted`); elegibilidade (`disabled`+`disabledReason`); trilhos `for_you/new/ending_soon/popular`.
+
+### ORB-M8-03 · Home, filtros e detalhes do jogador
+
+- **Labels:** backend, api, player · **Estimativa:** G · **Depende de:** M8-02, M7-01
+- **Escopo:** `GET /player/home`, `/player/feed/filters`, `/player/games/{gameId}`, `.../tests`, `/player/tests/{testId}` (com `cta` calculado no backend), `/player/participations`.
 
 ---
 
@@ -295,7 +295,7 @@
 
 ### ORB-M9-01 · Schema `session_recordings`
 
-- **Labels:** backend, db · **Estimativa:** P · **Depende de:** M8-01
+- **Labels:** backend, db · **Estimativa:** P · **Depende de:** M7-01
 - **Escopo:**
   - [x] Tabela + enums `recording_kind` (`screen | webcam | microphone`) e `processing_status`.
   - [x] OpenAPI (`screen_recording | audio | microphone | webcam`) mapeado na API — sem terceiro enum. `audio` é consentimento/sidecar, não `kind`.
@@ -316,17 +316,17 @@
 
 ### ORB-M10-01 · Schema `test_report_snapshots` (um registro por bloco)
 
-- **Labels:** backend, db · **Estimativa:** P · **Depende de:** M8-01
+- **Labels:** backend, db · **Estimativa:** P · **Depende de:** M7-01
 - **Escopo:** tabela por **bloco** (não payload por teste); métricas só de sessões válidas.
 
 ### ORB-M10-02 · Relatório em blocos
 
-- **Labels:** backend, api, studio · **Estimativa:** G · **Depende de:** M10-01, M8-06
+- **Labels:** backend, api, studio · **Estimativa:** G · **Depende de:** M10-01, M7-06
 - **Escopo:** `GET /tests/{id}/report` (+ `/evolution`, `/ratings`, `/testers` como blocos independentes com `status` próprio); `stage` `partial`/`final`.
 
 ### ORB-M10-03 · Sessões do teste e detalhe/avaliação
 
-- **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M8-04
+- **Labels:** backend, api, studio · **Estimativa:** M · **Depende de:** M7-04
 - **Escopo:** `GET /tests/{id}/sessions`; `GET /sessions/{id}` (blocos, mesma base `tMs`); `POST /sessions/{id}/rate` (pode marcar inválida → sai das métricas).
 
 ### ORB-M10-04 · Exportação (`GET /tests/{id}/report/export`)
@@ -390,12 +390,12 @@
 
 ### M13-03 · Avaliações do jogo
 
-- **Labels:** backend, api · **Estimativa:** M · **Depende de:** M13-01, M8-06
+- **Labels:** backend, api · **Estimativa:** M · **Depende de:** M13-01, M7-06
 - **Escopo:**
   - [x] `GET|POST /games/{gameId}/reviews` — só quem concluiu ≥1 sessão válida, 1x por jogador (UNIQUE `game_reviews_unique`, 23505 → 409).
-  - [x] Elegibilidade consulta `sessions`/`session_validations`/`participations` **direto**, sem esperar a camada de aplicação do M8 (ainda não existe) — nega sempre até o M8 popular essas tabelas de verdade; passa a funcionar sozinho depois, sem revisão desta rota.
-- **Aceite:** e2e prova 403 sem sessão válida, 201 com sessão seedada diretamente nas tabelas do M8, 409 na segunda avaliação, `averageRating` agregado.
-- **Nota:** implementado fora da ordem sugerida (pedido explicitamente antes de M6–M12); a dependência formal de M8-06 é só a tabela, não o worker.
+  - [x] Elegibilidade consulta `sessions`/`session_validations`/`participations` **direto**, sem esperar a camada de aplicação do M7 (ainda não existe) — nega sempre até o M7 popular essas tabelas de verdade; passa a funcionar sozinho depois, sem revisão desta rota.
+- **Aceite:** e2e prova 403 sem sessão válida, 201 com sessão seedada diretamente nas tabelas do M7, 409 na segunda avaliação, `averageRating` agregado.
+- **Nota:** implementado fora da ordem sugerida (pedido explicitamente antes de M6–M12); a dependência formal de M7-06 é só a tabela, não o worker.
 
 ---
 

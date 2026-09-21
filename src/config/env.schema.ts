@@ -44,6 +44,10 @@ export const envSchema = z.object({
 
   /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
   PASSWORD_RESET_TTL: durationString,
+
+  /** Flood control for chat messages: at most LIMIT per TTL seconds, per user. */
+  CHAT_MESSAGE_THROTTLE_TTL: z.coerce.number().int().positive(),
+  CHAT_MESSAGE_THROTTLE_LIMIT: z.coerce.number().int().positive(),
 });
 
 export type Env = z.infer<typeof envSchema>;

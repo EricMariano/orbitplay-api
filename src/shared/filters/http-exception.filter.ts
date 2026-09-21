@@ -22,6 +22,13 @@ export class HttpExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpExceptionFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost): void {
+    // Socket handlers answer through their own ack envelope (ChatGateway);
+    // there is no response object here to serialize onto.
+    if (host.getType() !== 'http') {
+      this.logger.error(`Unhandled ${host.getType()} error: ${this.describe(exception)}`);
+      return;
+    }
+
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request & { id?: string }>();

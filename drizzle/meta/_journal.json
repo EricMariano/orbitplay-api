@@ -43,6 +43,13 @@
       "when": 1789681768907,
       "tag": "0005_eager_the_order",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790002237318,
+      "tag": "0006_square_darkhawk",
+      "breakpoints": true
     }
   ]
 }

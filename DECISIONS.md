@@ -125,6 +125,38 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   chama e o único owner restante. Manter admin permitido é o que mantém RN-03
   testável de fato nesse endpoint, ao custo de divergir do texto literal do
   spec.
+- **Chat em tempo real (módulo `chat`) — fora do handoff, pedido do produto.**
+  Nem `BACKEND-SPEC.md` nem `openapi.design.yaml` preveem chat: o M13 é o mural
+  assíncrono (`community_posts`) + avaliações da Tela 15. O produto pediu uma
+  comunidade ao vivo nos moldes do Discord, então entrou um módulo novo em vez
+  de esticar o `community` — o mural continua intocado (rotas, contrato e e2e
+  existentes não mudaram). Decisões que vão junto:
+  - **Socket.IO, não `ws` puro.** Salas, reconexão e ack por evento vêm de
+    fábrica; o `@socket.io/redis-adapter` (sobre o `ioredis` que já existia)
+    faz um broadcast alcançar todas as réplicas — sem ele, dois jogadores no
+    mesmo canal deixariam de se ver assim que houvesse mais de uma instância.
+  - **Autenticação só no handshake**, via `auth.token` do access token (o
+    header `Authorization` também é aceito para clientes não-browser). Os
+    guards globais (`JwtAuthGuard`/`OrgScopeGuard`/`RolesGuard`) passam a
+    ignorar contexto não-HTTP, como o `AuditInterceptor` já fazia — não existe
+    `request` para ler num evento de socket. Socket sem token é desconectado.
+  - **Um canal pertence a um jogo**, como o mural. Conteúdo global: qualquer
+    autenticado lê e conversa em canal de qualquer jogo; só o estúdio dono
+    cria, edita, arquiva e modera. Moderar jogo alheio é **403, não 404** —
+    mesma regra do `CommunityService.moderatePost`.
+  - **Qualquer papel fala no chat**, diferente do mural (`@Roles(PLAYER)`). Uma
+    comunidade ao vivo em que o estúdio não pode responder não é comunidade; a
+    restrição do mural existe para as publicações dos jogadores, não aqui.
+  - **REST e socket compartilham o mesmo caminho de escrita**
+    (`ChatService.sendMessage`), e o broadcast sai do serviço, não do gateway.
+    Assim `POST /chat/channels/:id/messages` chega igual aos sockets abertos, e
+    o chat continua utilizável se o WebSocket estiver bloqueado na rede.
+  - **Flood control por usuário no Redis** (`CHAT_MESSAGE_THROTTLE_*`). O
+    Throttler por IP não serve: a conexão é uma só e persistente, e o limite
+    precisa valer para as duas portas de entrada e entre réplicas.
+  - **`chat_messages.status` reaproveita o enum `post_status`**
+    (`visible | hidden | removed`), para moderar mensagem e moderar publicação
+    significarem exatamente a mesma coisa.
 
 ## 3. Notas de implementação relevantes
 
@@ -237,30 +269,30 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   é público, só não é moderável por quem não é dono; é a resposta que o
   próprio `openapi.design.yaml` já declara para essa rota).
 - **Elegibilidade de `POST /games/{gameId}/reviews` consulta `sessions`/
-  `session_validations`/`participations` direto — sem esperar o M8.** Essas
-  tabelas já estão migradas (M8-01) mas não têm camada de aplicação ainda; a
+  `session_validations`/`participations` direto — sem esperar o M7.** Essas
+  tabelas já estão migradas (M7-01) mas não têm camada de aplicação ainda; a
   regra "só quem concluiu >=1 sessão válida" (Tela 15) é implementada como uma
   consulta direta a essas tabelas em `CommunityRepository.hasValidSessionForGame`,
   não como um stub. Hoje ela sempre nega (nenhuma sessão real existe), e passa
-  a valer sozinha assim que o M8 popular essas linhas — sem exigir revisão
+  a valer sozinha assim que o M7 popular essas linhas — sem exigir revisão
   desta rota depois.
 - **M6 (builds) — compatibilidade compara só `platform`; `download-url`
-  reaproveita o padrão pré-M8 do M13 para participação ativa.**
+  reaproveita o padrão pré-M7 do M13 para participação ativa.**
   `builds.platform` é texto livre (gravado pelo M5 a partir de
   `platformValues`), sem colunas de `os`/`arch` — `GET /builds/{id}/compatibility`
   aceita `os`/`arch` na query (o contrato pede) mas só compara `platform`;
   incompatibilidade nunca é erro, é `200` com `compatible:false` +
   `reasons[]` legíveis (RN-03/RN-05, Telas 14/15). `GET /builds/{id}/download-url`
   consulta `participations` direto para a checagem de participação ativa —
-  mesma tabela do M8 (já migrada), mesmo padrão pré-M8 já registrado para
-  `CommunityService.createReview`: nega sempre até o M8 popular linhas reais,
-  sem stub, e passa a valer sozinho quando M8 existir. O `409` de
+  mesma tabela do M7 (já migrada), mesmo padrão pré-M7 já registrado para
+  `CommunityService.createReview`: nega sempre até o M7 popular linhas reais,
+  sem stub, e passa a valer sozinho quando M7 existir. O `409` de
   "dispositivo incompatível" que o design declara nessa rota não tem, hoje,
   como checar dispositivo de verdade — não há `platform` na query dessa rota
   (diferente de `/compatibility`) nem perfil de dispositivo persistido (isso
-  é `PATCH /sessions/{id}/devices`, M8). Por ora o `409` cobre a build ainda
+  é `PATCH /sessions/{id}/devices`, M7). Por ora o `409` cobre a build ainda
   não `validated` — um gate real e honesto, só que mais estreito que "todo o
-  dispositivo" até o M8 existir; não requer revisitar esta rota depois, só
+  dispositivo" até o M7 existir; não requer revisitar esta rota depois, só
   ganha um segundo motivo de `409`.
 - **Bug real encontrado e corrigido: `isUniqueViolation` só olhava
   `err.code`.** O Drizzle envelopa o erro do driver num `DrizzleQueryError`
@@ -323,16 +355,16 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   (`POST /sessions/{id}/rate`, M10) e de completude das respostas — nenhuma
   das duas existe ainda, então fica `0` até lá, sem inventar dado.
   `hoursPlayed`/`testsCompleted`, ao contrário, são leitura real de
-  `sessions`/`participations`/`session_validations` — mesmo padrão pré-M8 já
+  `sessions`/`participations`/`session_validations` — mesmo padrão pré-M7 já
   registrado para `CommunityService.createReview` e para
   `BuildsService.getDownloadUrl`: sempre `0` hoje (nenhuma sessão real
-  existe), passam a valer sozinhos quando o M8 existir. `achievements` e
+  existe), passam a valer sozinhos quando o M7 existir. `achievements` e
   `missions` são tabelas reais (não um catálogo em código, ao contrário do
   M4) mas sem handoff de conteúdo — `seed.ts` ganhou 3 achievements e 2
   missions com `name`/`description` **placeholder**, só para as listas
   terem o que mostrar; substituir quando o conteúdo oficial chegar, sem
   migração. Nenhum motor calcula `player_achievements`/`player_missions`
-  ainda (isso é o gatilho transacional pós-validação de sessão do M8/M10,
+  ainda (isso é o gatilho transacional pós-validação de sessão do M7/M10,
   fora do escopo do M12) — todo jogador começa com as duas listas
   100% bloqueadas/zeradas até algo escrever essas tabelas.
 - **M12 — `PlayerMission.target` é sempre `1`; `progress` vira a fração 0–1

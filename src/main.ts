@@ -6,6 +6,7 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { buildOpenApiDocument } from './config/openapi.factory';
+import { RedisIoAdapter } from './infra/redis/redis-io.adapter';
 
 async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -22,6 +23,12 @@ async function bootstrap(): Promise<void> {
     credentials: true, // allow the refresh-token cookie
   });
   app.enableShutdownHooks(); // triggers onModuleDestroy → close DB/Redis
+
+  // Chat runs over Socket.IO; the Redis adapter makes a broadcast reach every
+  // replica, not just the one the sender happens to be connected to.
+  const wsAdapter = new RedisIoAdapter(app);
+  await wsAdapter.connect();
+  app.useWebSocketAdapter(wsAdapter);
 
   // Interactive API docs (Swagger UI) at /docs, contract JSON at /docs-json.
   // Same document the offline generator writes to openapi.json.

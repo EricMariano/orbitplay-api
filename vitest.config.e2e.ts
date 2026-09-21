@@ -23,6 +23,10 @@ export default defineConfig({
       // the dedicated ratelimit spec still exceeds it to prove the 429.
       AUTH_THROTTLE_LIMIT: '20',
       AUTH_THROTTLE_TTL: '60',
+      // Low enough that the chat spec can prove the 429 in a few requests, with
+      // a window long enough that it can't quietly roll over mid-assertion.
+      CHAT_MESSAGE_THROTTLE_LIMIT: '15',
+      CHAT_MESSAGE_THROTTLE_TTL: '60',
     },
   },
   plugins: [swc.vite()],

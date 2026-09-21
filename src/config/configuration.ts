@@ -67,6 +67,10 @@ export function buildConfig(env: Env) {
       passwordResetTtl: env.PASSWORD_RESET_TTL,
       passwordResetTtlMs: durationToMs(env.PASSWORD_RESET_TTL),
     },
+    chat: {
+      messageThrottleTtl: env.CHAT_MESSAGE_THROTTLE_TTL,
+      messageThrottleLimit: env.CHAT_MESSAGE_THROTTLE_LIMIT,
+    },
   };
 }
 

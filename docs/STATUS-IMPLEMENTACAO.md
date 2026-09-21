@@ -13,7 +13,7 @@
 
 O que está de pé hoje é a **fundação da plataforma** mais o fluxo de mídia, o núcleo do estúdio, a comunidade do jogador e a leitura de gamificação: autenticação/sessão, tenancy por organização, CRUD de jogos, gestão completa de organização/membros, auditoria, catálogo de modelos de teste, upload/playback de gravação, o **wizard de criação de teste completo**, **posts/moderação/avaliações do jogo** e **progresso/conquistas/missões/ranking do jogador**. Isso corresponde aos módulos **M1 (auth), M2 (orgs), M4 (test-models), M5 (tests/wizard), M6 (builds), M9 (media), M12 (gamificação), M13 (comunidade) e M15 (health)** — todos fechados. `GET /games/{id}/tests` (uma das duas pontas soltas do M3) fechou nesta revisão. A outra, `GET /games/{id}/achievements`, segue **fora de alcance sem mudança de schema** — não é mais trabalho do M12, `achievements` é um catálogo global do jogador, sem `game_id`; ver `DECISIONS.md` §3.
 
-O **restante do núcleo do domínio** (participações, sessões, relatórios, feed do jogador, notificações) continua sem nenhum endpoint implementado — mas **já não está bloqueado pelo banco**. M13 e M12 furaram a ordem sugerida da revisão anterior porque foram pedidos fora de sequência; nos dois casos as tabelas de schema já estavam prontas, e as regras que dependem do M8 (elegibilidade de avaliação, `hoursPlayed`/`testsCompleted`) leem `sessions`/`participations` direto, sem esperar — ver notas abaixo. M6 seguiu a ordem sugerida (item 3), logo após o wizard.
+O **restante do núcleo do domínio** (participações, sessões, relatórios, feed do jogador, notificações) continua sem nenhum endpoint implementado — mas **já não está bloqueado pelo banco**. M13 e M12 furaram a ordem sugerida da revisão anterior porque foram pedidos fora de sequência; nos dois casos as tabelas de schema já estavam prontas, e as regras que dependem do M7 (elegibilidade de avaliação, `hoursPlayed`/`testsCompleted`) leem `sessions`/`participations` direto, sem esperar — ver notas abaixo. M6 seguiu a ordem sugerida (item 3), logo após o wizard.
 
 > **Mudança desde a revisão anterior:** a ponta solta do M3, `GET /games/{id}/tests` (Tela 05), fechou nesta revisão — cursor + `tab=active|all` + `status=`, `studio+`, org-scoped. `tab` não tinha definição no handoff; a leitura adotada (`active` = `draft/published/paused`, excluindo os dois estados terminais) está registrada em `DECISIONS.md` §3, junto com o motivo de `GET /games/{id}/achievements` (a outra ponta do M3) continuar fora de alcance sem uma tabela nova jogo↔conquista.
 >
@@ -115,7 +115,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `GET /builds/{id}/compatibility` | ✅   | qualquer autenticado, cross-org; incompatível vem `200 compatible:false`, nunca erro |
 | `GET /builds/{id}/download-url` | ✅    | `player`; exige participação ativa (403) e build `validated` (409); `Range` suportado nativamente pela URL assinada |
 
-> **Notas:** a checagem de compatibilidade compara só `platform` (`builds.platform`, texto livre gravado pelo M5) contra o `platform` da query — `os`/`arch` são aceitos (contrato) mas não têm coluna correspondente para comparar. `download-url` lê `participations` direto (tabela do M8, já migrada) para a checagem de participação ativa — mesmo padrão pré-M8 do M13 (nega até o M8 popular linhas reais); o gate de compatibilidade de dispositivo dessa rota (`409` do design) fica limitado à prontidão da build (`validated`) até o M8 existir (`PATCH /sessions/{id}/devices` é quem traria o perfil de dispositivo real). Ver `DECISIONS.md` §3.
+> **Notas:** a checagem de compatibilidade compara só `platform` (`builds.platform`, texto livre gravado pelo M5) contra o `platform` da query — `os`/`arch` são aceitos (contrato) mas não têm coluna correspondente para comparar. `download-url` lê `participations` direto (tabela do M7, já migrada) para a checagem de participação ativa — mesmo padrão pré-M7 do M13 (nega até o M7 popular linhas reais); o gate de compatibilidade de dispositivo dessa rota (`409` do design) fica limitado à prontidão da build (`validated`) até o M7 existir (`PATCH /sessions/{id}/devices` é quem traria o perfil de dispositivo real). Ver `DECISIONS.md` §3.
 
 ### M13 — Comunidade e avaliações do jogo (`src/modules/community`)
 
@@ -128,7 +128,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `GET /games/{gameId}/reviews`            | ✅     | `averageRating` agregado                                                    |
 | `POST /games/{gameId}/reviews`           | ✅     | `player`-only; exige sessão válida concluída (403) e 1x por jogador (409)   |
 
-> **Notas:** `community_posts`/`game_reviews` são o primeiro conteúdo **não** org-scoped da API — qualquer usuário autenticado lê a comunidade/avaliações de qualquer jogo, não só do próprio; só a moderação é restrita à org dona (via `GamesService.existsAnyOrg`, novo método cross-org deliberadamente fora do `OrgScopedRepository`). `action` de moderação é `hide|restore|remove` (schema real), não `hide|restore|pin|unpin` (design desatualizado). A elegibilidade de avaliação consulta `sessions`/`session_validations`/`participations` (tabelas do M8) diretamente — nega sempre até o M8 existir, sem stub. Ver `DECISIONS.md` §3.
+> **Notas:** `community_posts`/`game_reviews` são o primeiro conteúdo **não** org-scoped da API — qualquer usuário autenticado lê a comunidade/avaliações de qualquer jogo, não só do próprio; só a moderação é restrita à org dona (via `GamesService.existsAnyOrg`, novo método cross-org deliberadamente fora do `OrgScopedRepository`). `action` de moderação é `hide|restore|remove` (schema real), não `hide|restore|pin|unpin` (design desatualizado). A elegibilidade de avaliação consulta `sessions`/`session_validations`/`participations` (tabelas do M7) diretamente — nega sempre até o M7 existir, sem stub. Ver `DECISIONS.md` §3.
 
 ### M15 — Health (`src/modules/health`)
 
@@ -156,7 +156,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `GET /player/missions`  | ✅     | missões ativas (não expiradas); `target` sempre `1`, `progress` é a fração real de `player_missions` |
 | `GET /rankings`          | ✅     | `scope`/`period`/`gameId`; lê `ranking_snapshots` — sem job que o popule ainda, responde página vazia |
 
-> **Notas:** `hoursPlayed`/`testsCompleted` (`GET /player/progress`) e o conteúdo de `GET /rankings` dependem de dado que só o M8 (sessões) e um futuro job de ranking escrevem — hoje sempre `0`/vazio, mesmo padrão pré-M8 já usado pelo M6/M13 (leitura real das tabelas, nunca stub). `achievements`/`missions` são tabelas reais (não um catálogo em código como o M4) mas sem handoff de conteúdo — 3 achievements e 2 missions com copy **placeholder** no `seed.ts`; nenhum motor ainda escreve `player_achievements`/`player_missions` (isso é o gatilho pós-validação de sessão do M8/M10). Ver `DECISIONS.md` §3.
+> **Notas:** `hoursPlayed`/`testsCompleted` (`GET /player/progress`) e o conteúdo de `GET /rankings` dependem de dado que só o M7 (sessões) e um futuro job de ranking escrevem — hoje sempre `0`/vazio, mesmo padrão pré-M7 já usado pelo M6/M13 (leitura real das tabelas, nunca stub). `achievements`/`missions` são tabelas reais (não um catálogo em código como o M4) mas sem handoff de conteúdo — 3 achievements e 2 missions com copy **placeholder** no `seed.ts`; nenhum motor ainda escreve `player_achievements`/`player_missions` (isso é o gatilho pós-validação de sessão do M7/M10). Ver `DECISIONS.md` §3.
 
 ### M7–M11, M14 — **a fazer** (só no design, exceto M4–M6, M9, M12 e M13)
 
@@ -164,15 +164,15 @@ Nenhum endpoint destes módulos está implementado. **As tabelas de todos eles j
 
 | Módulo             | Operações faltando |
 | ------------------ | ------------------ |
-| M7 player-feed     | 7                  |
-| M8 participações   | 11                 |
+| M7 participações   | 11                 |
+| M8 player-feed     | 7                  |
 | M10 reports        | 8                  |
 | M11 dashboard      | 2                  |
 | M14 notificações   | 2                  |
 | **Total**          | **31**             |
 
-- **M7 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
-- **M8 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
+- **M7 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
+- **M8 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
 - **M10 reports:** `GET /tests/{id}/report`, `.../report/evolution`, `.../report/ratings`, `.../report/testers`, `GET /tests/{id}/sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/rate`, `GET /tests/{id}/report/export`
 - **M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`
 - **M14 notifications:** `GET /notifications`, `PATCH /notifications/{id}/read`
@@ -198,7 +198,7 @@ Ressalvas sobre o que existe mas **não é usado de ponta a ponta**:
 - **`idempotency_keys`** — tabela migrada, mas **sem uso**: o `IdempotencyInterceptor` é só Redis. O M15-02 (idempotência durável) segue em aberto.
 - **`tests`, `test_audience_criteria`, `test_form_questions`, `test_form_options`, `builds`, `build_validation_steps`** — consumidas de ponta a ponta pelo wizard do M5 (o worker `build.validate` inclusive).
 - **`community_posts`, `community_reports`, `game_reviews`** — consumidas de ponta a ponta pelo M13. `game_reviews` também é lida pelo agregado `averageRating` do `GamesRepository.metricsByGameIds` (M3), que já existia antes do M13 ter endpoints — a métrica só ficava sempre nula por falta de linhas.
-- **`xp_events`, `achievements`, `player_achievements`, `missions`, `player_missions`, `ranking_snapshots`** — consumidas de ponta a ponta pelo M12 (leitura). `achievements`/`missions` têm catálogo placeholder no `seed.ts`; `player_achievements`/`player_missions`/`ranking_snapshots` seguem **vazias** — nada ainda escreve nelas (motor de XP pós-sessão é do M8/M10; job de ranking não existe).
+- **`xp_events`, `achievements`, `player_achievements`, `missions`, `player_missions`, `ranking_snapshots`** — consumidas de ponta a ponta pelo M12 (leitura). `achievements`/`missions` têm catálogo placeholder no `seed.ts`; `player_achievements`/`player_missions`/`ranking_snapshots` seguem **vazias** — nada ainda escreve nelas (motor de XP pós-sessão é do M7/M10; job de ranking não existe).
 - **Todas as demais tabelas de `0002`** (`participations`, `sessions`, `session_*`, `form_*`, `player_preferences`, `feed_ranking_snapshots`, `test_report_snapshots`, `notifications`) — **migradas e vazias**, aguardando os módulos M7–M8, M10–M11 e M14. `sessions`/`session_validations`/`participations` já são **lidas** (não escritas) pelo M13 (elegibilidade de avaliação) e pelo M12 (`hoursPlayed`/`testsCompleted`).
 
 ### ⬜ A criar
@@ -234,8 +234,8 @@ Seguindo as dependências do domínio (cada linha destrava a próxima). Como o s
 
 1. ~~**M4 test-models** (catálogo, sem dependência pesada).~~ **Feito.**
 2. ~~**M5 tests** (wizard sobre `tests`/`test_*`, worker `build.validate` sobre `builds`/`build_validation_steps`).~~ **Feito.** A ponta solta de M3 `/games/{id}/tests` também fechou (revisão seguinte). A outra ponta do M3, `/games/{id}/achievements`, não entra nesta lista — precisa de schema novo (tabela jogo↔conquista), não é sequência de módulo.
-3. ~~**M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.~~ **Feito.** `download-url` já lê `participations` direto (pré-M8, mesmo padrão do M13); o gate de compatibilidade de dispositivo dessa rota fica completo só quando o M8 existir.
-4. **M7/M8** (jogador): feed, participações, sessões, consentimentos + worker de validação de sessão (gatilho de XP) — é o que faz `GET /player/progress` (M12) e a elegibilidade de avaliação (M13) passarem a reportar dado real.
+3. ~~**M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.~~ **Feito.** `download-url` já lê `participations` direto (pré-M7, mesmo padrão do M13); o gate de compatibilidade de dispositivo dessa rota fica completo só quando o M7 existir.
+4. **M7/M8** (jogador): participações, sessões, consentimentos + worker de validação de sessão (gatilho de XP), feed — é o que faz `GET /player/progress` (M12) e a elegibilidade de avaliação (M13) passarem a reportar dado real.
 5. **M10 reports** (depende de sessões existirem; o M9 media já está pronto e esperando por elas).
-6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M13 e M12 feitos fora de ordem** (pedidos explicitamente); M11 e M14 seguem pendentes. A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M8 existir (e, para ranking, um job futuro popular `ranking_snapshots`).
+6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M13 e M12 feitos fora de ordem** (pedidos explicitamente); M11 e M14 seguem pendentes. A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M7 existir (e, para ranking, um job futuro popular `ranking_snapshots`).
 7. **M15-02** (idempotência durável na tabela `idempotency_keys`) — pode entrar a qualquer momento, a tabela já existe.

@@ -16,6 +16,7 @@ import { StorageModule } from './infra/storage/storage.module';
 import { TelemetryModule } from './infra/telemetry/telemetry.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { BuildsModule } from './modules/builds/builds.module';
+import { ChatModule } from './modules/chat/chat.module';
 import { CommunityModule } from './modules/community/community.module';
 import { GamesModule } from './modules/games/games.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
@@ -86,6 +87,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     TestsModule,
     BuildsModule,
     CommunityModule,
+    ChatModule,
     GamificationModule,
   ],
   providers: [

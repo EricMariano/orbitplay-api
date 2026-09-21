@@ -24,6 +24,10 @@ export class OrgScopeGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // See JwtAuthGuard: a socket carries its principal on `client.data`, set at
+    // handshake time, so there is nothing for this guard to assert per message.
+    if (context.getType() !== 'http') return true;
+
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),

@@ -70,10 +70,10 @@ tags:
     description: Wizard de criação de teste (M5)
   - name: builds
     description: Builds (M6)
-  - name: player-feed
-    description: Feed do jogador e elegibilidade (M7)
   - name: participations
-    description: Participações e sessões (M8)
+    description: Participações e sessões (M7)
+  - name: player-feed
+    description: Feed do jogador e elegibilidade (M8)
   - name: media
     description: Mídia e gravação (M9)
   - name: reports
@@ -576,7 +576,7 @@ paths:
         RN-03 (Tela 03): as métricas do card são **agregadas no backend** a
         partir dos testes do jogo. Filtros `q`/`status` e paginação por cursor.
         `sessionsValid`, `playersTotal` e `averageRating` ficam zerados até
-        M8/M13 gravarem linhas.
+        M7/M13 gravarem linhas.
       x-status: implemented
       parameters:
         - $ref: '#/components/parameters/Limit'
@@ -1228,182 +1228,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
 
-  # ----------------------------------------------------------- M7 player feed
-  /player/home:
-    get:
-      tags: [player-feed]
-      summary: Home do jogador
-      description: |
-        RN-01 (Tela 13): nível, XP, qualidade de feedback e conquistas vêm
-        prontos do backend — a UI não recalcula.
-
-        RN-02: `currentParticipation` traz o ponto de retomada permitido pelo
-        modelo do teste.
-
-        O bloco de carteira está deferido e não aparece nesta versão.
-      x-status: todo
-      responses:
-        '200':
-          description: Home do jogador
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PlayerHome' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-
-  /player/feed:
-    get:
-      tags: [player-feed]
-      summary: Feed rankeado de testes disponíveis
-      description: |
-        Feed no estilo Steam, **ordenado pelo backend**. O cliente nunca
-        reordena.
-
-        ### Paginação — exceção à convenção da API
-
-        O cursor padrão (`UUIDv7`) assume ordem cronológica estável e **não
-        serve aqui**: um ranking muda entre requisições e produziria itens
-        repetidos e itens pulados. Este endpoint usa **ranking congelado por
-        sessão de navegação**:
-
-        1. A primeira chamada (sem `cursor`) calcula o ranking, persiste um
-           snapshot e devolve `rankingSeed` junto do `nextCursor`.
-        2. As chamadas seguintes enviam o `cursor`, que carrega o seed e a
-           posição — a ordem permanece consistente durante a rolagem.
-        3. O snapshot tem TTL curto; expirado, o cliente recomeça do topo com um
-           seed novo.
-
-        ### Slots
-
-        `items` vem como lista de slots. Nesta fase todos têm
-        `type: organic`, mas a estrutura de slot já existe porque é onde o
-        impulsionamento (deferido) se encaixa sem redesenhar o módulo.
-
-        Elegibilidade segue as regras das Telas 14 e 15: item incompatível ou
-        indisponível aparece com `disabled: true` e `disabledReason`, em vez de
-        sumir sem explicação.
-      x-status: todo
-      parameters:
-        - name: section
-          in: query
-          description: Trilho do feed a carregar
-          schema: { type: string, enum: [for_you, new, ending_soon, popular], default: for_you }
-        - name: cursor
-          in: query
-          description: Cursor de ranking congelado, devolvido pela chamada anterior
-          schema: { type: string }
-        - $ref: '#/components/parameters/Limit'
-        - name: platform
-          in: query
-          schema: { $ref: '#/components/schemas/Platform' }
-        - name: genre
-          in: query
-          schema: { type: string }
-        - name: q
-          in: query
-          schema: { type: string }
-      responses:
-        '200':
-          description: Página do feed
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/FeedPage' }
-        '403': { $ref: '#/components/responses/Forbidden' }
-        '422':
-          description: Cursor de ranking expirado — recomeçar do topo
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
-
-  /player/feed/filters:
-    get:
-      tags: [player-feed]
-      summary: Facetas disponíveis para filtrar o feed
-      description: Devolve apenas facetas com resultado para este jogador.
-      x-status: todo
-      responses:
-        '200':
-          description: Facetas
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/FeedFilters' }
-
-  /player/games/{gameId}:
-    get:
-      tags: [player-feed]
-      summary: Detalhes de um jogo para o jogador
-      description: 'Tela 15. Banner, disponibilidade, jogadores e testes abertos.'
-      x-status: todo
-      parameters:
-        - $ref: '#/components/parameters/GameId'
-      responses:
-        '200':
-          description: Jogo na visão do jogador
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PlayerGame' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /player/games/{gameId}/tests:
-    get:
-      tags: [player-feed]
-      summary: Testes de um jogo disponíveis para o jogador
-      x-status: todo
-      parameters:
-        - $ref: '#/components/parameters/GameId'
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-      responses:
-        '200':
-          description: Página de testes elegíveis
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PlayerTestList' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /player/tests/{testId}:
-    get:
-      tags: [player-feed]
-      summary: Detalhe de um teste para o jogador
-      description: |
-        RN-01 (Tela 15): `cta` é **calculado no backend** —
-        `start`, `continue`, `completed`, `in_review`, `downloading` ou
-        `unavailable`. A UI apenas renderiza o que veio.
-      x-status: todo
-      parameters:
-        - $ref: '#/components/parameters/TestId'
-      responses:
-        '200':
-          description: Teste na visão do jogador
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/PlayerTest' }
-        '404': { $ref: '#/components/responses/NotFound' }
-
-  /player/participations:
-    get:
-      tags: [player-feed]
-      summary: Meus testes
-      description: |
-        Rota própria, e **não** `/player/tests/mine`, de propósito: o segmento
-        literal `mine` colidiria com o parâmetro de `/player/tests/{testId}`. Em
-        roteadores que casam o segmento dinâmico primeiro, `mine` cairia no
-        `{testId}` e falharia na validação de UUID. Separar a rota remove a
-        ambiguidade em vez de depender da ordem de declaração.
-      x-status: todo
-      parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
-        - name: status
-          in: query
-          schema: { $ref: '#/components/schemas/ParticipationStatus' }
-      responses:
-        '200':
-          description: Página de participações do jogador
-          content:
-            application/json:
-              schema: { $ref: '#/components/schemas/ParticipationList' }
-
-  # ------------------------------------------------- M8 participations/sessions
+  # ------------------------------------------------- M7 participations/sessions
   /player/tests/{testId}/participations:
     post:
       tags: [participations]
@@ -1684,6 +1509,181 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/ParticipationResult' }
         '404': { $ref: '#/components/responses/NotFound' }
+
+  # ----------------------------------------------------------- M8 player feed
+  /player/home:
+    get:
+      tags: [player-feed]
+      summary: Home do jogador
+      description: |
+        RN-01 (Tela 13): nível, XP, qualidade de feedback e conquistas vêm
+        prontos do backend — a UI não recalcula.
+
+        RN-02: `currentParticipation` traz o ponto de retomada permitido pelo
+        modelo do teste.
+
+        O bloco de carteira está deferido e não aparece nesta versão.
+      x-status: todo
+      responses:
+        '200':
+          description: Home do jogador
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerHome' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /player/feed:
+    get:
+      tags: [player-feed]
+      summary: Feed rankeado de testes disponíveis
+      description: |
+        Feed no estilo Steam, **ordenado pelo backend**. O cliente nunca
+        reordena.
+
+        ### Paginação — exceção à convenção da API
+
+        O cursor padrão (`UUIDv7`) assume ordem cronológica estável e **não
+        serve aqui**: um ranking muda entre requisições e produziria itens
+        repetidos e itens pulados. Este endpoint usa **ranking congelado por
+        sessão de navegação**:
+
+        1. A primeira chamada (sem `cursor`) calcula o ranking, persiste um
+           snapshot e devolve `rankingSeed` junto do `nextCursor`.
+        2. As chamadas seguintes enviam o `cursor`, que carrega o seed e a
+           posição — a ordem permanece consistente durante a rolagem.
+        3. O snapshot tem TTL curto; expirado, o cliente recomeça do topo com um
+           seed novo.
+
+        ### Slots
+
+        `items` vem como lista de slots. Nesta fase todos têm
+        `type: organic`, mas a estrutura de slot já existe porque é onde o
+        impulsionamento (deferido) se encaixa sem redesenhar o módulo.
+
+        Elegibilidade segue as regras das Telas 14 e 15: item incompatível ou
+        indisponível aparece com `disabled: true` e `disabledReason`, em vez de
+        sumir sem explicação.
+      x-status: todo
+      parameters:
+        - name: section
+          in: query
+          description: Trilho do feed a carregar
+          schema: { type: string, enum: [for_you, new, ending_soon, popular], default: for_you }
+        - name: cursor
+          in: query
+          description: Cursor de ranking congelado, devolvido pela chamada anterior
+          schema: { type: string }
+        - $ref: '#/components/parameters/Limit'
+        - name: platform
+          in: query
+          schema: { $ref: '#/components/schemas/Platform' }
+        - name: genre
+          in: query
+          schema: { type: string }
+        - name: q
+          in: query
+          schema: { type: string }
+      responses:
+        '200':
+          description: Página do feed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedPage' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422':
+          description: Cursor de ranking expirado — recomeçar do topo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+
+  /player/feed/filters:
+    get:
+      tags: [player-feed]
+      summary: Facetas disponíveis para filtrar o feed
+      description: Devolve apenas facetas com resultado para este jogador.
+      x-status: todo
+      responses:
+        '200':
+          description: Facetas
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/FeedFilters' }
+
+  /player/games/{gameId}:
+    get:
+      tags: [player-feed]
+      summary: Detalhes de um jogo para o jogador
+      description: 'Tela 15. Banner, disponibilidade, jogadores e testes abertos.'
+      x-status: todo
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+      responses:
+        '200':
+          description: Jogo na visão do jogador
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerGame' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /player/games/{gameId}/tests:
+    get:
+      tags: [player-feed]
+      summary: Testes de um jogo disponíveis para o jogador
+      x-status: todo
+      parameters:
+        - $ref: '#/components/parameters/GameId'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de testes elegíveis
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerTestList' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /player/tests/{testId}:
+    get:
+      tags: [player-feed]
+      summary: Detalhe de um teste para o jogador
+      description: |
+        RN-01 (Tela 15): `cta` é **calculado no backend** —
+        `start`, `continue`, `completed`, `in_review`, `downloading` ou
+        `unavailable`. A UI apenas renderiza o que veio.
+      x-status: todo
+      parameters:
+        - $ref: '#/components/parameters/TestId'
+      responses:
+        '200':
+          description: Teste na visão do jogador
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PlayerTest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /player/participations:
+    get:
+      tags: [player-feed]
+      summary: Meus testes
+      description: |
+        Rota própria, e **não** `/player/tests/mine`, de propósito: o segmento
+        literal `mine` colidiria com o parâmetro de `/player/tests/{testId}`. Em
+        roteadores que casam o segmento dinâmico primeiro, `mine` cairia no
+        `{testId}` e falharia na validação de UUID. Separar a rota remove a
+        ambiguidade em vez de depender da ordem de declaração.
+      x-status: todo
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/ParticipationStatus' }
+      responses:
+        '200':
+          description: Página de participações do jogador
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ParticipationList' }
 
   # --------------------------------------------------------------- M9 media
   /sessions/{id}/recordings/upload-url:

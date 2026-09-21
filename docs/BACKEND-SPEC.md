@@ -258,7 +258,7 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
 - RN-03: a ordem das perguntas é persistida **exatamente** como definida
   (campo `position`, reordenação atômica).
 - RN-04: `required: true` bloqueia o envio do formulário pelo jogador (validado
-  no envio, M8).
+  no envio, M7).
 - RN-05: exclusão de pergunta com conteúdo preenchido pede confirmação.
 
 **Etapa 3 — build** _(Tela 08)_
@@ -318,7 +318,53 @@ Sem pagamento nesta fase, o wizard termina **publicando o teste diretamente**.
 
 ---
 
-### M7 — Feed do jogador e elegibilidade _(Telas 13, 14, 15)_
+### M7 — Participações e sessões _(Telas 16 → 19)_
+
+| Método | Rota                                   | Papel  | Situação                       |
+| ------ | -------------------------------------- | ------ | ------------------------------ |
+| POST   | `/player/tests/:testId/participations` | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/participations/:id`                  | player | **[novo]**                     |
+| POST   | `/participations/:id/consents`         | player | **[novo]**                     |
+| GET    | `/participations/:id/tutorial`         | player | **[novo]**                     |
+| POST   | `/participations/:id/sessions`         | player | **[novo]**                     |
+| PATCH  | `/sessions/:id/devices`                | player | **[novo]** — mic/webcam on/off |
+| POST   | `/sessions/:id/heartbeat`              | player | **[novo]**                     |
+| POST   | `/sessions/:id/finish`                 | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/sessions/:id/summary`                | player | **[novo]**                     |
+| POST   | `/sessions/:id/form-response`          | player | **[novo]** — `Idempotency-Key` |
+| GET    | `/participations/:id/result`           | player | **[novo]**                     |
+
+**Regras**
+
+- Tela 16 RN-01: o tutorial retornado corresponde ao **modelo do teste**.
+- Tela 16 RN-02: permissões de gravação/microfone/webcam são solicitadas e
+  **registradas antes** da sessão quando obrigatórias.
+- Tela 16 RN-03: sessão só inicia após download e **validação** da build.
+- Tela 17 RN-01: gravação só começa após consentimento e preparação bem-sucedida.
+- Tela 17 RN-03: finalizar a sessão exige confirmação explícita.
+- Tela 17 RN-04: mudanças de microfone/webcam são registradas **com timestamp da
+  sessão** (`t_ms` relativo ao início).
+- Tela 17 RN-05: falha de recurso obrigatório durante a sessão segue a política
+  do modelo (encerrar, marcar sessão como inválida ou continuar degradado).
+- Tela 18 RN-01: perguntas obrigatórias bloqueiam o envio → `422` por campo.
+- Tela 18 RN-02: respostas vinculadas à **sessão correta e ao jogador
+  autenticado**.
+- Tela 18 RN-03: envio duplicado do mesmo formulário não gera segunda avaliação
+  → `409` reproduzindo a resposta original.
+- Tela 19 RN-01/02: XP, nota e conquistas são retornados **após a validação da
+  sessão**; enquanto não termina → `status: in_review`.
+- Tela 19 RN-03: **recarregar não duplica XP nem conquista** — transição de
+  estado única e transacional. (A parte de pagamento da regra fica deferida, mas
+  o mecanismo idempotente é o mesmo e deve nascer pronto.)
+- Tela 19 RN-04 (recompensa financeira no saldo) — **deferida** (§10). Registre
+  a recompensa devida na sessão validada mesmo assim: é o dado que a carteira
+  vai consumir quando entrar.
+- A emissão de **session token do plug-in** faz parte da telemetria, deferida
+  (§10). `session_tokens` já existe no schema e permanece dormente.
+
+---
+
+### M8 — Feed do jogador e elegibilidade _(Telas 13, 14, 15)_
 
 O jogador não vê uma lista, vê um **feed rankeado no estilo Steam**. O
 impulsionamento pago está deferido junto com pagamentos (§10), mas o ranking
@@ -372,52 +418,6 @@ que ordena por data é reescrever o módulo.
 - Tela 15 RN-02/03: teste expirado ou sem vaga não inicia; a recompensa pode
   ficar `pending` até a sessão ser validada.
 - Tela 13: o bloco de carteira e saque está **deferido** (§10).
-
----
-
-### M8 — Participações e sessões _(Telas 16 → 19)_
-
-| Método | Rota                                   | Papel  | Situação                       |
-| ------ | -------------------------------------- | ------ | ------------------------------ |
-| POST   | `/player/tests/:testId/participations` | player | **[novo]** — `Idempotency-Key` |
-| GET    | `/participations/:id`                  | player | **[novo]**                     |
-| POST   | `/participations/:id/consents`         | player | **[novo]**                     |
-| GET    | `/participations/:id/tutorial`         | player | **[novo]**                     |
-| POST   | `/participations/:id/sessions`         | player | **[novo]**                     |
-| PATCH  | `/sessions/:id/devices`                | player | **[novo]** — mic/webcam on/off |
-| POST   | `/sessions/:id/heartbeat`              | player | **[novo]**                     |
-| POST   | `/sessions/:id/finish`                 | player | **[novo]** — `Idempotency-Key` |
-| GET    | `/sessions/:id/summary`                | player | **[novo]**                     |
-| POST   | `/sessions/:id/form-response`          | player | **[novo]** — `Idempotency-Key` |
-| GET    | `/participations/:id/result`           | player | **[novo]**                     |
-
-**Regras**
-
-- Tela 16 RN-01: o tutorial retornado corresponde ao **modelo do teste**.
-- Tela 16 RN-02: permissões de gravação/microfone/webcam são solicitadas e
-  **registradas antes** da sessão quando obrigatórias.
-- Tela 16 RN-03: sessão só inicia após download e **validação** da build.
-- Tela 17 RN-01: gravação só começa após consentimento e preparação bem-sucedida.
-- Tela 17 RN-03: finalizar a sessão exige confirmação explícita.
-- Tela 17 RN-04: mudanças de microfone/webcam são registradas **com timestamp da
-  sessão** (`t_ms` relativo ao início).
-- Tela 17 RN-05: falha de recurso obrigatório durante a sessão segue a política
-  do modelo (encerrar, marcar sessão como inválida ou continuar degradado).
-- Tela 18 RN-01: perguntas obrigatórias bloqueiam o envio → `422` por campo.
-- Tela 18 RN-02: respostas vinculadas à **sessão correta e ao jogador
-  autenticado**.
-- Tela 18 RN-03: envio duplicado do mesmo formulário não gera segunda avaliação
-  → `409` reproduzindo a resposta original.
-- Tela 19 RN-01/02: XP, nota e conquistas são retornados **após a validação da
-  sessão**; enquanto não termina → `status: in_review`.
-- Tela 19 RN-03: **recarregar não duplica XP nem conquista** — transição de
-  estado única e transacional. (A parte de pagamento da regra fica deferida, mas
-  o mecanismo idempotente é o mesmo e deve nascer pronto.)
-- Tela 19 RN-04 (recompensa financeira no saldo) — **deferida** (§10). Registre
-  a recompensa devida na sessão validada mesmo assim: é o dado que a carteira
-  vai consumir quando entrar.
-- A emissão de **session token do plug-in** faz parte da telemetria, deferida
-  (§10). `session_tokens` já existe no schema e permanece dormente.
 
 ---
 
@@ -694,9 +694,9 @@ insights de IA e transcrição por ASR.
 | ------------------------------------------------------------------------------------------------ | ------ | -------------------------------------------------------------- |
 | `requiresTelemetry` no contrato do modelo de teste                                               | M4     | É o gate que a Etapa 3 usa quando o plug-in voltar             |
 | Validação de build como **lista de etapas**, não booleano                                        | M6     | O passo de manifesto do plug-in entra como mais uma etapa      |
-| Composição do feed em **slots**                                                                  | M7     | Slot pago entra sem reordenar o módulo                         |
-| `t_ms` desde o início da sessão como base temporal única                                         | M8, M9 | Telemetria, transcrição e insights se ancoram nela             |
-| Recompensa devida registrada na sessão validada                                                  | M8     | É o dado que a carteira consome quando entrar                  |
+| Composição do feed em **slots**                                                                  | M8     | Slot pago entra sem reordenar o módulo                         |
+| `t_ms` desde o início da sessão como base temporal única                                         | M7, M9 | Telemetria, transcrição e insights se ancoram nela             |
+| Recompensa devida registrada na sessão validada                                                  | M7     | É o dado que a carteira consome quando entrar                  |
 | Relatório em **blocos independentes** com `status`                                               | M10    | Telemetria e IA entram como blocos novos, sem quebrar contrato |
 | Idempotência no publish do teste                                                                 | M5     | A regra não depende de cobrança e já nasce correta             |
 | `session_tokens`, `plugin_manifests`, `trigger_definitions`, `heatmap_cells`, `telemetry_events` | schema | Tabelas já existem e ficam dormentes                           |

@@ -14,6 +14,10 @@ export class RolesGuard implements CanActivate {
   constructor(private readonly reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
+    // @Roles is an HTTP-route concern; socket handlers check the principal on
+    // `client.data` themselves (see JwtAuthGuard).
+    if (context.getType() !== 'http') return true;
+
     const required = this.reflector.getAllAndOverride<RoleValue[]>(ROLES_KEY, [
       context.getHandler(),
       context.getClass(),

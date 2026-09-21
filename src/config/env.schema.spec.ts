@@ -24,6 +24,8 @@ const validEnv = {
   AUTH_AVAILABILITY_THROTTLE_TTL: '60',
   AUTH_AVAILABILITY_THROTTLE_LIMIT: '3',
   PASSWORD_RESET_TTL: '1h',
+  CHAT_MESSAGE_THROTTLE_TTL: '10',
+  CHAT_MESSAGE_THROTTLE_LIMIT: '10',
 };
 
 describe('validateEnv', () => {
@@ -35,6 +37,7 @@ describe('validateEnv', () => {
     expect(env.PASSWORD_RESET_TTL).toBe('1h');
     expect(env.STORAGE_FORCE_PATH_STYLE).toBe(true);
     expect(env.AUTH_THROTTLE_LIMIT).toBe(5);
+    expect(env.CHAT_MESSAGE_THROTTLE_LIMIT).toBe(10);
   });
 
   it('fails fast and names the missing variable', () => {
