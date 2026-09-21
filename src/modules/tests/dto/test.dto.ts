@@ -2,6 +2,7 @@ import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 import { platformValues } from '../../games/dto/game.dto';
 import { testModelKeyValues } from '../../test-models/dto/test-model.dto';
+import { paginationQuerySchema } from '../../../shared/pagination/pagination';
 
 /**
  * Enum values below mirror the migrated Drizzle schema
@@ -236,6 +237,25 @@ export const setStatusSchema = z.object({
   status: z.enum(['paused', 'published', 'finished']),
 });
 
+/**
+ * GET /games/:id/tests (Tela 05). `tab` isn't defined anywhere beyond the
+ * name in `openapi.design.yaml` — `active` is read here as "still being
+ * worked on or currently running" (`draft`/`published`/`paused`), excluding
+ * the two terminal states (`finished`/`expired`); same kind of interpretation
+ * already made for `GameSpecs`/`estimatedReach` where the handoff doesn't
+ * pin the exact rule down. An explicit `status` narrows further and wins
+ * over `tab`. See DECISIONS.md §3.
+ */
+export const testListQuerySchema = paginationQuerySchema.extend({
+  tab: z.enum(['active', 'all']).default('active'),
+  status: z.enum(testStatusValues).optional(),
+});
+
+export const testListSchema = z.object({
+  data: z.array(testSchema),
+  nextCursor: z.string().nullable(),
+});
+
 export class CreateTestDto extends createZodDto(createTestSchema) {}
 export class SetModelDto extends createZodDto(setModelSchema) {}
 export class TestDto extends createZodDto(testSchema) {}
@@ -247,6 +267,8 @@ export class ConfirmBuildRequestDto extends createZodDto(confirmBuildRequestSche
 export class BuildDto extends createZodDto(buildSchema) {}
 export class AudienceRequestDto extends createZodDto(audienceRequestSchema) {}
 export class SetStatusDto extends createZodDto(setStatusSchema) {}
+export class TestListQueryDto extends createZodDto(testListQuerySchema) {}
+export class TestListDto extends createZodDto(testListSchema) {}
 
 export type CreateTestRequest = z.infer<typeof createTestSchema>;
 export type SetModelRequest = z.infer<typeof setModelSchema>;
@@ -263,5 +285,6 @@ export type BuildUploadUrlResponse = z.infer<typeof buildUploadUrlResponseSchema
 export type ConfirmBuildRequest = z.infer<typeof confirmBuildRequestSchema>;
 export type AudienceRequest = z.infer<typeof audienceRequestSchema>;
 export type SetStatusRequest = z.infer<typeof setStatusSchema>;
+export type TestListQuery = z.infer<typeof testListQuerySchema>;
 export type TestStatusValue = (typeof testStatusValues)[number];
 export type WizardStepValue = (typeof wizardStepValues)[number];

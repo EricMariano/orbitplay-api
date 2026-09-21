@@ -321,6 +321,72 @@ describe('Tests wizard — M5 (e2e)', () => {
       .send({ testModelKey: 'free_exploration' });
     expect(res.status).toBe(404);
   });
+
+  // M3's loose end (STATUS-IMPLEMENTACAO.md): GET /games/:id/tests (Tela 05).
+  // Seeded directly via SQL (not the wizard) so each status is deterministic —
+  // GAME_IDS.two, untouched by the other its in this file.
+  describe('GET /games/:id/tests (Tela 05)', () => {
+    const draftId = '01990000-0000-7000-8000-00000000aa01';
+    const publishedId = '01990000-0000-7000-8000-00000000aa02';
+    const finishedId = '01990000-0000-7000-8000-00000000aa03';
+
+    beforeAll(async () => {
+      await sql`
+        INSERT INTO tests (id, organization_id, game_id, model_key, status)
+        VALUES
+          (${draftId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.two}), ${GAME_IDS.two}, 'free_exploration', 'draft'),
+          (${publishedId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.two}), ${GAME_IDS.two}, 'free_exploration', 'published'),
+          (${finishedId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.two}), ${GAME_IDS.two}, 'free_exploration', 'finished')
+        ON CONFLICT DO NOTHING`;
+    });
+
+    it('defaults to tab=active — draft/published, not finished', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/games/${GAME_IDS.two}/tests`)
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.status).toBe(200);
+      const ids = res.body.data.map((t: { id: string }) => t.id);
+      expect(ids).toEqual(expect.arrayContaining([draftId, publishedId]));
+      expect(ids).not.toContain(finishedId);
+    });
+
+    it('tab=all includes finished too', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/games/${GAME_IDS.two}/tests?tab=all`)
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual(
+        expect.arrayContaining([draftId, publishedId, finishedId]),
+      );
+    });
+
+    it('status= narrows to one exact status, overriding tab', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/games/${GAME_IDS.two}/tests?status=finished`)
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([finishedId]);
+    });
+
+    it("a rival org gets 404, not another studio's tests", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/games/${GAME_IDS.two}/tests`)
+        .set('Authorization', `Bearer ${rivalToken}`);
+      expect(res.status).toBe(404);
+    });
+
+    it('a player token is refused — studio-only', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/games/${GAME_IDS.two}/tests`)
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('404s for a non-existent game', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/games/01994000-0000-7000-8000-00000000ffff/tests')
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.status).toBe(404);
+    });
+  });
 });
 
 async function waitForBuildValidated(app: INestApplication, token: string, testId: string) {

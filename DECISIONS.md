@@ -313,3 +313,66 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   garante essa ordem dentro da mesma migração) — testado de ponta a ponta
   (migração + seed + um INSERT cross-org rejeitado de propósito) num
   Postgres descartável antes de commitar.
+- **M12 (gamificação) — curva de XP/nível é placeholder; `feedbackQuality`
+  fica `0`; catálogo de `achievements`/`missions` ganhou seed com copy
+  placeholder (mesmo status do M4).** `BACKEND-SPEC.md` §9 pendência #4
+  (fórmulas de XP/nível/qualidade de feedback) segue aberta — `XP_PER_LEVEL`
+  (`dto/gamification.dto.ts`) é um degrau linear de 100 XP por nível,
+  isolado numa função só para trocar quando a fórmula real chegar.
+  `feedbackQuality` depende da avaliação do estúdio sobre a sessão
+  (`POST /sessions/{id}/rate`, M10) e de completude das respostas — nenhuma
+  das duas existe ainda, então fica `0` até lá, sem inventar dado.
+  `hoursPlayed`/`testsCompleted`, ao contrário, são leitura real de
+  `sessions`/`participations`/`session_validations` — mesmo padrão pré-M8 já
+  registrado para `CommunityService.createReview` e para
+  `BuildsService.getDownloadUrl`: sempre `0` hoje (nenhuma sessão real
+  existe), passam a valer sozinhos quando o M8 existir. `achievements` e
+  `missions` são tabelas reais (não um catálogo em código, ao contrário do
+  M4) mas sem handoff de conteúdo — `seed.ts` ganhou 3 achievements e 2
+  missions com `name`/`description` **placeholder**, só para as listas
+  terem o que mostrar; substituir quando o conteúdo oficial chegar, sem
+  migração. Nenhum motor calcula `player_achievements`/`player_missions`
+  ainda (isso é o gatilho transacional pós-validação de sessão do M8/M10,
+  fora do escopo do M12) — todo jogador começa com as duas listas
+  100% bloqueadas/zeradas até algo escrever essas tabelas.
+- **M12 — `PlayerMission.target` é sempre `1`; `progress` vira a fração 0–1
+  real da coluna `player_missions.progress`.** O schema migrado não tem
+  coluna de meta/threshold em `missions` (só `key`/`name`/`description`/
+  `reward_xp`/`expires_at`) — o par `progress`/`target` (inteiros) do design
+  não tem de onde vir. Em vez de inventar uma coluna nova, `target` fica
+  fixo em `1` e `progress` é o valor normalizado já armazenado.
+- **M12 — `GET /rankings` lê de `ranking_snapshots`; nada ainda popula essa
+  tabela.** Pendência #5 do `BACKEND-SPEC.md` §9 (escopo/periodicidade do
+  ranking de jogadores) segue aberta, e não existe job agendado — a tabela é
+  "materializada por um job" por design (comentário em
+  `schema/player.ts`), não calculada por request. `GamificationRepository.
+  findLatestSnapshot` busca o snapshot mais recente por
+  `scope`/`period`/`gameId`; sem nenhum, a rota responde `200` com
+  `{ data: [], nextCursor: null, currentUserEntry: null, generatedAt: null
+  }` em vez de erro — mesmo padrão pré-job dos itens acima. Paginação sobre
+  `entries` (um array jsonb por linha, não uma linha por posição) usa um
+  cursor de offset próprio (`encodeOffsetCursor`/`decodeOffsetCursor` em
+  `gamification.service.ts`), não o cursor de UUID compartilhado de
+  `shared/pagination/pagination.ts` — não há id de linha por entrada do
+  ranking para reaproveitar aquele contrato.
+- **`GET /games/{id}/achievements` (ponta solta do M3) continua bloqueada
+  mesmo com o M12 pronto — não por dependência de endpoint, mas porque
+  `achievements` (schema) não tem `game_id`.** É um catálogo global de
+  conquistas do jogador, não por jogo; o design pede "conquistas
+  configuradas do jogo", que exigiria uma tabela de associação
+  jogo↔conquista inexistente hoje. Fora do escopo do M12 — registrado aqui
+  para não ficar como surpresa depois.
+- **M3 (ponta solta) — `GET /games/{id}/tests` define `tab=active` sem
+  handoff que diga o que "ativo" significa.** `openapi.design.yaml` só cita
+  o nome do parâmetro; `BACKEND-SPEC.md` §M3 também não define. Leitura
+  adotada: "ativo" é o que ainda está sendo preparado ou rodando —
+  `draft | published | paused` — excluindo os dois estados terminais
+  (`finished`/`expired`); `tab=all` remove o filtro. Um `status=` explícito
+  vence o `tab` (narrows further). Mesmo tipo de interpretação já feita para
+  `GameSpecs`/`estimatedReach`, onde o handoff não fixa a regra exata —
+  revisar se/quando o design chegar. Implementado em
+  `TestsController.listByGame` (mora no `TestsController`, não no
+  `GamesController`, pelo mesmo motivo do `POST /games/{gameId}/tests`: o
+  recurso é `tests`, `games` só empresta o prefixo da rota) — `studio+`
+  (`STUDIO_ROLES`), como todo o resto do `TestsController` e como a tabela
+  do `BACKEND-SPEC.md` já listava.

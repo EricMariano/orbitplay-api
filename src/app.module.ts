@@ -18,6 +18,7 @@ import { AuditModule } from './modules/audit/audit.module';
 import { BuildsModule } from './modules/builds/builds.module';
 import { CommunityModule } from './modules/community/community.module';
 import { GamesModule } from './modules/games/games.module';
+import { GamificationModule } from './modules/gamification/gamification.module';
 import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -85,6 +86,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     TestsModule,
     BuildsModule,
     CommunityModule,
+    GamificationModule,
   ],
   providers: [
     // Order matters: authenticate, THEN assert an org scope, THEN authorize.

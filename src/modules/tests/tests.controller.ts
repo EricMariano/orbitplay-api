@@ -10,6 +10,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -30,6 +31,8 @@ import {
   SetStatusDto,
   TestDto,
   TestFormDto,
+  TestListDto,
+  TestListQueryDto,
 } from './dto/test.dto';
 import { TestsService } from './tests.service';
 
@@ -62,6 +65,17 @@ export class TestsController {
   @ZodResponse({ type: TestDto })
   get(@CurrentUser('organizationId') organizationId: string, @Param('id') id: string) {
     return this.tests.get(organizationId, id);
+  }
+
+  @Get('games/:gameId/tests')
+  @Roles(...STUDIO_ROLES)
+  @ZodResponse({ type: TestListDto })
+  listByGame(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('gameId') gameId: string,
+    @Query() query: TestListQueryDto,
+  ) {
+    return this.tests.listByGame(organizationId, gameId, query);
   }
 
   @Patch('tests/:id/model')

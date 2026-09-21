@@ -146,6 +146,48 @@ export async function seedDatabase(databaseUrl: string, quiet = false): Promise<
       ])
       .onConflictDoNothing();
 
+    // 6) Gamification catalog (M12) — placeholder copy, same status as the
+    //    M4 test-models catalog: no product/Figma handoff for this content
+    //    yet, but the shape (key/name/description/rewardXp) is real.
+    await db
+      .insert(schema.achievements)
+      .values([
+        {
+          key: 'first_test_completed',
+          name: 'Primeira Missão',
+          description: 'Concluiu seu primeiro teste com sessão válida.',
+        },
+        {
+          key: 'five_tests_completed',
+          name: 'Testador Veterano',
+          description: 'Concluiu 5 testes com sessão válida.',
+        },
+        {
+          key: 'first_review',
+          name: 'Crítico de Plantão',
+          description: 'Avaliou um jogo pela primeira vez.',
+        },
+      ])
+      .onConflictDoNothing();
+
+    await db
+      .insert(schema.missions)
+      .values([
+        {
+          key: 'complete_one_test_this_week',
+          name: 'Missão da Semana',
+          description: 'Conclua 1 teste com sessão válida esta semana.',
+          rewardXp: 50,
+        },
+        {
+          key: 'leave_one_review',
+          name: 'Dê sua Opinião',
+          description: 'Avalie um jogo que você testou.',
+          rewardXp: 20,
+        },
+      ])
+      .onConflictDoNothing();
+
     log('✓ seed complete');
     log('  Organization: OrbitPlay Studio Demo');
     log(`  Password for ALL seed users: ${SEED_PASSWORD}`);

@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq, gte, inArray, isNull, lte } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { memberships } from '../../infra/database/schema/memberships';
 import { roles } from '../../infra/database/schema/roles';
@@ -18,8 +18,12 @@ import { newId } from '../../infra/database/schema/_helpers';
 import { users } from '../../infra/database/schema/users';
 import { OrgScopedRepository } from '../../infra/database/base.repository';
 import { AppException } from '../../shared/errors/app.exception';
+import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
-import type { FormQuestionInput } from './dto/test.dto';
+import type { FormQuestionInput, TestListQuery } from './dto/test.dto';
+
+/** `tab=active` (default, Tela 05) — see the note on `testListQuerySchema`. */
+const ACTIVE_TEST_STATUSES = ['draft', 'published', 'paused'] as const;
 
 export interface FormQuestionWithOptions extends TestFormQuestionRow {
   options: TestFormOptionRow[];
@@ -84,6 +88,31 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
 
       return fn(test, updateTest);
     });
+  }
+
+  /** Tela 05 — cursor page of a game's tests, `tab`/`status` filters. */
+  async listByGameInOrg(
+    organizationId: string,
+    gameId: string,
+    query: TestListQuery,
+  ): Promise<Page<TestRow>> {
+    const cursorId = decodeCursor(query.cursor);
+    const filters = [this.orgScope(organizationId), eq(tests.gameId, gameId)];
+    if (cursorId) filters.push(lt(tests.id, cursorId));
+    if (query.status) {
+      filters.push(eq(tests.status, query.status));
+    } else if (query.tab === 'active') {
+      filters.push(inArray(tests.status, ACTIVE_TEST_STATUSES));
+    }
+
+    const rows = await this.db
+      .select()
+      .from(tests)
+      .where(and(...filters))
+      .orderBy(desc(tests.id))
+      .limit(query.limit + 1);
+
+    return buildPage(rows, query.limit);
   }
 
   async findFormQuestions(testId: string): Promise<FormQuestionWithOptions[]> {

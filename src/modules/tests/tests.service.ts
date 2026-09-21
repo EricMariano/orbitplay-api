@@ -27,6 +27,7 @@ import {
   type SetModelRequest,
   type SetStatusRequest,
   type TestFormView,
+  type TestListQuery,
   type TestStatusValue,
   type TestView,
   type BuildUploadUrlResponse,
@@ -93,6 +94,20 @@ export class TestsService {
   async get(organizationId: string, id: string): Promise<TestView> {
     const row = await this.repo.getByIdInOrgOrThrow(organizationId, id);
     return this.toView(row);
+  }
+
+  /** GET /games/:id/tests (Tela 05, M3's loose end — see DECISIONS.md §3). */
+  async listByGame(
+    organizationId: string,
+    gameId: string,
+    query: TestListQuery,
+  ): Promise<{ data: TestView[]; nextCursor: string | null }> {
+    const gameExists = await this.games.existsInOrg(organizationId, gameId);
+    if (!gameExists) throw AppException.notFound('Jogo não encontrado');
+
+    const page = await this.repo.listByGameInOrg(organizationId, gameId, query);
+    const data = await Promise.all(page.data.map((row) => this.toView(row)));
+    return { data, nextCursor: page.nextCursor };
   }
 
   async setModel(

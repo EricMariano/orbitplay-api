@@ -100,6 +100,7 @@ describe('TestsService', () => {
     findAudience: ReturnType<typeof vi.fn>;
     upsertAudience: ReturnType<typeof vi.fn>;
     countEligiblePlayers: ReturnType<typeof vi.fn>;
+    listByGameInOrg: ReturnType<typeof vi.fn>;
   };
   let buildsRepo: {
     findLatestBuild: ReturnType<typeof vi.fn>;
@@ -131,6 +132,7 @@ describe('TestsService', () => {
       findAudience: vi.fn().mockResolvedValue(null),
       upsertAudience: vi.fn(),
       countEligiblePlayers: vi.fn().mockResolvedValue(0),
+      listByGameInOrg: vi.fn(),
     };
     buildsRepo = {
       findLatestBuild: vi.fn().mockResolvedValue(null),
@@ -208,6 +210,30 @@ describe('TestsService', () => {
       );
       const drafts = drainAuditDrafts(req);
       expect(drafts[0]).toMatchObject({ action: 'test.created', entity: 'tests' });
+    });
+  });
+
+  describe('listByGame', () => {
+    it('404s when the game does not exist in the org', async () => {
+      games.existsInOrg.mockResolvedValue(false);
+      await expect(
+        service.listByGame(ORG, GAME_ID, { tab: 'active', limit: 20 } as never),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(repo.listByGameInOrg).not.toHaveBeenCalled();
+    });
+
+    it('hydrates each row into a full TestView and forwards the page cursor', async () => {
+      repo.listByGameInOrg.mockResolvedValue({
+        data: [makeTestRow(), makeTestRow({ id: 'other-id', status: 'published' })],
+        nextCursor: 'cursor-1',
+      });
+
+      const result = await service.listByGame(ORG, GAME_ID, { tab: 'active', limit: 20 } as never);
+
+      expect(repo.listByGameInOrg).toHaveBeenCalledWith(ORG, GAME_ID, { tab: 'active', limit: 20 });
+      expect(result.nextCursor).toBe('cursor-1');
+      expect(result.data).toHaveLength(2);
+      expect(result.data.map((t) => t.id)).toEqual([TEST_ID, 'other-id']);
     });
   });
 
