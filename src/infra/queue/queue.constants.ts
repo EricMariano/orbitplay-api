@@ -13,6 +13,8 @@ export const JobName = {
   BUILD_VALIDATE: 'build.validate',
   /** Periodic sweep that re-enqueues builds/recordings stuck in `processing` (OPS-01). */
   RECONCILE_STUCK_JOBS: 'ops.reconcile-stuck-jobs',
+  /** Validates a finished session and, if valid, credits XP (Tela 19 RN-03). */
+  SESSION_VALIDATE: 'session.validate',
 } as const;
 
 export type JobNameValue = (typeof JobName)[keyof typeof JobName];
@@ -37,4 +39,18 @@ export function mediaTranscodeJobId(recordingId: string): string {
 
 export function mediaExtractAudioJobId(recordingId: string): string {
   return `${JobName.MEDIA_EXTRACT_AUDIO}:${recordingId}`;
+}
+
+/**
+ * No `:` separator on purpose (unlike the other `*JobId` helpers above,
+ * which do use one): BullMQ's `Job.create` rejects a custom `jobId` that
+ * contains `:` unless splitting on it yields exactly 3 parts (reserved for
+ * its own repeatable-job id format) — `session.validate:<uuid>` only splits
+ * into 2 and throws `Custom Id cannot contain :`. The existing `:`-based
+ * helpers happen to never surface this because their one call site
+ * (`TestsService.confirmBuild`) wraps the enqueue in a try/catch that
+ * silently marks the build `failed` on ANY error, this one included.
+ */
+export function sessionValidateJobId(sessionId: string): string {
+  return `session-validate-${sessionId}`;
 }

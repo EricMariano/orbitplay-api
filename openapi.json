@@ -2010,6 +2010,437 @@
         ]
       }
     },
+    "/player/tests/{testId}/participations": {
+      "post": {
+        "operationId": "ParticipationsController_join",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipationDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/participations/{id}": {
+      "get": {
+        "operationId": "ParticipationsController_get",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipationDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/participations/{id}/tutorial": {
+      "get": {
+        "operationId": "ParticipationsController_tutorial",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TutorialDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/participations/{id}/consents": {
+      "post": {
+        "operationId": "ParticipationsController_consents",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsentRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConsentRecordDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/participations/{id}/sessions": {
+      "post": {
+        "operationId": "ParticipationsController_startSession",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartSessionRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionStartedDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/participations/{id}/result": {
+      "get": {
+        "operationId": "ParticipationsController_result",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ParticipationResultDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/sessions/{id}/devices": {
+      "patch": {
+        "operationId": "SessionsController_devices",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceEventRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/sessions/{id}/heartbeat": {
+      "post": {
+        "operationId": "SessionsController_heartbeat",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HeartbeatRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/sessions/{id}/finish": {
+      "post": {
+        "operationId": "SessionsController_finish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishSessionRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/sessions/{id}/summary": {
+      "get": {
+        "operationId": "SessionsController_summary",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSummaryDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
+    "/sessions/{id}/form-response": {
+      "post": {
+        "operationId": "SessionsController_formResponse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FormResponseRequestDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FormResponseDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "participations"
+        ]
+      }
+    },
     "/games/{gameId}/community/posts": {
       "get": {
         "operationId": "CommunityController_listPosts",
@@ -5638,6 +6069,1029 @@
           "checksum",
           "sizeBytes",
           "supportsRange"
+        ],
+        "additionalProperties": false
+      },
+      "ParticipationDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "testId": {
+            "type": "string"
+          },
+          "gameId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "reserved",
+              "tutorial",
+              "downloading",
+              "ready",
+              "playing",
+              "form_pending",
+              "in_review",
+              "completed",
+              "rejected",
+              "abandoned"
+            ]
+          },
+          "currentSessionId": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "resumePoint": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "consentsGranted": {
+            "type": "boolean"
+          },
+          "build": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "testId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "awaiting_upload",
+                  "uploading",
+                  "processing",
+                  "validated",
+                  "failed"
+                ]
+              },
+              "platform": {
+                "type": "string",
+                "enum": [
+                  "windows",
+                  "macos",
+                  "linux",
+                  "android",
+                  "ios",
+                  "web",
+                  null
+                ],
+                "nullable": true
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "checksum": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "validationSteps": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string",
+                      "enum": [
+                        "checksum",
+                        "malware_scan",
+                        "metadata",
+                        "plugin_manifest"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "processing",
+                        "ready",
+                        "failed",
+                        "unavailable"
+                      ]
+                    },
+                    "message": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "status",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "failureReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "testId",
+              "status",
+              "platform",
+              "version",
+              "sizeBytes",
+              "checksum",
+              "validationSteps",
+              "failureReason",
+              "createdAt"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          },
+          "startedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "completedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "testId",
+          "gameId",
+          "status",
+          "currentSessionId",
+          "resumePoint",
+          "consentsGranted",
+          "build",
+          "startedAt",
+          "completedAt"
+        ],
+        "additionalProperties": false
+      },
+      "TutorialDto_Output": {
+        "type": "object",
+        "properties": {
+          "modelKey": {
+            "type": "string",
+            "enum": [
+              "free_exploration_telemetry",
+              "free_exploration",
+              "ab_test",
+              "ab_test_images"
+            ]
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string"
+                },
+                "mediaUrl": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "title",
+                "body",
+                "mediaUrl"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "requiredConsents": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "screen_recording",
+                "audio",
+                "microphone",
+                "webcam"
+              ]
+            }
+          }
+        },
+        "required": [
+          "modelKey",
+          "steps",
+          "requiredConsents"
+        ],
+        "additionalProperties": false
+      },
+      "ConsentRequestDto": {
+        "type": "object",
+        "properties": {
+          "consents": {
+            "minItems": 1,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "screen_recording",
+                    "audio",
+                    "microphone",
+                    "webcam"
+                  ]
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "granted"
+              ]
+            }
+          }
+        },
+        "required": [
+          "consents"
+        ]
+      },
+      "ConsentRecordDto_Output": {
+        "type": "object",
+        "properties": {
+          "participationId": {
+            "type": "string"
+          },
+          "consents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "screen_recording",
+                    "audio",
+                    "microphone",
+                    "webcam"
+                  ]
+                },
+                "granted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "kind",
+                "granted"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "recordedAt": {
+            "type": "string"
+          },
+          "allRequiredGranted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "participationId",
+          "consents",
+          "recordedAt",
+          "allRequiredGranted"
+        ],
+        "additionalProperties": false
+      },
+      "StartSessionRequestDto": {
+        "type": "object",
+        "properties": {
+          "buildVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "windows",
+              "macos",
+              "linux",
+              "android",
+              "ios",
+              "web"
+            ]
+          },
+          "deviceInfo": {
+            "type": "object",
+            "additionalProperties": {}
+          }
+        },
+        "required": [
+          "buildVersion",
+          "platform"
+        ]
+      },
+      "SessionStartedDto_Output": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "maxDurationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "heartbeatIntervalMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "recordingRequired": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sessionId",
+          "startedAt",
+          "maxDurationMs",
+          "heartbeatIntervalMs",
+          "recordingRequired"
+        ],
+        "additionalProperties": false
+      },
+      "ParticipationResultDto_Output": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "in_review",
+              "completed",
+              "rejected"
+            ]
+          },
+          "xpEarned": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "rating": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "rewardCents": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "rewardStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "paid"
+            ]
+          },
+          "invalidReason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "status",
+          "xpEarned",
+          "rating",
+          "rewardCents",
+          "rewardStatus",
+          "invalidReason"
+        ],
+        "additionalProperties": false
+      },
+      "DeviceEventRequestDto": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "microphone",
+              "webcam"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "tMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "kind",
+          "enabled",
+          "tMs"
+        ]
+      },
+      "HeartbeatRequestDto": {
+        "type": "object",
+        "properties": {
+          "tMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "connectionQuality": {
+            "type": "string",
+            "enum": [
+              "good",
+              "degraded",
+              "poor"
+            ]
+          }
+        },
+        "required": [
+          "tMs"
+        ]
+      },
+      "FinishSessionRequestDto": {
+        "type": "object",
+        "properties": {
+          "tMs": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "confirmed": {
+            "type": "boolean",
+            "enum": [
+              true
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "completed",
+              "gave_up",
+              "technical_failure"
+            ]
+          }
+        },
+        "required": [
+          "tMs",
+          "confirmed"
+        ]
+      },
+      "SessionDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "participationId": {
+            "type": "string"
+          },
+          "testId": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "finishing",
+              "in_review",
+              "valid",
+              "invalid",
+              "abandoned"
+            ]
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "durationMs": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "nullable": true
+          },
+          "invalidReason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "participationId",
+          "testId",
+          "status",
+          "startedAt",
+          "endedAt",
+          "durationMs",
+          "invalidReason"
+        ],
+        "additionalProperties": false
+      },
+      "SessionSummaryDto_Output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "participationId": {
+                "type": "string"
+              },
+              "testId": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "active",
+                  "finishing",
+                  "in_review",
+                  "valid",
+                  "invalid",
+                  "abandoned"
+                ]
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "invalidReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "participationId",
+              "testId",
+              "status",
+              "startedAt",
+              "endedAt",
+              "durationMs",
+              "invalidReason"
+            ],
+            "additionalProperties": false
+          },
+          "test": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "gameId": {
+                "type": "string"
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "testModelKey": {
+                "type": "string",
+                "enum": [
+                  "free_exploration_telemetry",
+                  "free_exploration",
+                  "ab_test",
+                  "ab_test_images"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "published",
+                  "paused",
+                  "finished",
+                  "expired"
+                ]
+              },
+              "rewardCents": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "gameId",
+              "title",
+              "testModelKey",
+              "status",
+              "rewardCents",
+              "expiresAt"
+            ],
+            "additionalProperties": false
+          },
+          "game": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "organizationId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              },
+              "description": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "genre": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "platform": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "active",
+                  "archived"
+                ]
+              },
+              "coverUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "bannerUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "metrics": {
+                "type": "object",
+                "properties": {
+                  "testsTotal": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "testsActive": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "sessionsValid": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "playersTotal": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "averageRating": {
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "testsTotal",
+                  "testsActive",
+                  "sessionsValid",
+                  "playersTotal",
+                  "averageRating"
+                ],
+                "additionalProperties": false
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "organizationId",
+              "title",
+              "slug",
+              "description",
+              "genre",
+              "platform",
+              "status",
+              "coverUrl",
+              "bannerUrl",
+              "metrics",
+              "createdAt",
+              "updatedAt"
+            ],
+            "additionalProperties": false
+          },
+          "recording": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "processing",
+                  "ready",
+                  "failed",
+                  "unavailable"
+                ]
+              },
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "expiresAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "thumbnailUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "status",
+              "url",
+              "expiresAt",
+              "durationMs",
+              "thumbnailUrl"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          },
+          "form": {
+            "type": "object",
+            "properties": {
+              "testId": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "scale",
+                        "single_choice",
+                        "multiple_choice",
+                        "open_text",
+                        "boolean",
+                        "nps"
+                      ]
+                    },
+                    "prompt": {
+                      "type": "string"
+                    },
+                    "helpText": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "position": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "options": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "position": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "label",
+                          "position"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "scaleMin": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "nullable": true
+                    },
+                    "scaleMax": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991,
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "type",
+                    "prompt",
+                    "helpText",
+                    "required",
+                    "position",
+                    "options",
+                    "scaleMin",
+                    "scaleMax"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "testId",
+              "questions"
+            ],
+            "additionalProperties": false
+          },
+          "alreadySubmitted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "session",
+          "test",
+          "game",
+          "recording",
+          "form",
+          "alreadySubmitted"
+        ],
+        "additionalProperties": false
+      },
+      "FormResponseRequestDto": {
+        "type": "object",
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "questionId": {
+                  "type": "string"
+                },
+                "value": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "boolean"
+                    },
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "questionId",
+                "value"
+              ]
+            }
+          }
+        },
+        "required": [
+          "answers"
+        ]
+      },
+      "FormResponseDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "submittedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sessionId",
+          "submittedAt"
         ],
         "additionalProperties": false
       },

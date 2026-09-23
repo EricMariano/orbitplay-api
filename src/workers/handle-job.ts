@@ -4,6 +4,7 @@ import { processBuildValidate } from './build.processor';
 import type { WorkerDeps } from './deps';
 import { processMediaExtractAudio, processMediaTranscode } from './media.processor';
 import { processReconcileStuckJobs } from './reconcile.processor';
+import { processSessionValidate } from './session.processor';
 
 export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
   switch (job.name) {
@@ -21,6 +22,9 @@ export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
     case JobName.RECONCILE_STUCK_JOBS:
       await processReconcileStuckJobs(deps);
       return { reconciledAt: new Date().toISOString() };
+    case JobName.SESSION_VALIDATE:
+      await processSessionValidate(deps, job.data.sessionId as string);
+      return { sessionId: job.data.sessionId };
     default:
       throw new Error(`Unknown job: ${job.name}`);
   }

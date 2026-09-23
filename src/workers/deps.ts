@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { Queue } from 'bullmq';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import { Redis } from 'ioredis';
 import postgres from 'postgres';
 import { buildConfig } from '../config/configuration';
 import { validateEnv } from '../config/env.schema';
@@ -17,6 +18,8 @@ export interface WorkerDeps {
   sql: postgres.Sql;
   /** Lets a processor re-enqueue work (the reconciliation sweep, OPS-01). */
   queue: Queue;
+  /** Plain ioredis client — same store the API's heartbeat keys live in (see `heartbeat.store.ts`). */
+  redis: Redis;
 }
 
 export async function createWorkerDeps(): Promise<WorkerDeps> {
@@ -27,10 +30,12 @@ export async function createWorkerDeps(): Promise<WorkerDeps> {
     new ConfigService({ storage: config.storage }) as ConfigService,
   );
   const queue = new Queue(MAIN_QUEUE, { connection: redisConnectionOptions(config.redis.url) });
-  return { db, storage, sql, queue };
+  const redis = new Redis(config.redis.url, { maxRetriesPerRequest: null });
+  return { db, storage, sql, queue, redis };
 }
 
 export async function closeWorkerDeps(deps: WorkerDeps): Promise<void> {
   await deps.queue.close();
+  await deps.redis.quit();
   await deps.sql.end({ timeout: 5 });
 }
