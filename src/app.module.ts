@@ -25,6 +25,7 @@ import { MediaModule } from './modules/media/media.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
 import { ParticipationsModule } from './modules/participations/participations.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { TestModelsModule } from './modules/test-models/test-models.module';
 import { TestsModule } from './modules/tests/tests.module';
 import { HttpExceptionFilter } from './shared/filters/http-exception.filter';
@@ -91,6 +92,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     CommunityModule,
     ChatModule,
     GamificationModule,
+    ReportsModule,
   ],
   providers: [
     // Order matters: authenticate, THEN assert an org scope, THEN authorize.
