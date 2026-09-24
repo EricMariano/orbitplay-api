@@ -1,15 +1,20 @@
-import { and, eq, lt } from 'drizzle-orm';
+import { and, eq, inArray, lt } from 'drizzle-orm';
 import {
   buildValidateJobId,
   JobName,
   mediaExtractAudioJobId,
   mediaTranscodeJobId,
+  sessionValidateJobId,
 } from '../infra/queue/queue.constants';
 import { ensureJobEnqueued } from '../infra/queue/ensure-enqueued';
 import { builds } from '../infra/database/schema/tests';
-import { sessionRecordings } from '../infra/database/schema/participations';
+import { sessionRecordings, sessions } from '../infra/database/schema/participations';
+import { heartbeatKey } from '../modules/participations/heartbeat.store';
 import { createdAtFromUuidV7 } from '../shared/util/uuid';
 import type { WorkerDeps } from './deps';
+
+/** Open-ended session statuses (mirrors `ParticipationsRepository`'s own list). */
+const OPEN_SESSION_STATUSES = ['starting', 'recording', 'paused'] as const;
 
 /**
  * A build/recording insert and its job enqueue are two separate operations
@@ -55,6 +60,38 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
     });
     await ensureJobEnqueued(deps.queue, JobName.MEDIA_EXTRACT_AUDIO, mediaExtractAudioJobId(id), {
       recordingId: id,
+    });
+  }
+
+  await reconcileTimedOutSessions(deps);
+}
+
+/**
+ * Design's RN: "sem heartbeat dentro da janela configurada, a sessão é
+ * encerrada por timeout e entra na validação como incompleta." The heartbeat
+ * itself lives in Redis (`heartbeat.store.ts`) with a TTL — its key simply
+ * expiring IS the timeout signal, so this sweep only has to notice a key is
+ * gone for a session still open in the DB, mark it `invalidated`, and let
+ * `session.validate` do what it already does for any other invalid session
+ * (no separate "incomplete" code path to maintain).
+ */
+async function reconcileTimedOutSessions(deps: WorkerDeps): Promise<void> {
+  const open = await deps.db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(inArray(sessions.status, OPEN_SESSION_STATUSES));
+
+  for (const { id } of open) {
+    const alive = await deps.redis.exists(heartbeatKey(id));
+    if (alive) continue;
+
+    await deps.db
+      .update(sessions)
+      .set({ status: 'invalidated', endedAt: new Date() })
+      .where(and(eq(sessions.id, id), inArray(sessions.status, OPEN_SESSION_STATUSES)));
+
+    await ensureJobEnqueued(deps.queue, JobName.SESSION_VALIDATE, sessionValidateJobId(id), {
+      sessionId: id,
     });
   }
 }

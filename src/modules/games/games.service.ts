@@ -61,6 +61,19 @@ export class GamesService {
     return row !== null;
   }
 
+  /**
+   * Cross-org read of the full `GameView`, for player-facing embeds (e.g.
+   * `participations`' session summary) that have no organization scope of
+   * their own — same reasoning as `existsAnyOrg`, but returning the whole
+   * view instead of the minimal existence tuple.
+   */
+  async getAnyOrg(id: string): Promise<GameView> {
+    const row = await this.repo.findByIdAnyOrg(id);
+    if (!row) throw AppException.notFound();
+    const [view] = await this.toViews(row.organizationId, [row]);
+    return view;
+  }
+
   async list(organizationId: string, query: GameListQuery): Promise<Page<GameView>> {
     const page = await this.repo.listFilteredInOrg(organizationId, query);
     const views = await this.toViews(organizationId, page.data);
