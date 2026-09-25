@@ -7,6 +7,7 @@ import {
   sessionValidations,
 } from '../infra/database/schema/participations';
 import { xpEvents } from '../infra/database/schema/player';
+import { invalidateDashboardKpis } from '../infra/redis/dashboard-kpi-cache';
 import type { WorkerDeps } from './deps';
 
 /**
@@ -84,6 +85,9 @@ export async function processSessionValidate(deps: WorkerDeps, sessionId: string
     .update(participations)
     .set({ status: valid ? 'completed' : 'rejected' })
     .where(eq(participations.id, session.participationId));
+
+  // M11: the studio dashboard's session/completion KPIs just changed.
+  await invalidateDashboardKpis(deps.redis, session.organizationId);
 
   if (!valid) return;
 

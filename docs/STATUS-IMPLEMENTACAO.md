@@ -19,12 +19,12 @@ O **restante do núcleo do domínio** (participações, sessões, relatórios, f
 >
 > Na revisão anterior (2026-09-18), o M12 (gamificação) tinha fechado: `GET /player/progress`, `GET /player/achievements` (paginado), `GET /player/missions` e `GET /rankings` (`scope`/`period`/`gameId`) — sem trabalho de schema novo, as 6 tabelas (`xp_events`, `achievements`, `player_achievements`, `missions`, `player_missions`, `ranking_snapshots`) já existiam desde a `0002`. A fórmula de XP/nível é placeholder (pendência #4 do `BACKEND-SPEC.md` segue aberta) e `GET /rankings` só responde página vazia — não há job que popule `ranking_snapshots` ainda (pendência #5). `seed.ts` ganhou um catálogo placeholder de 3 achievements e 2 missions (mesmo status de copy do M4) só para as listas terem conteúdo.
 
-| Camada            | Situação                                                                                  |
-| ----------------- | ----------------------------------------------------------------------------------------- |
-| Endpoints HTTP    | **61 operações implementadas** de **92 desenhadas** (≈ 66%) — 46 de 84 caminhos           |
-| Tabelas no banco  | **41 migradas** de **41 desenhadas** (+ `telemetry_events` particionada, migração manual) |
-| Enums             | **16 criados** de **16 desenhados**                                                       |
-| Módulos completos | M1, M2, M4, M5, M6, M9, M12, M13, M15 prontos; M3 quase completo (só falta `GET /games/{id}/achievements`, fora de alcance sem schema novo); M7–M8, M10–M11, M14 pendentes |
+| Camada            | Situação                                                                                                                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoints HTTP    | **61 operações implementadas** de **92 desenhadas** (≈ 66%) — 46 de 84 caminhos                                                                                                                                               |
+| Tabelas no banco  | **41 migradas** de **41 desenhadas** (+ `telemetry_events` particionada, migração manual)                                                                                                                                     |
+| Enums             | **16 criados** de **16 desenhados**                                                                                                                                                                                           |
+| Módulos completos | M1, M2, M4, M5, M6, M9, M12, M13, M15 prontos; M3 quase completo (só falta `GET /games/{id}/achievements`, fora de alcance sem schema novo); M11 pronto (benchmark `unavailable` pela pendência 7); M7–M8, M10, M14 pendentes |
 
 ---
 
@@ -64,69 +64,69 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 ### M3 — Games (`src/modules/games`)
 
-| Endpoint                              | Status | Observação                                                    |
-| ------------------------------------- | ------ | ------------------------------------------------------------- |
-| `POST /games`                         | ✅     | tenancy forçada (org do token)                                |
-| `GET /games/{id}`                     | ✅     |                                                               |
-| `PATCH /games/{id}`                   | ✅     |                                                               |
-| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                               |
-| `GET /games`                          | ✅     | filtros `q`/`status`, paginação e `GameMetrics`               |
-| `POST /games/{id}/assets/upload-url`  | ✅     | URL assinada (PNG/JPEG/WebP, até 5 MiB)                       |
-| `POST /games/{id}/assets`             | ✅     | confirma objeto no storage antes de gravar                    |
-| `DELETE /games/{id}/assets/{assetId}` | ✅     | exclusão lógica + remove o objeto                             |
-| `GET /games/{id}/summary`             | ✅     | banner, disponibilidade, `canEdit`, métricas                  |
-| `GET /games/{id}/tests`               | ✅     | cursor + `tab=active\|all` (`draft/published/paused` vs. tudo) + `status=` explícito; `studio+`, org-scoped |
+| Endpoint                              | Status | Observação                                                                                                                 |
+| ------------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `POST /games`                         | ✅     | tenancy forçada (org do token)                                                                                             |
+| `GET /games/{id}`                     | ✅     |                                                                                                                            |
+| `PATCH /games/{id}`                   | ✅     |                                                                                                                            |
+| `DELETE /games/{id}`                  | ✅     | exclusão lógica                                                                                                            |
+| `GET /games`                          | ✅     | filtros `q`/`status`, paginação e `GameMetrics`                                                                            |
+| `POST /games/{id}/assets/upload-url`  | ✅     | URL assinada (PNG/JPEG/WebP, até 5 MiB)                                                                                    |
+| `POST /games/{id}/assets`             | ✅     | confirma objeto no storage antes de gravar                                                                                 |
+| `DELETE /games/{id}/assets/{assetId}` | ✅     | exclusão lógica + remove o objeto                                                                                          |
+| `GET /games/{id}/summary`             | ✅     | banner, disponibilidade, `canEdit`, métricas                                                                               |
+| `GET /games/{id}/tests`               | ✅     | cursor + `tab=active\|all` (`draft/published/paused` vs. tudo) + `status=` explícito; `studio+`, org-scoped                |
 | `GET /games/{id}/achievements`        | ⬜     | bloqueado — `achievements` não tem `game_id` (catálogo global do jogador), não é mais o M12 que falta; ver DECISIONS.md §3 |
-| `GET /games/{id}/specs`               | ✅     | stub vazio — campos da Tela 04 ainda indefinidos (§9 #1)      |
+| `GET /games/{id}/specs`               | ✅     | stub vazio — campos da Tela 04 ainda indefinidos (§9 #1)                                                                   |
 
 ### M4 — Catálogo de modelos de teste (`src/modules/test-models`)
 
-| Endpoint                | Status | Observação                                                                   |
-| ------------------------ | ------ | ----------------------------------------------------------------------------- |
-| `GET /test-models`       | ✅     | catálogo estático (4 modelos), `studio+`                                     |
-| `GET /test-models/{key}` | ✅     | `key` inválida → 404; `free_exploration_telemetry` vem `available:false`      |
+| Endpoint                 | Status | Observação                                                               |
+| ------------------------ | ------ | ------------------------------------------------------------------------ |
+| `GET /test-models`       | ✅     | catálogo estático (4 modelos), `studio+`                                 |
+| `GET /test-models/{key}` | ✅     | `key` inválida → 404; `free_exploration_telemetry` vem `available:false` |
 
 > **Nota:** catálogo é uma constante no código (`test-models.catalog.ts`), não uma tabela — casa com "requisitos técnicos vêm da configuração do backend" (RN-03). `name`/`description`/`deliverables`/`technicalRequirements` são copy **placeholder** até o handoff de produto/Figma; ver `DECISIONS.md` §3.
 
 ### M5 — Wizard de criação de teste (`src/modules/tests`)
 
-| Endpoint                          | Status | Observação                                                                      |
-| ---------------------------------- | ------ | -------------------------------------------------------------------------------- |
-| `POST /games/{gameId}/tests`       | ✅     | nasce `draft`, já com `modelKey` (Tela 06); currentStep parte de `form`          |
-| `GET /tests/{id}`                  | ✅     | `currentStep` (1-5) e `pendingValidations` decididos no backend                  |
-| `PATCH /tests/{id}/model`          | ✅     | modelo indisponível → 422; só em `draft`                                        |
-| `PUT /tests/{id}/form`             | ✅     | substitui o conjunto inteiro em 1 transação; `position` é autoridade             |
-| `GET /tests/{id}/form/preview`     | ✅     |                                                                                   |
-| `POST /tests/{id}/build/upload-url`| ✅     | URL assinada única (sem multipart); até 5 GiB                                    |
-| `POST /tests/{id}/build`           | ✅     | confirma upload, enfileira `build.validate`, devolve `202 processing`            |
-| `GET /tests/{id}/build`            | ✅     | `validationSteps[]`; `failureReason` quando falha                                |
-| `DELETE /tests/{id}/build`         | ✅     | teste publicado → 409; senão remove build + objeto do storage                    |
-| `PATCH /tests/{id}/audience`       | ✅     | `estimatedReach` calculado de verdade (jogadores elegíveis por idade)            |
-| `POST /tests/{id}/publish`         | ✅     | `Idempotency-Key` obrigatório (422 se ausente); `422` com `pendingValidations` se incompleto |
-| `PATCH /tests/{id}/status`         | ✅     | transições `published⇄paused`, `→finished`; inválida → 409                       |
+| Endpoint                            | Status | Observação                                                                                   |
+| ----------------------------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `POST /games/{gameId}/tests`        | ✅     | nasce `draft`, já com `modelKey` (Tela 06); currentStep parte de `form`                      |
+| `GET /tests/{id}`                   | ✅     | `currentStep` (1-5) e `pendingValidations` decididos no backend                              |
+| `PATCH /tests/{id}/model`           | ✅     | modelo indisponível → 422; só em `draft`                                                     |
+| `PUT /tests/{id}/form`              | ✅     | substitui o conjunto inteiro em 1 transação; `position` é autoridade                         |
+| `GET /tests/{id}/form/preview`      | ✅     |                                                                                              |
+| `POST /tests/{id}/build/upload-url` | ✅     | URL assinada única (sem multipart); até 5 GiB                                                |
+| `POST /tests/{id}/build`            | ✅     | confirma upload, enfileira `build.validate`, devolve `202 processing`                        |
+| `GET /tests/{id}/build`             | ✅     | `validationSteps[]`; `failureReason` quando falha                                            |
+| `DELETE /tests/{id}/build`          | ✅     | teste publicado → 409; senão remove build + objeto do storage                                |
+| `PATCH /tests/{id}/audience`        | ✅     | `estimatedReach` calculado de verdade (jogadores elegíveis por idade)                        |
+| `POST /tests/{id}/publish`          | ✅     | `Idempotency-Key` obrigatório (422 se ausente); `422` com `pendingValidations` se incompleto |
+| `PATCH /tests/{id}/status`          | ✅     | transições `published⇄paused`, `→finished`; inválida → 409                                   |
 
 > **Notas:** enums (`TestStatus`, `QuestionType`, `Build.status`, `ValidationStep`) seguem o schema Drizzle migrado, não `openapi.design.yaml` (que ficou desatualizado nesses nomes) — ver `DECISIONS.md` §3. O worker `build.validate` (`src/workers/build.processor.ts`) roda 3 etapas reais (`checksum` — SHA-256 calculado no servidor; `metadata` — assinatura binária do formato; `malware_scan` — sem scanner integrado nesta fase, falha fechado de propósito); `plugin_manifest` fica reservado, sem etapa instanciada (ORB-M6-02). Uma build por teste é regra de aplicação **e** invariante de banco (`builds_test_id_unique`, DAT-02) — troca automática se a anterior falhou, senão exige `DELETE` explícito.
 
 ### M6 — Builds (`src/modules/builds`)
 
-| Endpoint                       | Status | Observação                                                                 |
-| ------------------------------ | ------ | --------------------------------------------------------------------------- |
-| `GET /builds/{id}`             | ✅     | `studio+`, org-scoped via `builds.organization_id`                          |
-| `GET /builds/{id}/compatibility` | ✅   | qualquer autenticado, cross-org; incompatível vem `200 compatible:false`, nunca erro |
-| `GET /builds/{id}/download-url` | ✅    | `player`; exige participação ativa (403) e build `validated` (409); `Range` suportado nativamente pela URL assinada |
+| Endpoint                         | Status | Observação                                                                                                          |
+| -------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------- |
+| `GET /builds/{id}`               | ✅     | `studio+`, org-scoped via `builds.organization_id`                                                                  |
+| `GET /builds/{id}/compatibility` | ✅     | qualquer autenticado, cross-org; incompatível vem `200 compatible:false`, nunca erro                                |
+| `GET /builds/{id}/download-url`  | ✅     | `player`; exige participação ativa (403) e build `validated` (409); `Range` suportado nativamente pela URL assinada |
 
 > **Notas:** a checagem de compatibilidade compara só `platform` (`builds.platform`, texto livre gravado pelo M5) contra o `platform` da query — `os`/`arch` são aceitos (contrato) mas não têm coluna correspondente para comparar. `download-url` lê `participations` direto (tabela do M7, já migrada) para a checagem de participação ativa — mesmo padrão pré-M7 do M13 (nega até o M7 popular linhas reais); o gate de compatibilidade de dispositivo dessa rota (`409` do design) fica limitado à prontidão da build (`validated`) até o M7 existir (`PATCH /sessions/{id}/devices` é quem traria o perfil de dispositivo real). Ver `DECISIONS.md` §3.
 
 ### M13 — Comunidade e avaliações do jogo (`src/modules/community`)
 
-| Endpoint                                | Status | Observação                                                                 |
-| ---------------------------------------- | ------ | --------------------------------------------------------------------------- |
-| `GET /games/{gameId}/community/posts`    | ✅     | qualquer autenticado, de qualquer org; só posts `visible`                   |
-| `POST /games/{gameId}/community/posts`   | ✅     | `player`-only; 404 se o jogo não existe                                     |
-| `POST /community/posts/{id}/report`      | ✅     | qualquer autenticado; `202` sem corpo; 404 para post inexistente            |
-| `PATCH /community/posts/{id}/moderate`   | ✅     | `studio+` **da org dona do jogo**; gera `audit_log`; outra org → 403        |
-| `GET /games/{gameId}/reviews`            | ✅     | `averageRating` agregado                                                    |
-| `POST /games/{gameId}/reviews`           | ✅     | `player`-only; exige sessão válida concluída (403) e 1x por jogador (409)   |
+| Endpoint                               | Status | Observação                                                                |
+| -------------------------------------- | ------ | ------------------------------------------------------------------------- |
+| `GET /games/{gameId}/community/posts`  | ✅     | qualquer autenticado, de qualquer org; só posts `visible`                 |
+| `POST /games/{gameId}/community/posts` | ✅     | `player`-only; 404 se o jogo não existe                                   |
+| `POST /community/posts/{id}/report`    | ✅     | qualquer autenticado; `202` sem corpo; 404 para post inexistente          |
+| `PATCH /community/posts/{id}/moderate` | ✅     | `studio+` **da org dona do jogo**; gera `audit_log`; outra org → 403      |
+| `GET /games/{gameId}/reviews`          | ✅     | `averageRating` agregado                                                  |
+| `POST /games/{gameId}/reviews`         | ✅     | `player`-only; exige sessão válida concluída (403) e 1x por jogador (409) |
 
 > **Notas:** `community_posts`/`game_reviews` são o primeiro conteúdo **não** org-scoped da API — qualquer usuário autenticado lê a comunidade/avaliações de qualquer jogo, não só do próprio; só a moderação é restrita à org dona (via `GamesService.existsAnyOrg`, novo método cross-org deliberadamente fora do `OrgScopedRepository`). `action` de moderação é `hide|restore|remove` (schema real), não `hide|restore|pin|unpin` (design desatualizado). A elegibilidade de avaliação consulta `sessions`/`session_validations`/`participations` (tabelas do M7) diretamente — nega sempre até o M7 existir, sem stub. Ver `DECISIONS.md` §3.
 
@@ -149,12 +149,12 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 ### M12 — Gamificação (`src/modules/gamification`)
 
-| Endpoint                | Status | Observação                                                                 |
-| ------------------------ | ------ | --------------------------------------------------------------------------- |
-| `GET /player/progress`   | ✅     | XP real (`xp_events`), nível placeholder (100 XP/degrau), `feedbackQuality` fixo em `0` |
-| `GET /player/achievements` | ✅   | paginado (cursor próprio, `achievements.key` não é UUID); catálogo semeado com copy placeholder |
-| `GET /player/missions`  | ✅     | missões ativas (não expiradas); `target` sempre `1`, `progress` é a fração real de `player_missions` |
-| `GET /rankings`          | ✅     | `scope`/`period`/`gameId`; lê `ranking_snapshots` — sem job que o popule ainda, responde página vazia |
+| Endpoint                   | Status | Observação                                                                                            |
+| -------------------------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| `GET /player/progress`     | ✅     | XP real (`xp_events`), nível placeholder (100 XP/degrau), `feedbackQuality` fixo em `0`               |
+| `GET /player/achievements` | ✅     | paginado (cursor próprio, `achievements.key` não é UUID); catálogo semeado com copy placeholder       |
+| `GET /player/missions`     | ✅     | missões ativas (não expiradas); `target` sempre `1`, `progress` é a fração real de `player_missions`  |
+| `GET /rankings`            | ✅     | `scope`/`period`/`gameId`; lê `ranking_snapshots` — sem job que o popule ainda, responde página vazia |
 
 > **Notas:** `hoursPlayed`/`testsCompleted` (`GET /player/progress`) e o conteúdo de `GET /rankings` dependem de dado que só o M7 (sessões) e um futuro job de ranking escrevem — hoje sempre `0`/vazio, mesmo padrão pré-M7 já usado pelo M6/M13 (leitura real das tabelas, nunca stub). `achievements`/`missions` são tabelas reais (não um catálogo em código como o M4) mas sem handoff de conteúdo — 3 achievements e 2 missions com copy **placeholder** no `seed.ts`; nenhum motor ainda escreve `player_achievements`/`player_missions` (isso é o gatilho pós-validação de sessão do M7/M10). Ver `DECISIONS.md` §3.
 
@@ -162,19 +162,19 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 Nenhum endpoint destes módulos está implementado. **As tabelas de todos eles já existem no banco** — falta só a camada HTTP. São **31 operações** em 30 caminhos. `GET /games/{id}/achievements` (M3) não entra nesta lista — não é "falta implementar", é "falta schema"; ver a nota do M3 acima e `DECISIONS.md` §3.
 
-| Módulo             | Operações faltando |
-| ------------------ | ------------------ |
-| M7 participações   | 11                 |
-| M8 player-feed     | 7                  |
-| M10 reports        | 8                  |
-| M11 dashboard      | 2                  |
-| M14 notificações   | 2                  |
-| **Total**          | **31**             |
+| Módulo           | Operações faltando |
+| ---------------- | ------------------ |
+| M7 participações | 11                 |
+| M8 player-feed   | 7                  |
+| M10 reports      | 8                  |
+| M11 dashboard    | 0 (✅ feito)       |
+| M14 notificações | 2                  |
+| **Total**        | **31**             |
 
 - **M7 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
 - **M8 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
 - **M10 reports:** `GET /tests/{id}/report`, `.../report/evolution`, `.../report/ratings`, `.../report/testers`, `GET /tests/{id}/sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/rate`, `GET /tests/{id}/report/export`
-- **M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`
+- ~~**M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`~~ ✅ — KPIs reais com cache Redis invalidado por evento; `delta` sempre `null` e benchmark sempre `unavailable` até as decisões de produto (ver `DECISIONS.md` §3)
 - **M14 notifications:** `GET /notifications`, `PATCH /notifications/{id}/read`
 
 ---
@@ -237,5 +237,5 @@ Seguindo as dependências do domínio (cada linha destrava a próxima). Como o s
 3. ~~**M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.~~ **Feito.** `download-url` já lê `participations` direto (pré-M7, mesmo padrão do M13); o gate de compatibilidade de dispositivo dessa rota fica completo só quando o M7 existir.
 4. **M7/M8** (jogador): participações, sessões, consentimentos + worker de validação de sessão (gatilho de XP), feed — é o que faz `GET /player/progress` (M12) e a elegibilidade de avaliação (M13) passarem a reportar dado real.
 5. **M10 reports** (depende de sessões existirem; o M9 media já está pronto e esperando por elas).
-6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M13 e M12 feitos fora de ordem** (pedidos explicitamente); M11 e M14 seguem pendentes. A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M7 existir (e, para ranking, um job futuro popular `ranking_snapshots`).
+6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M13 e M12 feitos fora de ordem** (pedidos explicitamente); M11 feito depois; M14 segue pendente. A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M7 existir (e, para ranking, um job futuro popular `ranking_snapshots`).
 7. **M15-02** (idempotência durável na tabela `idempotency_keys`) — pode entrar a qualquer momento, a tabela já existe.

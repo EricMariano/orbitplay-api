@@ -6,6 +6,7 @@ import { GamesService } from '../games/games.service';
 import type { TestModelView } from '../test-models/dto/test-model.dto';
 import { TestModelsService } from '../test-models/test-models.service';
 import { newId } from '../../infra/database/schema/_helpers';
+import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import type { TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
 import { buildValidateJobId, JobName } from '../../infra/queue/queue.constants';
 import { recordAudit } from '../../shared/audit/audit-context';
@@ -56,6 +57,7 @@ export class TestsService {
     private readonly testModels: TestModelsService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    private readonly dashboardKpis: DashboardKpiCache,
   ) {}
 
   async create(
@@ -79,6 +81,7 @@ export class TestsService {
       slotsTaken: 0,
       reportStage: 'none',
     });
+    await this.dashboardKpis.invalidate(organizationId);
 
     const view = await this.toView(row);
     recordAudit(req, {
@@ -108,6 +111,12 @@ export class TestsService {
     const page = await this.repo.listByGameInOrg(organizationId, gameId, query);
     const data = await Promise.all(page.data.map((row) => this.toView(row)));
     return { data, nextCursor: page.nextCursor };
+  }
+
+  /** Most recent tests of the org, any game — the Home's "testes recentes" (M11, Tela 02). */
+  async listRecent(organizationId: string, limit: number): Promise<TestView[]> {
+    const page = await this.repo.listInOrg(organizationId, { limit });
+    return Promise.all(page.data.map((row) => this.toView(row)));
   }
 
   async setModel(
@@ -427,6 +436,7 @@ export class TestsService {
 
     const view = await this.toView(result.test);
     if (result.justPublished) {
+      await this.dashboardKpis.invalidate(organizationId);
       recordAudit(req, {
         action: 'test.published',
         entity: 'tests',
@@ -451,6 +461,7 @@ export class TestsService {
     }
 
     const updated = await this.repo.updateByIdInOrg(organizationId, id, { status: dto.status });
+    await this.dashboardKpis.invalidate(organizationId);
     const view = await this.toView(updated);
     recordAudit(req, {
       action: 'test.status.changed',

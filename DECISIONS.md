@@ -329,7 +329,7 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   quebrou".
 - **Gap real encontrado e corrigido: FKs simples permitiam relações
   cross-org (DAT-03).** `tests.game_id → games.id`, `builds.test_id →
-  tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
+tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
   nada no banco impedia um `test` com `organization_id = A` apontar para um
   `game` de B (idem build→test e asset→game). A aplicação sempre filtra por
   org, então isso nunca acontece pelo caminho normal da API, mas não era uma
@@ -341,7 +341,7 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   Agora um INSERT/UPDATE cross-org falha com violação de FK, não só com um
   bug de aplicação não escrito ainda. Migração `0005` gerada por
   `drizzle-kit generate` precisou de reordenação manual (`CREATE UNIQUE
-  INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
+INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
   garante essa ordem dentro da mesma migração) — testado de ponta a ponta
   (migração + seed + um INSERT cross-org rejeitado de propósito) num
   Postgres descartável antes de commitar.
@@ -378,10 +378,10 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   ranking de jogadores) segue aberta, e não existe job agendado — a tabela é
   "materializada por um job" por design (comentário em
   `schema/player.ts`), não calculada por request. `GamificationRepository.
-  findLatestSnapshot` busca o snapshot mais recente por
+findLatestSnapshot` busca o snapshot mais recente por
   `scope`/`period`/`gameId`; sem nenhum, a rota responde `200` com
   `{ data: [], nextCursor: null, currentUserEntry: null, generatedAt: null
-  }` em vez de erro — mesmo padrão pré-job dos itens acima. Paginação sobre
+}` em vez de erro — mesmo padrão pré-job dos itens acima. Paginação sobre
   `entries` (um array jsonb por linha, não uma linha por posição) usa um
   cursor de offset próprio (`encodeOffsetCursor`/`decodeOffsetCursor` em
   `gamification.service.ts`), não o cursor de UUID compartilhado de
@@ -408,3 +408,34 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   recurso é `tests`, `games` só empresta o prefixo da rota) — `studio+`
   (`STUDIO_ROLES`), como todo o resto do `TestsController` e como a tabela
   do `BACKEND-SPEC.md` já listava.
+- **M11 (dashboard do estúdio) — KPIs reais, `delta` sempre `null`,
+  benchmark `unavailable`.** O handoff não fixa a lista de KPIs da Tela 02;
+  `GET /studio/dashboard` expõe `gamesTotal`, `testsTotal`, `testsActive`,
+  `sessionsValid`, `playersTotal`, `averageRating` e `completionRate`, todos
+  lidos das tabelas reais com as **mesmas definições** já usadas pelo M3
+  (`GamesRepository.metricsByGameIds`) e pelo M10 (`computeOverview`:
+  `completionRate` = sessões `completed` / participações, `null` sem
+  participações) — a Home nunca diverge das telas de jogo e relatório.
+  `delta` fica `null` porque o período de comparação (semana? mês? desde o
+  último acesso?) não está definido; preencher depois não quebra o contrato.
+  Nada financeiro: pagamento é deferido (§1.2). `GET /studio/benchmark`
+  existe mas responde sempre `status: 'unavailable'` — a fonte do "benchmark
+  de mercado" é a pendência 7 do `BACKEND-SPEC.md` §9 (agregado interno de
+  outras organizações × fonte externa), e usar dados de outras orgs é decisão
+  de produto/privacidade, não de implementação. O bloco segue o formato dos
+  blocos do M10 (`key`/`status`/`payload`/`computedAt`), não o
+  `data`/`message` do `openapi.design.yaml`, para o front tratar blocos de
+  relatório e de dashboard da mesma forma.
+- **M11 — cache de KPIs: cache-aside no Redis, invalidação explícita + TTL de
+  60s.** Chave `dashboard:kpis:{organizationId}` (só `kpis` e `stats` — as
+  listas de jogos/testes carregam URLs assinadas e nunca são cacheadas). A
+  chave é apagada ao criar/remover jogo, criar/publicar/mudar status de
+  teste, criar participação e no worker `session.validate`; o TTL cobre o que
+  não invalida explicitamente (ex.: nova avaliação de jogo). O
+  `DashboardKpiCache` mora em `src/infra/redis/`, não no módulo `dashboard`,
+  porque quem emite os eventos (`tests`, `games`, `participations`) é
+  dependência do próprio dashboard — importá-lo de volta seria circular. O
+  job `dashboard.kpi.refresh` do `BACKEND-SPEC.md` §6 não foi criado: com os
+  KPIs calculados em poucas queries agregadas, apagar a chave e recalcular na
+  próxima leitura resolve sem uma fila a mais. Falha no Redis nunca derruba a
+  requisição (leitura cai para o cálculo direto; invalidação é best effort).
