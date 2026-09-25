@@ -32,6 +32,7 @@ import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { OrgScopeGuard } from './shared/guards/org-scope.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interceptor';
+import { PlayerModule } from './modules/player/player.module';
 
 @Module({
   imports: [
@@ -91,6 +92,7 @@ import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interc
     CommunityModule,
     ChatModule,
     GamificationModule,
+    PlayerModule,
   ],
   providers: [
     // Order matters: authenticate, THEN assert an org scope, THEN authorize.
