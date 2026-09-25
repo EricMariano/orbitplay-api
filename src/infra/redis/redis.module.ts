@@ -1,8 +1,12 @@
 import { Global, Inject, Module, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Redis } from 'ioredis';
+import { DashboardKpiCache } from './dashboard-kpi-cache';
+import { REDIS_CLIENT } from './redis.tokens';
 
-export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
+// Token lives in its own file so providers declared here (DashboardKpiCache)
+// can inject it without a circular import back into this module.
+export { REDIS_CLIENT };
 
 /**
  * Global Redis client (ioredis) used by the idempotency store and available to
@@ -19,8 +23,9 @@ export const REDIS_CLIENT = Symbol('REDIS_CLIENT');
         return new Redis(url, { maxRetriesPerRequest: null });
       },
     },
+    DashboardKpiCache,
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, DashboardKpiCache],
 })
 export class RedisModule implements OnModuleDestroy {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
