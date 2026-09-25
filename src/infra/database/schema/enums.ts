@@ -124,3 +124,6 @@ export const assetKindEnum = pgEnum('asset_kind', ['cover', 'banner', 'screensho
 export const postStatusEnum = pgEnum('post_status', ['visible', 'hidden', 'removed']);
 
 export const reportStageEnum = pgEnum('report_stage', ['none', 'partial', 'final']);
+
+/** Output format of a studio report export (M10-04). */
+export const reportExportFormatEnum = pgEnum('report_export_format', ['csv', 'pdf']);
