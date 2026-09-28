@@ -404,7 +404,12 @@
 ### M14-01 · Schema + endpoints de notificações
 
 - **Labels:** backend, db, api · **Estimativa:** M · **Depende de:** — · **Pendência:** confirmar componente in-app no Figma (8)
-- **Escopo:** tabela `notifications`; `GET /notifications` (paginado, `unreadOnly`, `unreadCount`); `PATCH /notifications/{id}/read`.
+- **Escopo:**
+  - [x] Tabela `notifications` (já na `0002`) + índice `notifications_user_idx` (`user_id`, `id`).
+  - [x] `GET /notifications` — paginado, `unreadOnly`, `unreadCount`.
+  - [x] `PATCH /notifications/{id}/read` — 204; outro usuário ou id inválido → 404.
+- **Aceite:** e2e prova isolamento por usuário, `unreadOnly`, `unreadCount` e 404 cross-user.
+- **Nota:** a pendência do Figma segue aberta; o contrato HTTP segue `openapi.design.yaml`.
 
 ---
 
