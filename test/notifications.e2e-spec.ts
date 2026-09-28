@@ -12,10 +12,23 @@ const ALREADY_READ = '01990000-0000-7000-8000-0000000000c1';
 const OTHER_USER = '01990000-0000-7000-8000-0000000000d1';
 const SEEDED_IDS = [NEWER_UNREAD, OLDER_UNREAD, ALREADY_READ, OTHER_USER];
 
+/**
+ * Node 25 keeps HTTP sockets alive. Supertest then reuses one the server
+ * already closed and the next call fails with "socket hang up" — seen on the
+ * 204 PATCH. Closing the connection on each request avoids that reuse.
+ */
+function api(app: INestApplication) {
+  const server = app.getHttpServer();
+  const close = { Connection: 'close' };
+  return {
+    get: (url: string) => request(server).get(url).set(close),
+    post: (url: string) => request(server).post(url).set(close),
+    patch: (url: string) => request(server).patch(url).set(close),
+  };
+}
+
 async function bearer(app: INestApplication, email: string): Promise<string> {
-  const res = await request(app.getHttpServer())
-    .post('/auth/login')
-    .send({ email, password: SEED_PASSWORD });
+  const res = await api(app).post('/auth/login').send({ email, password: SEED_PASSWORD });
   return res.body.accessToken as string;
 }
 
@@ -34,14 +47,10 @@ describe('Notifications (e2e)', () => {
     playerToken = await bearer(app, SEED_EMAILS.player);
     studioToken = await bearer(app, SEED_EMAILS.studio);
 
-    const player = await request(app.getHttpServer())
-      .get('/auth/me')
-      .set('Authorization', `Bearer ${playerToken}`);
+    const player = await api(app).get('/auth/me').set('Authorization', `Bearer ${playerToken}`);
     playerId = player.body.id as string;
 
-    const studio = await request(app.getHttpServer())
-      .get('/auth/me')
-      .set('Authorization', `Bearer ${studioToken}`);
+    const studio = await api(app).get('/auth/me').set('Authorization', `Bearer ${studioToken}`);
     studioId = studio.body.id as string;
 
     await sql`DELETE FROM notifications WHERE user_id IN (${playerId}, ${studioId})`;
@@ -62,12 +71,12 @@ describe('Notifications (e2e)', () => {
 
   describe('GET /notifications', () => {
     it('requires auth', async () => {
-      const res = await request(app.getHttpServer()).get('/notifications');
+      const res = await api(app).get('/notifications');
       expect(res.status).toBe(401);
     });
 
     it('lists only the caller inbox, newest id first, with the unread total', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await api(app)
         .get('/notifications')
         .set('Authorization', `Bearer ${playerToken}`);
 
@@ -90,7 +99,7 @@ describe('Notifications (e2e)', () => {
     });
 
     it('unreadOnly drops rows that already have read_at', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await api(app)
         .get('/notifications?unreadOnly=true')
         .set('Authorization', `Bearer ${playerToken}`);
 
@@ -100,21 +109,21 @@ describe('Notifications (e2e)', () => {
     });
 
     it('paginates with limit=1 and an opaque cursor', async () => {
-      const first = await request(app.getHttpServer())
+      const first = await api(app)
         .get('/notifications?limit=1')
         .set('Authorization', `Bearer ${playerToken}`);
       expect(first.body.data).toHaveLength(1);
       expect(first.body.data[0].id).toBe(NEWER_UNREAD);
       expect(first.body.nextCursor).toEqual(expect.any(String));
 
-      const second = await request(app.getHttpServer())
+      const second = await api(app)
         .get(`/notifications?limit=1&cursor=${first.body.nextCursor}`)
         .set('Authorization', `Bearer ${playerToken}`);
       expect(second.body.data[0].id).toBe(OLDER_UNREAD);
     });
 
     it('a studio account sees only its own notification', async () => {
-      const res = await request(app.getHttpServer())
+      const res = await api(app)
         .get('/notifications')
         .set('Authorization', `Bearer ${studioToken}`);
       expect(res.status).toBe(200);
@@ -127,13 +136,13 @@ describe('Notifications (e2e)', () => {
 
   describe('PATCH /notifications/:id/read', () => {
     it('marks the row read and drops unreadCount; repeating is a 204', async () => {
-      const first = await request(app.getHttpServer())
+      const first = await api(app)
         .patch(`/notifications/${NEWER_UNREAD}/read`)
         .set('Authorization', `Bearer ${playerToken}`);
       expect(first.status).toBe(204);
       expect(first.body).toEqual({});
 
-      const list = await request(app.getHttpServer())
+      const list = await api(app)
         .get('/notifications')
         .set('Authorization', `Bearer ${playerToken}`);
       expect(list.body.unreadCount).toBe(1);
@@ -141,30 +150,30 @@ describe('Notifications (e2e)', () => {
         read: true,
       });
 
-      const again = await request(app.getHttpServer())
+      const again = await api(app)
         .patch(`/notifications/${NEWER_UNREAD}/read`)
         .set('Authorization', `Bearer ${playerToken}`);
       expect(again.status).toBe(204);
     });
 
     it('another user notification, a malformed id, and an unknown id are 404', async () => {
-      const foreign = await request(app.getHttpServer())
+      const foreign = await api(app)
         .patch(`/notifications/${OTHER_USER}/read`)
         .set('Authorization', `Bearer ${playerToken}`);
       expect(foreign.status).toBe(404);
       expect(foreign.body.code).toBe('NOT_FOUND');
 
-      const malformed = await request(app.getHttpServer())
+      const malformed = await api(app)
         .patch('/notifications/not-a-uuid/read')
         .set('Authorization', `Bearer ${playerToken}`);
       expect(malformed.status).toBe(404);
 
-      const missing = await request(app.getHttpServer())
+      const missing = await api(app)
         .patch('/notifications/01990000-0000-7000-8000-0000000000ff/read')
         .set('Authorization', `Bearer ${playerToken}`);
       expect(missing.status).toBe(404);
 
-      const studio = await request(app.getHttpServer())
+      const studio = await api(app)
         .get('/notifications')
         .set('Authorization', `Bearer ${studioToken}`);
       expect(studio.body.data[0]).toMatchObject({ id: OTHER_USER, read: false });
