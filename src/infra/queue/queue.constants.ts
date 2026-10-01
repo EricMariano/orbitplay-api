@@ -15,6 +15,8 @@ export const JobName = {
   RECONCILE_STUCK_JOBS: 'ops.reconcile-stuck-jobs',
   /** Validates a finished session and, if valid, credits XP (Tela 19 RN-03). */
   SESSION_VALIDATE: 'session.validate',
+  /** Renders a test report to CSV/PDF, uploads it and marks the export ready (M10-04). */
+  REPORT_EXPORT: 'report.export',
 } as const;
 
 export type JobNameValue = (typeof JobName)[keyof typeof JobName];
@@ -53,4 +55,12 @@ export function mediaExtractAudioJobId(recordingId: string): string {
  */
 export function sessionValidateJobId(sessionId: string): string {
   return `session-validate-${sessionId}`;
+}
+
+/**
+ * No `:` separator — same BullMQ `Custom Id cannot contain :` constraint
+ * documented on `sessionValidateJobId` above.
+ */
+export function reportExportJobId(exportId: string): string {
+  return `report-export-${exportId}`;
 }

@@ -1,4 +1,6 @@
 import {
+  foreignKey,
+  index,
   integer,
   jsonb,
   numeric,
@@ -9,8 +11,9 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { primaryId } from './_helpers';
-import { postStatusEnum, processingStatusEnum } from './enums';
+import { postStatusEnum, processingStatusEnum, reportExportFormatEnum } from './enums';
 import { games } from './games';
+import { organizations } from './organizations';
 import { tests } from './tests';
 import { users } from './users';
 
@@ -31,6 +34,43 @@ export const testReportSnapshots = pgTable(
     computedAt: timestamp('computed_at', { withTimezone: true }),
   },
   (t) => [uniqueIndex('test_report_snapshots_unique').on(t.testId, t.blockKey)],
+);
+
+/**
+ * One asynchronous export of a test's report (M10-04). The API inserts the row
+ * as `processing` and enqueues a job; the worker renders the file, uploads it
+ * to object storage and flips this row to `ready` (with `storage_key`) or
+ * `failed`. The row id doubles as the deterministic BullMQ job id, so the
+ * client polls this row, not the queue.
+ */
+export const testReportExports = pgTable(
+  'test_report_exports',
+  {
+    id: primaryId(),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    testId: uuid('test_id').notNull(),
+    requestedByUserId: uuid('requested_by_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    format: reportExportFormatEnum('format').notNull(),
+    status: processingStatusEnum('status').notNull().default('processing'),
+    storageKey: text('storage_key'),
+    failureReason: text('failure_reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp('completed_at', { withTimezone: true }),
+  },
+  (t) => [
+    index('test_report_exports_test_idx').on(t.testId),
+    // A export's organization must match the org that owns the test (same
+    // composite-FK guarantee `builds` uses, DAT-03).
+    foreignKey({
+      name: 'test_report_exports_test_org_fk',
+      columns: [t.testId, t.organizationId],
+      foreignColumns: [tests.id, tests.organizationId],
+    }).onDelete('cascade'),
+  ],
 );
 
 export const gameReviews = pgTable(
@@ -107,6 +147,8 @@ export const idempotencyKeys = pgTable('idempotency_keys', {
 });
 
 export type TestReportSnapshotRow = typeof testReportSnapshots.$inferSelect;
+export type TestReportExportRow = typeof testReportExports.$inferSelect;
+export type NewTestReportExportRow = typeof testReportExports.$inferInsert;
 export type GameReviewRow = typeof gameReviews.$inferSelect;
 export type CommunityPostRow = typeof communityPosts.$inferSelect;
 export type CommunityReportRow = typeof communityReports.$inferSelect;

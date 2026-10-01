@@ -1,8 +1,10 @@
 import { relations } from 'drizzle-orm';
+import { testReportExports, testReportSnapshots } from './community';
 import { games } from './games';
 import { memberships } from './memberships';
 import { organizations } from './organizations';
 import { roles } from './roles';
+import { tests } from './tests';
 import { users } from './users';
 
 /**
@@ -53,4 +55,33 @@ export const gamesRelations = relations(games, ({ one }) => ({
     fields: [games.organizationId],
     references: [organizations.id],
   }),
+}));
+
+/** M10 — report blocks and exports hang off a test (many-to-one). */
+export const testReportSnapshotsRelations = relations(testReportSnapshots, ({ one }) => ({
+  test: one(tests, {
+    fields: [testReportSnapshots.testId],
+    references: [tests.id],
+  }),
+}));
+
+export const testReportExportsRelations = relations(testReportExports, ({ one }) => ({
+  test: one(tests, {
+    fields: [testReportExports.testId],
+    references: [tests.id],
+  }),
+  organization: one(organizations, {
+    fields: [testReportExports.organizationId],
+    references: [organizations.id],
+  }),
+  requestedBy: one(users, {
+    fields: [testReportExports.requestedByUserId],
+    references: [users.id],
+  }),
+}));
+
+/** Inverse side of the M10 relations above (both sides declared, per AGENTS.md). */
+export const testsRelations = relations(tests, ({ many }) => ({
+  reportSnapshots: many(testReportSnapshots),
+  reportExports: many(testReportExports),
 }));

@@ -4,6 +4,7 @@ import { processBuildValidate } from './build.processor';
 import type { WorkerDeps } from './deps';
 import { processMediaExtractAudio, processMediaTranscode } from './media.processor';
 import { processReconcileStuckJobs } from './reconcile.processor';
+import { processReportExport } from './report-export.processor';
 import { processSessionValidate } from './session.processor';
 
 export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
@@ -25,6 +26,9 @@ export async function handleJob(job: Job, deps: WorkerDeps): Promise<unknown> {
     case JobName.SESSION_VALIDATE:
       await processSessionValidate(deps, job.data.sessionId as string);
       return { sessionId: job.data.sessionId };
+    case JobName.REPORT_EXPORT:
+      await processReportExport(deps, job.data.exportId as string);
+      return { exportId: job.data.exportId };
     default:
       throw new Error(`Unknown job: ${job.name}`);
   }
