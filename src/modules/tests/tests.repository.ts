@@ -1,6 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
-import { DRIZZLE, type Database } from '../../infra/database/database.module';
+import {
+  DRIZZLE,
+  type Database,
+  type DbExecutor,
+  type Transaction,
+} from '../../infra/database/database.module';
 import { memberships } from '../../infra/database/schema/memberships';
 import { roles } from '../../infra/database/schema/roles';
 import {
@@ -57,18 +62,23 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
    * current status until the edit's transaction is done with it, and vice
    * versa.
    *
-   * `updateTest` writes through the SAME transaction connection deliberately
-   * — a second connection trying to UPDATE this already-locked row would
-   * block waiting for `tx` to release the lock, while `tx` is itself waiting
-   * on that same call to resolve. Only the `tests` row needs this; child-table
-   * writes (form questions, audience, builds) don't contend for this row's
-   * lock and can keep using the repository's normal (separate-connection)
-   * methods.
+   * Every write that happens inside `fn` MUST go through `tx` (the third
+   * argument), not the repository's pool. That includes child tables: an
+   * INSERT into a table with an FK to `tests` (form questions, audience,
+   * builds) takes `FOR KEY SHARE` on the parent row, which conflicts with
+   * this `FOR UPDATE` — on a separate connection it would wait for `tx` to
+   * release the lock while `tx` waits for that same write to resolve,
+   * hanging the request forever. `updateTest` is a shortcut for the `tests`
+   * row itself, already bound to `tx`.
    */
   async withRowLock<T>(
     organizationId: string,
     id: string,
-    fn: (test: TestRow, updateTest: (patch: Partial<NewTestRow>) => Promise<TestRow>) => Promise<T>,
+    fn: (
+      test: TestRow,
+      updateTest: (patch: Partial<NewTestRow>) => Promise<TestRow>,
+      tx: Transaction,
+    ) => Promise<T>,
   ): Promise<T> {
     if (!isUuid(id)) throw AppException.notFound();
     return this.db.transaction(async (tx) => {
@@ -86,7 +96,7 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
         return updated[0];
       };
 
-      return fn(test, updateTest);
+      return fn(test, updateTest, tx);
     });
   }
 
@@ -145,13 +155,15 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
 
   /**
    * Replaces the whole question set in one transaction (RN-03: atomic
-   * reordering). `position` from the input is authoritative.
+   * reordering). `position` from the input is authoritative. Pass the
+   * `withRowLock` transaction as `db` (see the note there).
    */
   async replaceForm(
     testId: string,
     questions: FormQuestionInput[],
+    db: DbExecutor = this.db,
   ): Promise<FormQuestionWithOptions[]> {
-    return this.db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       await tx.delete(testFormQuestions).where(eq(testFormQuestions.testId, testId));
 
       const result: FormQuestionWithOptions[] = [];
@@ -200,11 +212,13 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
     return rows[0] ?? null;
   }
 
+  /** Pass the `withRowLock` transaction as `db` (see the note there). */
   async upsertAudience(
     testId: string,
     values: UpsertAudienceInput,
+    db: DbExecutor = this.db,
   ): Promise<TestAudienceCriteriaRow> {
-    const rows = await this.db
+    const rows = await db
       .insert(testAudienceCriteria)
       .values({ testId, ...values })
       .onConflictDoUpdate({ target: testAudienceCriteria.testId, set: values })

@@ -19,7 +19,12 @@ const RIVAL = {
   email: 'rival-wizard@rival.dev',
 };
 
-const BUILD_BYTES = Buffer.from('fake-build-bytes');
+// Starts with the zip signature — the build worker sniffs magic bytes against
+// the declared `.zip` extension.
+const BUILD_BYTES = Buffer.concat([
+  Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  Buffer.from('fake-build-bytes'),
+]);
 
 async function bearer(app: INestApplication, email: string): Promise<string> {
   const res = await request(app.getHttpServer())
@@ -205,6 +210,50 @@ describe('Tests wizard — M5 (e2e)', () => {
       .set('Authorization', `Bearer ${studioToken}`)
       .send({ status: 'published' });
     expect(invalidTransition.status).toBe(409);
+  });
+
+  // Regression: PUT form / PATCH audience used to write their child rows on a
+  // separate connection while `withRowLock` held `FOR UPDATE` on the test —
+  // the FK check (`FOR KEY SHARE`) waited on that lock forever. A build-less
+  // model reaches publish without depending on the build worker.
+  it('saves form and audience under the row lock and publishes a build-less model', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'ab_test_images', title: 'Capas A/B' });
+    expect(create.status).toBe(201);
+    const testId = create.body.id as string;
+
+    const putForm = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          {
+            type: 'open_text',
+            prompt: 'Qual capa chamou mais atenção?',
+            required: true,
+            position: 0,
+          },
+        ],
+      });
+    expect(putForm.status).toBe(200);
+    expect(putForm.body.questions).toHaveLength(1);
+
+    const setAudience = await request(app.getHttpServer())
+      .patch(`/tests/${testId}/audience`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ ageMin: 18, ageMax: 99, quantity: 5, durationDays: 7 });
+    expect(setAudience.status).toBe(200);
+    expect(setAudience.body.pendingValidations).toEqual([]);
+
+    const publish = await request(app.getHttpServer())
+      .post(`/tests/${testId}/publish`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .set('Idempotency-Key', uuidv7())
+      .send();
+    expect(publish.status).toBe(200);
+    expect(publish.body.status).toBe('published');
   });
 
   it('rejects an unavailable model at creation with 422', async () => {
