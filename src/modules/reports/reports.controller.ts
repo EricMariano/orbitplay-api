@@ -17,13 +17,41 @@ import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import {
   CreateReportExportDto,
+  RateSessionDto,
   ReportExportDto,
   ReportSessionListDto,
   ReportSessionQueryDto,
   SessionEvaluationDto,
+  SessionRatingDto,
   TestReportDto,
 } from './dto/report.dto';
 import { ReportsService } from './reports.service';
+
+/**
+ * M10-03 — avaliação da sessão pelo estúdio (`POST /sessions/:id/rate`). Fica
+ * fora do prefixo `tests/:testId/report` porque a rota do contrato é
+ * `/sessions/{id}/rate`; a sessão é resolvida pela organização do token.
+ */
+@ApiTags('reports')
+@ApiBearerAuth()
+@Controller('sessions')
+export class SessionRatingsController {
+  constructor(private readonly reports: ReportsService) {}
+
+  @Post(':id/rate')
+  @Roles(...STUDIO_ROLES)
+  @HttpCode(HttpStatus.OK)
+  @ZodResponse({ type: SessionRatingDto })
+  rate(
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('userId') userId: string,
+    @Param('id') id: string,
+    @Body() dto: RateSessionDto,
+    @Req() req: Request,
+  ) {
+    return this.reports.rateSession(organizationId, userId, id, dto, req);
+  }
+}
 
 /**
  * M10 — relatórios do estúdio (Telas 11 e 12). Toda rota é restrita a

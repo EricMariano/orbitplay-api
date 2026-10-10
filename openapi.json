@@ -3188,6 +3188,272 @@
           "gamification"
         ]
       }
+    },
+    "/tests/{testId}/report": {
+      "get": {
+        "operationId": "ReportsController_getReport",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestReportDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/tests/{testId}/report/sessions": {
+      "get": {
+        "operationId": "ReportsController_listSessions",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSessionListDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/tests/{testId}/report/sessions/{sessionId}": {
+      "get": {
+        "operationId": "ReportsController_getSessionEvaluation",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionEvaluationDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/tests/{testId}/report/exports": {
+      "post": {
+        "operationId": "ReportsController_requestExport",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateReportExportDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportExportDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/tests/{testId}/report/exports/{exportId}": {
+      "get": {
+        "operationId": "ReportsController_getExport",
+        "parameters": [
+          {
+            "name": "testId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "exportId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportExportDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/sessions/{id}/rate": {
+      "post": {
+        "operationId": "SessionRatingsController_rate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRatingDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
     }
   },
   "info": {
@@ -7916,6 +8182,406 @@
           "nextCursor",
           "currentUserEntry",
           "generatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "TestReportDto_Output": {
+        "type": "object",
+        "properties": {
+          "testId": {
+            "type": "string"
+          },
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "enum": [
+                    "overview",
+                    "evolution",
+                    "rating_distribution",
+                    "tester_profile"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "processing",
+                    "ready",
+                    "failed",
+                    "unavailable"
+                  ]
+                },
+                "payload": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {},
+                  "nullable": true
+                },
+                "computedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "status",
+                "payload",
+                "computedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "testId",
+          "blocks"
+        ],
+        "additionalProperties": false
+      },
+      "ReportSessionListDto_Output": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sessionId": {
+                  "type": "string"
+                },
+                "participationId": {
+                  "type": "string"
+                },
+                "testerId": {
+                  "type": "string"
+                },
+                "testerName": {
+                  "type": "string"
+                },
+                "status": {
+                  "type": "string"
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "durationMs": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "nullable": true
+                },
+                "valid": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "averageRating": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "sessionId",
+                "participationId",
+                "testerId",
+                "testerName",
+                "status",
+                "startedAt",
+                "endedAt",
+                "durationMs",
+                "valid",
+                "averageRating"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "data",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "SessionEvaluationDto_Output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "sessionId": {
+                "type": "string"
+              },
+              "participationId": {
+                "type": "string"
+              },
+              "testerId": {
+                "type": "string"
+              },
+              "testerName": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "nullable": true
+              },
+              "valid": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "averageRating": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sessionId",
+              "participationId",
+              "testerId",
+              "testerName",
+              "status",
+              "startedAt",
+              "endedAt",
+              "durationMs",
+              "valid",
+              "averageRating"
+            ],
+            "additionalProperties": false
+          },
+          "submittedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "answers": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "questionId": {
+                  "type": "string"
+                },
+                "prompt": {
+                  "type": "string"
+                },
+                "type": {
+                  "type": "string"
+                },
+                "valueText": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "valueNumber": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "valueBoolean": {
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
+                },
+                "optionLabels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "questionId",
+                "prompt",
+                "type",
+                "valueText",
+                "valueNumber",
+                "valueBoolean",
+                "optionLabels"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "session",
+          "submittedAt",
+          "answers"
+        ],
+        "additionalProperties": false
+      },
+      "CreateReportExportDto": {
+        "type": "object",
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "pdf"
+            ]
+          }
+        },
+        "required": [
+          "format"
+        ]
+      },
+      "ReportExportDto_Output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "testId": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string",
+            "enum": [
+              "csv",
+              "pdf"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "processing",
+              "ready",
+              "failed",
+              "unavailable"
+            ]
+          },
+          "downloadUrl": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "failureReason": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "completedAt": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "testId",
+          "format",
+          "status",
+          "downloadUrl",
+          "failureReason",
+          "createdAt",
+          "completedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RateSessionDto": {
+        "type": "object",
+        "properties": {
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "markedInvalid": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating"
+        ]
+      },
+      "SessionRatingDto_Output": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "comment": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markedInvalid": {
+            "type": "boolean"
+          },
+          "ratedByUserId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "rating",
+          "comment",
+          "markedInvalid",
+          "ratedByUserId",
+          "updatedAt"
         ],
         "additionalProperties": false
       }

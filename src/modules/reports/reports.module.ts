@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ReportsController } from './reports.controller';
+import { ReportsController, SessionRatingsController } from './reports.controller';
 import { ReportsRepository } from './reports.repository';
 import { ReportsService } from './reports.service';
 
@@ -8,7 +8,7 @@ import { ReportsService } from './reports.service';
  * `StorageModule` — no import needed here, same as `TestsModule`.
  */
 @Module({
-  controllers: [ReportsController],
+  controllers: [ReportsController, SessionRatingsController],
   providers: [ReportsService, ReportsRepository],
 })
 export class ReportsModule {}

@@ -12,8 +12,10 @@ import {
   formAnswers,
   formResponses,
   participations,
+  sessionRatings,
   sessions,
   sessionValidations,
+  type SessionRatingRow,
 } from '../../infra/database/schema/participations';
 import { testFormOptions, testFormQuestions, tests } from '../../infra/database/schema/tests';
 import { users } from '../../infra/database/schema/users';
@@ -27,6 +29,9 @@ import type {
   ReportSessionQuery,
   TesterProfilePayload,
 } from './dto/report.dto';
+
+/** `session_validations.reason` written when the studio marks a session invalid. */
+export const STUDIO_INVALID_REASON = 'Marcada como inválida pelo estúdio';
 
 /** Question types whose numeric answer counts as a "nota" (rating). */
 const RATING_QUESTION_TYPES = ['scale', 'nps'] as const;
@@ -343,6 +348,71 @@ export class ReportsRepository {
     }
 
     return { session, submittedAt: response.submittedAt, answers, optionLabels };
+  }
+
+  /**
+   * Upserts the studio's rating and keeps `session_validations` in step: a
+   * session marked invalid leaves the metrics (they filter on `valid = true`);
+   * un-marking only reverts a validation this studio flow wrote itself.
+   * Cached report blocks are dropped so the next read recomputes them.
+   * Returns `null` when the session is not in the caller's organization.
+   */
+  async rateSession(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    input: { rating: number; comment: string | null; markedInvalid: boolean },
+  ): Promise<SessionRatingRow | null> {
+    if (!isUuid(sessionId)) return null;
+
+    return this.db.transaction(async (tx) => {
+      const [session] = await tx
+        .select({ id: sessions.id, testId: sessions.testId })
+        .from(sessions)
+        .where(and(eq(sessions.id, sessionId), eq(sessions.organizationId, organizationId)))
+        .limit(1);
+      if (!session) return null;
+
+      const [rating] = await tx
+        .insert(sessionRatings)
+        .values({ sessionId, organizationId, ratedByUserId: userId, ...input })
+        .onConflictDoUpdate({
+          target: sessionRatings.sessionId,
+          set: {
+            ratedByUserId: userId,
+            rating: input.rating,
+            comment: input.comment,
+            markedInvalid: input.markedInvalid,
+          },
+        })
+        .returning();
+
+      if (input.markedInvalid) {
+        const values = {
+          valid: false,
+          reason: STUDIO_INVALID_REASON,
+          validatorVersion: 'studio',
+          validatedAt: new Date(),
+        };
+        await tx
+          .insert(sessionValidations)
+          .values({ sessionId, ...values })
+          .onConflictDoUpdate({ target: sessionValidations.sessionId, set: values });
+      } else {
+        await tx
+          .update(sessionValidations)
+          .set({ valid: true, reason: null, validatedAt: new Date() })
+          .where(
+            and(
+              eq(sessionValidations.sessionId, sessionId),
+              eq(sessionValidations.reason, STUDIO_INVALID_REASON),
+            ),
+          );
+      }
+
+      await tx.delete(testReportSnapshots).where(eq(testReportSnapshots.testId, session.testId));
+      return rating;
+    });
   }
 
   /* -------------------------------- Exports -------------------------------- */

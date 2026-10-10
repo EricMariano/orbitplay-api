@@ -96,6 +96,21 @@ export const sessionEvaluationSchema = z.object({
   answers: z.array(sessionEvaluationAnswerSchema),
 });
 
+export const rateSessionSchema = z.object({
+  rating: z.number().int().min(1, 'Nota mínima é 1').max(5, 'Nota máxima é 5'),
+  comment: z.string().trim().max(1000, 'Comentário muito longo').nullish(),
+  markedInvalid: z.boolean().default(false),
+});
+
+export const sessionRatingSchema = z.object({
+  sessionId: z.string(),
+  rating: z.number().int(),
+  comment: z.string().nullable(),
+  markedInvalid: z.boolean(),
+  ratedByUserId: z.string(),
+  updatedAt: z.string(),
+});
+
 /* -------------------------------- Exportação -------------------------------- */
 
 export const createReportExportSchema = z.object({
@@ -117,6 +132,8 @@ export class TestReportDto extends createZodDto(testReportSchema) {}
 export class ReportSessionQueryDto extends createZodDto(reportSessionQuerySchema) {}
 export class ReportSessionListDto extends createZodDto(reportSessionListSchema) {}
 export class SessionEvaluationDto extends createZodDto(sessionEvaluationSchema) {}
+export class RateSessionDto extends createZodDto(rateSessionSchema) {}
+export class SessionRatingDto extends createZodDto(sessionRatingSchema) {}
 export class CreateReportExportDto extends createZodDto(createReportExportSchema) {}
 export class ReportExportDto extends createZodDto(reportExportSchema) {}
 
@@ -133,5 +150,7 @@ export type ReportSessionView = z.infer<typeof reportSessionSchema>;
 export type ReportSessionQuery = z.infer<typeof reportSessionQuerySchema>;
 export type SessionEvaluationView = z.infer<typeof sessionEvaluationSchema>;
 export type SessionEvaluationAnswerView = z.infer<typeof sessionEvaluationAnswerSchema>;
+export type RateSessionRequest = z.infer<typeof rateSessionSchema>;
+export type SessionRatingView = z.infer<typeof sessionRatingSchema>;
 export type CreateReportExportRequest = z.infer<typeof createReportExportSchema>;
 export type ReportExportView = z.infer<typeof reportExportSchema>;

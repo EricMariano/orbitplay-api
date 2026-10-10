@@ -13,12 +13,14 @@ import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port'
 import {
   reportBlockKeyValues,
   type CreateReportExportRequest,
+  type RateSessionRequest,
   type ReportBlockKey,
   type ReportBlockView,
   type ReportExportView,
   type ReportSessionQuery,
   type ReportSessionView,
   type SessionEvaluationView,
+  type SessionRatingView,
   type TestReportView,
 } from './dto/report.dto';
 import {
@@ -117,6 +119,37 @@ export class ReportsService {
     const row = await this.repo.findSessionEvaluation(organizationId, testId, sessionId);
     if (!row) throw AppException.notFound('Sessão não encontrada');
     return toEvaluationView(row);
+  }
+
+  async rateSession(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    dto: RateSessionRequest,
+    req: Request,
+  ): Promise<SessionRatingView> {
+    const row = await this.repo.rateSession(organizationId, userId, sessionId, {
+      rating: dto.rating,
+      comment: dto.comment || null,
+      markedInvalid: dto.markedInvalid,
+    });
+    if (!row) throw AppException.notFound('Sessão não encontrada');
+
+    recordAudit(req, {
+      action: 'session.rated',
+      entity: 'session_ratings',
+      entityId: row.sessionId,
+      before: null,
+      after: { rating: row.rating, markedInvalid: row.markedInvalid },
+    });
+    return {
+      sessionId: row.sessionId,
+      rating: row.rating,
+      comment: row.comment,
+      markedInvalid: row.markedInvalid,
+      ratedByUserId: row.ratedByUserId,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 
   /* --------------------------- M10-04: async export --------------------------- */
