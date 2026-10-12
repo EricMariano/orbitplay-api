@@ -9,6 +9,12 @@ export const DRIZZLE = Symbol('DRIZZLE');
 
 export type Database = PostgresJsDatabase<typeof schema>;
 
+/** The handle `db.transaction(...)` passes to its callback — same query API as `Database`. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
+/** The pool or an open transaction — for repository writes that must join a caller's transaction. */
+export type DbExecutor = Database | Transaction;
+
 /**
  * Global database module. Provides the raw postgres-js client (PG_CLIENT, used
  * by the telemetry adapter's raw SQL) and the Drizzle instance (DRIZZLE) used

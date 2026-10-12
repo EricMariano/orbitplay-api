@@ -19,7 +19,12 @@ const RIVAL = {
   email: 'rival-builds@rival.dev',
 };
 
-const BUILD_BYTES = Buffer.from('fake-game-build-bytes');
+// Starts with the zip signature — the build worker sniffs magic bytes against
+// the declared `.zip` extension.
+const BUILD_BYTES = Buffer.concat([
+  Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+  Buffer.from('fake-game-build-bytes'),
+]);
 
 async function bearer(app: INestApplication, email: string): Promise<string> {
   const res = await request(app.getHttpServer())

@@ -19,12 +19,12 @@ O **restante do núcleo do domínio** (participações, sessões, relatórios, f
 >
 > Na revisão anterior (2026-09-18), o M12 (gamificação) tinha fechado: `GET /player/progress`, `GET /player/achievements` (paginado), `GET /player/missions` e `GET /rankings` (`scope`/`period`/`gameId`) — sem trabalho de schema novo, as 6 tabelas (`xp_events`, `achievements`, `player_achievements`, `missions`, `player_missions`, `ranking_snapshots`) já existiam desde a `0002`. A fórmula de XP/nível é placeholder (pendência #4 do `BACKEND-SPEC.md` segue aberta) e `GET /rankings` só responde página vazia — não há job que popule `ranking_snapshots` ainda (pendência #5). `seed.ts` ganhou um catálogo placeholder de 3 achievements e 2 missions (mesmo status de copy do M4) só para as listas terem conteúdo.
 
-| Camada            | Situação                                                                                                                                                                   |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Endpoints HTTP    | **61 operações implementadas** de **92 desenhadas** (≈ 66%) — 46 de 84 caminhos                                                                                            |
-| Tabelas no banco  | **41 migradas** de **41 desenhadas** (+ `telemetry_events` particionada, migração manual)                                                                                  |
-| Enums             | **16 criados** de **16 desenhados**                                                                                                                                        |
-| Módulos completos | M1, M2, M4, M5, M6, M9, M12, M13, M14, M15 prontos; M3 quase completo (só falta `GET /games/{id}/achievements`, fora de alcance sem schema novo); M7–M8, M10–M11 pendentes |
+| Camada            | Situação                                                                                                                                                                                                                      |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Endpoints HTTP    | **61 operações implementadas** de **92 desenhadas** (≈ 66%) — 46 de 84 caminhos                                                                                                                                               |
+| Tabelas no banco  | **41 migradas** de **41 desenhadas** (+ `telemetry_events` particionada, migração manual)                                                                                                                                     |
+| Enums             | **16 criados** de **16 desenhados**                                                                                                                                                                                           |
+| Módulos completos | M1, M2, M4, M5, M6, M9, M12, M13, M14, M15 prontos; M3 quase completo (só falta `GET /games/{id}/achievements`, fora de alcance sem schema novo); M11 pronto (benchmark `unavailable` pela pendência 7); M7–M8, M10 pendentes |
 
 ---
 
@@ -167,7 +167,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 
 > **Nota:** a tabela já existia na `0002`. Esta entrega adiciona o índice `notifications_user_idx` (`user_id`, `id`) na `0008` e a camada HTTP. O contrato segue `openapi.design.yaml` (`kind` exposto como `type`, `read` booleano). A pendência 8 (componente in-app no Figma) segue aberta. Nenhum produtor grava linhas ainda — o e-mail transacional continua só no `NotificationPort`.
 
-### M7–M11 — **a fazer** (só no design, exceto M4–M6, M9, M12, M13 e M14)
+### M7–M11 — **a fazer** (só no design, exceto M4–M6, M9, M11, M12, M13 e M14)
 
 Nenhum endpoint destes módulos está implementado. **As tabelas de todos eles já existem no banco** — falta só a camada HTTP. São **29 operações** em 28 caminhos. `GET /games/{id}/achievements` (M3) não entra nesta lista — não é "falta implementar", é "falta schema"; ver a nota do M3 acima e `DECISIONS.md` §3.
 
@@ -176,13 +176,13 @@ Nenhum endpoint destes módulos está implementado. **As tabelas de todos eles j
 | M7 participações | 11                 |
 | M8 player-feed   | 7                  |
 | M10 reports      | 8                  |
-| M11 dashboard    | 2                  |
-| **Total**        | **29**             |
+| M11 dashboard    | 0 (✅ feito)       |
+| **Total**        | **27**             |
 
 - **M7 participations/sessions:** `POST /player/tests/{testId}/participations`, `GET /participations/{id}`, `POST /participations/{id}/consents`, `GET /participations/{id}/tutorial`, `POST /participations/{id}/sessions`, `PATCH /sessions/{id}/devices`, `POST /sessions/{id}/heartbeat`, `POST /sessions/{id}/finish`, `GET /sessions/{id}/summary`, `POST /sessions/{id}/form-response`, `GET /participations/{id}/result`
 - **M8 player-feed:** `GET /player/home`, `GET /player/feed`, `GET /player/feed/filters`, `GET /player/games/{gameId}`, `GET /player/games/{gameId}/tests`, `GET /player/tests/{testId}`, `GET /player/participations`
 - **M10 reports:** `GET /tests/{id}/report`, `.../report/evolution`, `.../report/ratings`, `.../report/testers`, `GET /tests/{id}/sessions`, `GET /sessions/{id}`, `POST /sessions/{id}/rate`, `GET /tests/{id}/report/export`
-- **M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`
+- ~~**M11 dashboard:** `GET /studio/dashboard`, `GET /studio/benchmark`~~ ✅ — KPIs reais com cache Redis invalidado por evento; `delta` sempre `null` e benchmark sempre `unavailable` até as decisões de produto (ver `DECISIONS.md` §3)
 
 ---
 
@@ -245,5 +245,5 @@ Seguindo as dependências do domínio (cada linha destrava a próxima). Como o s
 3. ~~**M6 builds** (o que sobrou depois do wizard): `GET /builds/{id}`, `.../compatibility`, `.../download-url`.~~ **Feito.** `download-url` já lê `participations` direto (pré-M7, mesmo padrão do M13); o gate de compatibilidade de dispositivo dessa rota fica completo só quando o M7 existir.
 4. **M7/M8** (jogador): participações, sessões, consentimentos + worker de validação de sessão (gatilho de XP), feed — é o que faz `GET /player/progress` (M12) e a elegibilidade de avaliação (M13) passarem a reportar dado real.
 5. **M10 reports** (depende de sessões existirem; o M9 media já está pronto e esperando por elas).
-6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **M12, M13 e M14 feitos** (M12 e M13 fora de ordem, pedidos explicitamente); M11 segue pendente. A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M7 existir (e, para ranking, um job futuro popular `ranking_snapshots`). A pendência 8 do Figma (componente in-app) segue aberta.
+6. ~~**M11 dashboard, M12 gamificação, M13 comunidade, M14 notificações.**~~ **Todos feitos** (M12 e M13 fora de ordem, pedidos explicitamente; M11 e M14 depois). A parte de avaliações do M13 e `hoursPlayed`/`testsCompleted`/rankings do M12 leem `sessions`/`session_validations`/`ranking_snapshots` direto — funcionam de fato só depois que o M7 existir (e, para ranking, um job futuro popular `ranking_snapshots`). A pendência 8 do Figma (componente in-app) segue aberta.
 7. **M15-02** (idempotência durável na tabela `idempotency_keys`) — pode entrar a qualquer momento, a tabela já existe.

@@ -3,6 +3,7 @@ import type { Request } from 'express';
 import type { GameAssetRow } from '../../infra/database/schema/game-assets';
 import type { GameRow } from '../../infra/database/schema/games';
 import { newId } from '../../infra/database/schema/_helpers';
+import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import type { Page } from '../../shared/pagination/pagination';
@@ -42,6 +43,7 @@ export class GamesService {
   constructor(
     private readonly repo: GamesRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
+    private readonly dashboardKpis: DashboardKpiCache,
   ) {}
 
   /**
@@ -53,6 +55,15 @@ export class GamesService {
     const row = await this.repo.findByIdAnyOrg(id);
     if (!row) throw AppException.notFound();
     return { id: row.id, organizationId: row.organizationId, status: row.status };
+  }
+  /**
+   * Cross-org listing for the player feed (ORB-M8-02) — thin pass-through to
+   * the repository, kept here (not exposed directly) for the same reason
+   * `existsAnyOrg`/`getAnyOrg` are: other modules reach `games` through this
+   * service's façade, never through `GamesRepository` directly.
+   */
+  async listActiveAnyOrg(limit: number) {
+    return this.repo.listActiveAnyOrg(limit);
   }
 
   /** Org-scoped existence check — lets other modules (e.g. `tests`) validate a `gameId` without reaching into the `games` table directly. */
@@ -129,6 +140,7 @@ export class GamesService {
       platform: dto.platform ?? null,
       status: dto.status ?? 'draft',
     });
+    await this.dashboardKpis.invalidate(organizationId);
 
     const view = toView(row, null, null, { ...EMPTY_GAME_METRICS });
     recordAudit(req, {
@@ -183,6 +195,7 @@ export class GamesService {
   async remove(organizationId: string, id: string, req: Request): Promise<void> {
     const before = await this.repo.getByIdInOrgOrThrow(organizationId, id);
     await this.repo.softDeleteByIdInOrg(organizationId, id);
+    await this.dashboardKpis.invalidate(organizationId);
     const [beforeView] = await this.toViews(organizationId, [before]);
     recordAudit(req, {
       action: 'game.deleted',
