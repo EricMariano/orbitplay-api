@@ -365,7 +365,7 @@ describe('TestsService', () => {
       expect(view.status).toBe('processing');
       expect(queue.ensureEnqueued).toHaveBeenCalledWith(
         'build.validate',
-        `build.validate:${BUILD_ID}`,
+        `build-validate-${BUILD_ID}`,
         { buildId: BUILD_ID },
       );
     });

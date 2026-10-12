@@ -30,37 +30,28 @@ export type JobNameValue = (typeof JobName)[keyof typeof JobName];
  * and the reconciliation sweep; BullMQ treats `add()` with an id that's
  * already in flight as a no-op, so all three can call `ensureJobEnqueued`
  * freely without ever double-processing or racing each other.
+ *
+ * No `:` separator: BullMQ's `Job.create` rejects a custom `jobId` that
+ * contains `:` unless splitting on it yields exactly 3 parts (reserved for
+ * its own repeatable-job id format) — `<job>:<uuid>` only splits into 2 and
+ * throws `Custom Id cannot contain :`.
  */
 export function buildValidateJobId(buildId: string): string {
-  return `${JobName.BUILD_VALIDATE}:${buildId}`;
+  return `build-validate-${buildId}`;
 }
 
 export function mediaTranscodeJobId(recordingId: string): string {
-  return `${JobName.MEDIA_TRANSCODE}:${recordingId}`;
+  return `media-transcode-${recordingId}`;
 }
 
 export function mediaExtractAudioJobId(recordingId: string): string {
-  return `${JobName.MEDIA_EXTRACT_AUDIO}:${recordingId}`;
+  return `media-extract-audio-${recordingId}`;
 }
 
-/**
- * No `:` separator on purpose (unlike the other `*JobId` helpers above,
- * which do use one): BullMQ's `Job.create` rejects a custom `jobId` that
- * contains `:` unless splitting on it yields exactly 3 parts (reserved for
- * its own repeatable-job id format) — `session.validate:<uuid>` only splits
- * into 2 and throws `Custom Id cannot contain :`. The existing `:`-based
- * helpers happen to never surface this because their one call site
- * (`TestsService.confirmBuild`) wraps the enqueue in a try/catch that
- * silently marks the build `failed` on ANY error, this one included.
- */
 export function sessionValidateJobId(sessionId: string): string {
   return `session-validate-${sessionId}`;
 }
 
-/**
- * No `:` separator — same BullMQ `Custom Id cannot contain :` constraint
- * documented on `sessionValidateJobId` above.
- */
 export function reportExportJobId(exportId: string): string {
   return `report-export-${exportId}`;
 }
