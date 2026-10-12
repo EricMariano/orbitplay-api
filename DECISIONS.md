@@ -408,3 +408,27 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   recurso é `tests`, `games` só empresta o prefixo da rota) — `studio+`
   (`STUDIO_ROLES`), como todo o resto do `TestsController` e como a tabela
   do `BACKEND-SPEC.md` já listava.
+- **ORB-M8-02 — ranking do feed é placeholder (mais recentes primeiro).**
+  `player_preferences` (genres/platforms/deviceProfile) ainda não pontua o
+  feed — mesmo "weights are still TBD" já registrado no comentário de
+  `schema/player.ts`. `GET /player/feed` congela até `FEED_MAX_ITEMS` (500)
+  jogos `active` de qualquer organização, ordenados por `createdAt desc`,
+  num `feed_ranking_snapshots` com TTL de 30 min (`FEED_SNAPSHOT_TTL_SECONDS`,
+  isolado em `dto/feed.dto.ts` — trocar por um critério real toca só esse
+  arquivo, mesmo padrão de isolamento do `XP_PER_LEVEL`). Paginação usa um
+  cursor de offset próprio (mesmo padrão de `GamificationService.getRankings`
+  — `encodeOffsetCursor`/`decodeOffsetCursor`), não o cursor de UUID
+  compartilhado de `shared/pagination/pagination.ts` — não há id de linha
+  por posição no array `itemIds` congelado.
+- **`GET /player/feed` sempre responde `200`, nunca erro, para um `seed`
+  ausente/inválido/expirado.** Mesmo padrão "sempre 200 com estrutura vazia
+  ou recalculada" já usado em `GamificationService.getRankings` e nos itens
+  pré-M7/pré-M8 documentados acima — um snapshot que não existe mais gera um
+  novo automaticamente, sem 404.
+- **`GamesRepository.listActiveAnyOrg` — nova leitura cross-org, mesmo
+  raciocínio de `findByIdAnyOrg`.** Um jogador navega o feed de jogos de
+  qualquer organização, não só da sua (RN-01 só governa recursos PRÓPRIOS de
+  um estúdio). `GamesService` expõe isso via um wrapper fino
+  (`listActiveAnyOrg`), preservando o mesmo padrão de fachada que
+  `existsAnyOrg`/`getAnyOrg` já estabeleceram — outros módulos nunca importam
+  `GamesRepository` diretamente.
