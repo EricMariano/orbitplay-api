@@ -538,13 +538,15 @@ o jogo.
 - E-mails transacionais via `NotificationPort`: convite de membro, redefinição
   de senha, teste publicado, sessão validada, recompensa liberada, saque
   processado, build reprovada.
-  | Método | Rota | Papel | Situação |
-  | --- | --- | --- | --- |
-  | GET | `/notifications?unreadOnly=` | autenticado | **[novo]** |
-  | PATCH | `/notifications/:id/read` | autenticado | **[novo]** |
 
-- Notificações in-app dependem de confirmação no Figma de que o componente
-  existe (pendência 8).
+  | Método | Rota                         | Papel       | Situação  |
+  | ------ | ---------------------------- | ----------- | --------- |
+  | GET    | `/notifications?unreadOnly=` | autenticado | [✓]       |
+  | PATCH  | `/notifications/:id/read`    | autenticado | [✓] — 204 |
+
+- Notificações in-app ainda dependem de confirmação no Figma de que o
+  componente existe (pendência 8). Os endpoints já seguem o contrato de
+  `openapi.design.yaml` para o front consumir quando essa confirmação chegar.
 
 ---
 

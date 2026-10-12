@@ -1,5 +1,5 @@
 import { relations } from 'drizzle-orm';
-import { testReportExports, testReportSnapshots } from './community';
+import { notifications, testReportExports, testReportSnapshots } from './community';
 import { games } from './games';
 import { memberships } from './memberships';
 import { organizations } from './organizations';
@@ -20,6 +20,7 @@ import { users } from './users';
 export const usersRelations = relations(users, ({ many }) => ({
   memberships: many(memberships),
   ownedOrganizations: many(organizations),
+  notifications: many(notifications),
 }));
 
 export const organizationsRelations = relations(organizations, ({ one, many }) => ({
@@ -84,4 +85,12 @@ export const testReportExportsRelations = relations(testReportExports, ({ one })
 export const testsRelations = relations(tests, ({ many }) => ({
   reportSnapshots: many(testReportSnapshots),
   reportExports: many(testReportExports),
+}));
+
+/** M14 — in-app notification belongs to one user. */
+export const notificationsRelations = relations(notifications, ({ one }) => ({
+  user: one(users, {
+    fields: [notifications.userId],
+    references: [users.id],
+  }),
 }));

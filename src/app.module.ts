@@ -23,6 +23,7 @@ import { GamesModule } from './modules/games/games.module';
 import { GamificationModule } from './modules/gamification/gamification.module';
 import { HealthModule } from './modules/health/health.module';
 import { MediaModule } from './modules/media/media.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { OrgsModule } from './modules/orgs/orgs.module';
 import { ParticipationsModule } from './modules/participations/participations.module';
@@ -87,6 +88,7 @@ import { PlayerModule } from './modules/player/player.module';
     OrgsModule,
     GamesModule,
     MediaModule,
+    NotificationsModule,
     TestModelsModule,
     TestsModule,
     BuildsModule,
