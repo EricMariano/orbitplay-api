@@ -66,7 +66,20 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
       .limit(1);
     return rows[0] ?? null;
   }
-
+  /**
+   * Cross-org listing for the player feed (ORB-M8-02) — same tenancy bypass
+   * reasoning as `findByIdAnyOrg`: a player browses games across every
+   * organization, not just one. Ordered by newest first (placeholder ranking,
+   * see DECISIONS.md) — the caller freezes this order into a snapshot.
+   */
+  async listActiveAnyOrg(limit: number): Promise<GameRow[]> {
+    return this.db
+      .select()
+      .from(games)
+      .where(and(eq(games.status, 'active'), isNull(games.deletedAt)))
+      .orderBy(desc(games.createdAt))
+      .limit(limit);
+  }
   /** Slug uniqueness check within the org (excludes soft-deleted). */
   async findBySlugInOrg(organizationId: string, slug: string): Promise<GameRow | null> {
     const rows = await this.db

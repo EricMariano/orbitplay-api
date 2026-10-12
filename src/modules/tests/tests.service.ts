@@ -6,6 +6,7 @@ import { GamesService } from '../games/games.service';
 import type { TestModelView } from '../test-models/dto/test-model.dto';
 import { TestModelsService } from '../test-models/test-models.service';
 import { newId } from '../../infra/database/schema/_helpers';
+import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import type { TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
 import { buildValidateJobId, JobName } from '../../infra/queue/queue.constants';
 import { recordAudit } from '../../shared/audit/audit-context';
@@ -56,6 +57,7 @@ export class TestsService {
     private readonly testModels: TestModelsService,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    private readonly dashboardKpis: DashboardKpiCache,
   ) {}
 
   async create(
@@ -79,6 +81,7 @@ export class TestsService {
       slotsTaken: 0,
       reportStage: 'none',
     });
+    await this.dashboardKpis.invalidate(organizationId);
 
     const view = await this.toView(row);
     recordAudit(req, {
@@ -108,6 +111,12 @@ export class TestsService {
     const page = await this.repo.listByGameInOrg(organizationId, gameId, query);
     const data = await Promise.all(page.data.map((row) => this.toView(row)));
     return { data, nextCursor: page.nextCursor };
+  }
+
+  /** Most recent tests of the org, any game — the Home's "testes recentes" (M11, Tela 02). */
+  async listRecent(organizationId: string, limit: number): Promise<TestView[]> {
+    const page = await this.repo.listInOrg(organizationId, { limit });
+    return Promise.all(page.data.map((row) => this.toView(row)));
   }
 
   async setModel(
@@ -148,9 +157,9 @@ export class TestsService {
     questions: FormQuestionInput[],
     req: Request,
   ): Promise<TestFormView> {
-    const saved = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+    const saved = await this.repo.withRowLock(organizationId, id, async (test, updateTest, tx) => {
       this.assertDraft(test);
-      const saved = await this.repo.replaceForm(id, questions);
+      const saved = await this.repo.replaceForm(id, questions, tx);
       await updateTest({ currentStep: this.advance(test.currentStep, 'build') });
       return saved;
     });
@@ -215,13 +224,13 @@ export class TestsService {
       });
     }
 
-    const result = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+    const result = await this.repo.withRowLock(organizationId, id, async (test, updateTest, tx) => {
       this.assertDraft(test);
 
       const existing = await this.builds.findLatestBuild(id);
       if (existing) {
         if (existing.build.status === 'failed') {
-          await this.builds.deleteBuild(existing.build.id);
+          await this.builds.deleteBuild(existing.build.id, tx);
         } else {
           throw AppException.conflict(
             'Já existe uma build para este teste — remova antes de enviar outra',
@@ -259,6 +268,7 @@ export class TestsService {
           status: 'processing',
         },
         BUILD_STEP_KEYS,
+        tx,
       );
 
       await updateTest({ currentStep: this.advance(test.currentStep, 'audience') });
@@ -334,25 +344,33 @@ export class TestsService {
     const eligible = await this.repo.countEligiblePlayers(minBirthdate, maxBirthdate);
     const estimatedReach = Math.min(dto.quantity, eligible);
 
-    const updated = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
-      this.assertDraft(test);
+    const updated = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (test, updateTest, tx) => {
+        this.assertDraft(test);
 
-      await this.repo.upsertAudience(id, {
-        countries: dto.locations ?? [],
-        archetypes: dto.archetypes ?? [],
-        platforms: dto.deviceRequirements ?? [],
-        ageMin: dto.ageMin,
-        ageMax: dto.ageMax,
-        testerCount: dto.quantity,
-        keepActive: dto.keepActive ?? false,
-        estimatedReach,
-      });
+        await this.repo.upsertAudience(
+          id,
+          {
+            countries: dto.locations ?? [],
+            archetypes: dto.archetypes ?? [],
+            platforms: dto.deviceRequirements ?? [],
+            ageMin: dto.ageMin,
+            ageMax: dto.ageMax,
+            testerCount: dto.quantity,
+            keepActive: dto.keepActive ?? false,
+            estimatedReach,
+          },
+          tx,
+        );
 
-      return updateTest({
-        durationDays: dto.durationDays,
-        currentStep: this.advance(test.currentStep, 'review'),
-      });
-    });
+        return updateTest({
+          durationDays: dto.durationDays,
+          currentStep: this.advance(test.currentStep, 'review'),
+        });
+      },
+    );
 
     const view = await this.toView(updated);
     recordAudit(req, {
@@ -427,6 +445,7 @@ export class TestsService {
 
     const view = await this.toView(result.test);
     if (result.justPublished) {
+      await this.dashboardKpis.invalidate(organizationId);
       recordAudit(req, {
         action: 'test.published',
         entity: 'tests',
@@ -451,6 +470,7 @@ export class TestsService {
     }
 
     const updated = await this.repo.updateByIdInOrg(organizationId, id, { status: dto.status });
+    await this.dashboardKpis.invalidate(organizationId);
     const view = await this.toView(updated);
     recordAudit(req, {
       action: 'test.status.changed',

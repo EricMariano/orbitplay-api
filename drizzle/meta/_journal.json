@@ -61,8 +61,15 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1791666199077,
-      "tag": "0008_careful_mad_thinker",
+      "when": 1790634456614,
+      "tag": "0008_notifications_user_idx",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791849179802,
+      "tag": "0009_session_ratings",
       "breakpoints": true
     }
   ]

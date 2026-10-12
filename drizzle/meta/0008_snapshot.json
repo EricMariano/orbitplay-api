@@ -1,5 +1,5 @@
 {
-  "id": "ed311d7f-f184-4052-9ba6-0d56f9120941",
+  "id": "95618a29-8fe5-4e11-ace0-85ec95a1d098",
   "prevId": "15213711-de18-4bca-a9f3-f0b2a659d0c1",
   "version": "7",
   "dialect": "postgresql",
@@ -2212,131 +2212,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.session_ratings": {
-      "name": "session_ratings",
-      "schema": "",
-      "columns": {
-        "session_id": {
-          "name": "session_id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rated_by_user_id": {
-          "name": "rated_by_user_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rating": {
-          "name": "rating",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "comment": {
-          "name": "comment",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "marked_invalid": {
-          "name": "marked_invalid",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "session_ratings_org_idx": {
-          "name": "session_ratings_org_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "session_ratings_session_id_sessions_id_fk": {
-          "name": "session_ratings_session_id_sessions_id_fk",
-          "tableFrom": "session_ratings",
-          "tableTo": "sessions",
-          "columnsFrom": [
-            "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "session_ratings_organization_id_organizations_id_fk": {
-          "name": "session_ratings_organization_id_organizations_id_fk",
-          "tableFrom": "session_ratings",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "session_ratings_rated_by_user_id_users_id_fk": {
-          "name": "session_ratings_rated_by_user_id_users_id_fk",
-          "tableFrom": "session_ratings",
-          "tableTo": "users",
-          "columnsFrom": [
-            "rated_by_user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "session_ratings_rating_range": {
-          "name": "session_ratings_rating_range",
-          "value": "\"session_ratings\".\"rating\" between 1 and 5"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.session_recordings": {
       "name": "session_recordings",
       "schema": "",
@@ -3580,7 +3455,29 @@
           "default": "now()"
         }
       },
-      "indexes": {},
+      "indexes": {
+        "notifications_user_idx": {
+          "name": "notifications_user_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
         "notifications_user_id_users_id_fk": {
           "name": "notifications_user_id_users_id_fk",
