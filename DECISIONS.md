@@ -329,7 +329,7 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   quebrou".
 - **Gap real encontrado e corrigido: FKs simples permitiam relações
   cross-org (DAT-03).** `tests.game_id → games.id`, `builds.test_id →
-tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
+  tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
   nada no banco impedia um `test` com `organization_id = A` apontar para um
   `game` de B (idem build→test e asset→game). A aplicação sempre filtra por
   org, então isso nunca acontece pelo caminho normal da API, mas não era uma
@@ -341,7 +341,7 @@ tests.id` e `game_assets.game_id → games.id` eram FKs de uma coluna só —
   Agora um INSERT/UPDATE cross-org falha com violação de FK, não só com um
   bug de aplicação não escrito ainda. Migração `0005` gerada por
   `drizzle-kit generate` precisou de reordenação manual (`CREATE UNIQUE
-INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
+  INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
   garante essa ordem dentro da mesma migração) — testado de ponta a ponta
   (migração + seed + um INSERT cross-org rejeitado de propósito) num
   Postgres descartável antes de commitar.
@@ -378,10 +378,10 @@ INDEX` antes dos `ADD CONSTRAINT` que os referenciam — drizzle-kit não
   ranking de jogadores) segue aberta, e não existe job agendado — a tabela é
   "materializada por um job" por design (comentário em
   `schema/player.ts`), não calculada por request. `GamificationRepository.
-findLatestSnapshot` busca o snapshot mais recente por
+  findLatestSnapshot` busca o snapshot mais recente por
   `scope`/`period`/`gameId`; sem nenhum, a rota responde `200` com
   `{ data: [], nextCursor: null, currentUserEntry: null, generatedAt: null
-}` em vez de erro — mesmo padrão pré-job dos itens acima. Paginação sobre
+  }` em vez de erro — mesmo padrão pré-job dos itens acima. Paginação sobre
   `entries` (um array jsonb por linha, não uma linha por posição) usa um
   cursor de offset próprio (`encodeOffsetCursor`/`decodeOffsetCursor` em
   `gamification.service.ts`), não o cursor de UUID compartilhado de
@@ -408,7 +408,7 @@ findLatestSnapshot` busca o snapshot mais recente por
   recurso é `tests`, `games` só empresta o prefixo da rota) — `studio+`
   (`STUDIO_ROLES`), como todo o resto do `TestsController` e como a tabela
   do `BACKEND-SPEC.md` já listava.
-  ORB-M8-02 — ranking do feed é placeholder (mais recentes primeiro).
+- **ORB-M8-02 — ranking do feed é placeholder (mais recentes primeiro).**
   `player_preferences` (genres/platforms/deviceProfile) ainda não pontua o
   feed — mesmo "weights are still TBD" já registrado no comentário de
   `schema/player.ts`. `GET /player/feed` congela até `FEED_MAX_ITEMS` (500)

@@ -12,13 +12,20 @@ import { FEED_SNAPSHOT_TTL_SECONDS } from './dto/feed.dto';
 export class FeedRepository {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
 
-  /** Only a non-expired snapshot is usable — an expired seed is treated as if it didn't exist. */
-  async findValidSnapshot(seed: string): Promise<FeedRankingSnapshotRow | null> {
+  /**
+   * Only the caller's own, non-expired snapshot is usable — an expired seed or
+   * another player's seed is treated as if it didn't exist.
+   */
+  async findValidSnapshot(userId: string, seed: string): Promise<FeedRankingSnapshotRow | null> {
     const rows = await this.db
       .select()
       .from(feedRankingSnapshots)
       .where(
-        and(eq(feedRankingSnapshots.seed, seed), gt(feedRankingSnapshots.expiresAt, new Date())),
+        and(
+          eq(feedRankingSnapshots.seed, seed),
+          eq(feedRankingSnapshots.userId, userId),
+          gt(feedRankingSnapshots.expiresAt, new Date()),
+        ),
       )
       .limit(1);
     return rows[0] ?? null;
