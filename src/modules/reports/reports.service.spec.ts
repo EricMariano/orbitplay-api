@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRatingRow } from '../../infra/database/schema/participations';
+import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import type { QueuePort } from '../../shared/ports/queue.port';
 import type { StoragePort } from '../../shared/ports/storage.port';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
@@ -37,6 +38,7 @@ describe('ReportsService.rateSession', () => {
       repo as unknown as ReportsRepository,
       {} as StoragePort,
       {} as QueuePort,
+      { invalidate: vi.fn() } as unknown as DashboardKpiCache,
     );
     req = {} as Request;
   });

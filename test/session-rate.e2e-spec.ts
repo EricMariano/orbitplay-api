@@ -66,8 +66,14 @@ describe('Session rating — M10-03 (e2e)', () => {
     await app.close();
   });
 
-  /** A completed, valid session of the demo org's test. */
-  async function seedSession(): Promise<{ testId: string; sessionId: string }> {
+  /**
+   * A completed session of the demo org's test. `validation` is the worker's
+   * verdict: valid by default, `false` for a rejected session, `null` for one
+   * the worker hasn't validated yet.
+   */
+  async function seedSession(
+    validation: boolean | null = true,
+  ): Promise<{ testId: string; sessionId: string }> {
     const testId = uuidv7();
     const participationId = uuidv7();
     const sessionId = uuidv7();
@@ -81,9 +87,11 @@ describe('Session rating — M10-03 (e2e)', () => {
     await sql`
       INSERT INTO sessions (id, participation_id, test_id, organization_id, status, duration_ms)
       VALUES (${sessionId}, ${participationId}, ${testId}, ${ORG_ID}, 'completed', 60000)`;
-    await sql`
-      INSERT INTO session_validations (session_id, valid, validator_version, validated_at)
-      VALUES (${sessionId}, true, 'v1', now())`;
+    if (validation !== null) {
+      await sql`
+        INSERT INTO session_validations (session_id, valid, reason, validator_version, validated_at)
+        VALUES (${sessionId}, ${validation}, ${validation ? null : 'duration_too_short'}, 'v1', now())`;
+    }
     return { testId, sessionId };
   }
 
@@ -143,6 +151,53 @@ describe('Session rating — M10-03 (e2e)', () => {
       .send({ rating: 3, markedInvalid: false });
     expect(restored.status).toBe(200);
     expect((await overview()).validSessions).toBe(1);
+  });
+
+  it("never turns a session the worker rejected valid, nor overwrites the worker's reason", async () => {
+    const { sessionId } = await seedSession(false);
+
+    for (const markedInvalid of [true, false]) {
+      const res = await request(app.getHttpServer())
+        .post(`/sessions/${sessionId}/rate`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({ rating: 1, markedInvalid });
+      expect(res.status).toBe(200);
+    }
+
+    const [validation] = await sql`
+      SELECT valid, reason, validator_version FROM session_validations WHERE session_id = ${sessionId}`;
+    expect(validation).toMatchObject({
+      valid: false,
+      reason: 'duration_too_short',
+      validator_version: 'v1',
+    });
+  });
+
+  it('refuses to mark invalid a session the worker has not validated yet (409)', async () => {
+    const { sessionId } = await seedSession(null);
+
+    const res = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/rate`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ rating: 2, markedInvalid: true });
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CONFLICT');
+
+    // Nothing was written — the rating rolled back with the transaction, and
+    // the worker still finds no validation row to skip on.
+    expect(await sql`SELECT 1 FROM session_ratings WHERE session_id = ${sessionId}`).toHaveLength(
+      0,
+    );
+    expect(
+      await sql`SELECT 1 FROM session_validations WHERE session_id = ${sessionId}`,
+    ).toHaveLength(0);
+
+    // A plain rating (no invalidation) is still accepted.
+    const plain = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/rate`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ rating: 2 });
+    expect(plain.status).toBe(200);
   });
 
   it('validates the body (rating 1–5) with the error envelope', async () => {

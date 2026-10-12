@@ -19,6 +19,7 @@ import {
 } from '../../infra/database/schema/participations';
 import { testFormOptions, testFormQuestions, tests } from '../../infra/database/schema/tests';
 import { users } from '../../infra/database/schema/users';
+import { AppException } from '../../shared/errors/app.exception';
 import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
 import type {
@@ -356,6 +357,12 @@ export class ReportsRepository {
    * un-marking only reverts a validation this studio flow wrote itself.
    * Cached report blocks are dropped so the next read recomputes them.
    * Returns `null` when the session is not in the caller's organization.
+   *
+   * Marking invalid only overrides a worker verdict of `valid = true` — a
+   * session the worker already rejected keeps its own reason, so un-marking
+   * can never turn it valid. A session the worker hasn't validated yet can't
+   * be marked (409): writing the row first would make the `session.validate`
+   * job skip it for good (it no-ops when a validation row exists).
    */
   async rateSession(
     organizationId: string,
@@ -383,21 +390,28 @@ export class ReportsRepository {
             rating: input.rating,
             comment: input.comment,
             markedInvalid: input.markedInvalid,
+            updatedAt: new Date(),
           },
         })
         .returning();
 
       if (input.markedInvalid) {
-        const values = {
-          valid: false,
-          reason: STUDIO_INVALID_REASON,
-          validatorVersion: 'studio',
-          validatedAt: new Date(),
-        };
+        const [validation] = await tx
+          .select({ valid: sessionValidations.valid })
+          .from(sessionValidations)
+          .where(eq(sessionValidations.sessionId, sessionId))
+          .limit(1);
+        if (!validation) {
+          throw AppException.conflict(
+            'A sessão ainda não foi validada — aguarde a validação antes de marcá-la como inválida',
+          );
+        }
         await tx
-          .insert(sessionValidations)
-          .values({ sessionId, ...values })
-          .onConflictDoUpdate({ target: sessionValidations.sessionId, set: values });
+          .update(sessionValidations)
+          .set({ valid: false, reason: STUDIO_INVALID_REASON, validatedAt: new Date() })
+          .where(
+            and(eq(sessionValidations.sessionId, sessionId), eq(sessionValidations.valid, true)),
+          );
       } else {
         await tx
           .update(sessionValidations)

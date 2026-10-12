@@ -6,6 +6,7 @@ import type {
 } from '../../infra/database/schema/community';
 import { newId } from '../../infra/database/schema/_helpers';
 import { JobName, reportExportJobId } from '../../infra/queue/queue.constants';
+import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
@@ -42,6 +43,7 @@ export class ReportsService {
     private readonly repo: ReportsRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    private readonly dashboardKpis: DashboardKpiCache,
   ) {}
 
   /* ------------------------------ M10-02: blocks ----------------------------- */
@@ -134,6 +136,8 @@ export class ReportsService {
       markedInvalid: dto.markedInvalid,
     });
     if (!row) throw AppException.notFound('Sessão não encontrada');
+    // M11: `sessionsValid` on the studio dashboard may have just changed.
+    await this.dashboardKpis.invalidate(organizationId);
 
     recordAudit(req, {
       action: 'session.rated',
