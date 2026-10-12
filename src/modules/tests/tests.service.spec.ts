@@ -15,6 +15,7 @@ import { TestModelsService } from '../test-models/test-models.service';
 import { MAX_BUILD_BYTES } from './dto/test.dto';
 import { TestsService } from './tests.service';
 import type { TestsRepository } from './tests.repository';
+import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 
 const ORG = '01990000-0000-7000-8000-0000000000a1';
 const GAME_ID = '01990000-0000-7000-8000-0000000000b1';
@@ -175,6 +176,7 @@ describe('TestsService', () => {
       new TestModelsService(),
       storage as unknown as StoragePort,
       queue as unknown as QueuePort,
+      { invalidate: vi.fn().mockResolvedValue(undefined) } as unknown as DashboardKpiCache,
     );
     req = {} as Request;
   });

@@ -7,6 +7,7 @@ import type { StoragePort } from '../../shared/ports/storage.port';
 import { EMPTY_GAME_METRICS, EMPTY_GAME_SPECS, MAX_GAME_ASSET_BYTES } from './dto/game.dto';
 import { GamesService } from './games.service';
 import type { GamesRepository } from './games.repository';
+import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 
 const ORG = '01920000-0000-7000-8000-0000000000a1';
 const GAME_ID = '01920000-0000-7000-8000-0000000000d1';
@@ -106,6 +107,7 @@ describe('GamesService', () => {
     service = new GamesService(
       repo as unknown as GamesRepository,
       storage as unknown as StoragePort,
+      { invalidate: vi.fn().mockResolvedValue(undefined) } as unknown as DashboardKpiCache,
     );
     req = {} as Request;
   });
