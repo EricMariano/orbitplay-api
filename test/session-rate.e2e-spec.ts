@@ -10,12 +10,12 @@ import { TEST_DATABASE_URL } from './helpers/test-db';
 // Second organization + dedicated tester, to prove cross-org isolation without
 // touching the seeded player's ledger (other suites assert on it).
 const RIVAL = {
-  userId: '01940000-0000-7000-8000-0000000000e1',
-  orgId: '01940000-0000-7000-8000-0000000000f1',
-  membershipId: '01940000-0000-7000-8000-0000000000e9',
+  userId: '019a0000-0000-7000-8000-0000000000e1',
+  orgId: '019a0000-0000-7000-8000-0000000000f1',
+  membershipId: '019a0000-0000-7000-8000-0000000000e9',
   email: 'rate-rival-owner@rival.dev',
 };
-const TESTER_ID = '01940000-0000-7000-8000-0000000000e2';
+const TESTER_ID = '019a0000-0000-7000-8000-0000000000e2';
 
 async function bearer(app: INestApplication, email: string): Promise<string> {
   const res = await request(app.getHttpServer())
