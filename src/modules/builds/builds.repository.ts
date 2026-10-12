@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, desc, eq, inArray } from 'drizzle-orm';
-import { DRIZZLE, type Database } from '../../infra/database/database.module';
+import { DRIZZLE, type Database, type DbExecutor } from '../../infra/database/database.module';
 import { newId } from '../../infra/database/schema/_helpers';
 import { ACTIVE_PARTICIPATION_STATUSES } from '../../infra/database/schema/enums';
 import { participations } from '../../infra/database/schema/participations';
@@ -51,11 +51,13 @@ export class BuildsRepository extends OrgScopedRepository<BuildRow, NewBuildRow>
     return { build, steps };
   }
 
+  /** Inside `TestsRepository.withRowLock`, pass its transaction as `db` (see the note there). */
   async createBuildWithSteps(
     values: NewBuildRow,
     stepKeys: readonly ('checksum' | 'malware_scan' | 'metadata')[],
+    db: DbExecutor = this.db,
   ): Promise<BuildWithSteps> {
-    return this.db.transaction(async (tx) => {
+    return db.transaction(async (tx) => {
       const [build] = await tx.insert(builds).values(values).returning();
       const steps = await tx
         .insert(buildValidationSteps)
@@ -72,8 +74,8 @@ export class BuildsRepository extends OrgScopedRepository<BuildRow, NewBuildRow>
     });
   }
 
-  async deleteBuild(buildId: string): Promise<void> {
-    await this.db.delete(builds).where(eq(builds.id, buildId));
+  async deleteBuild(buildId: string, db: DbExecutor = this.db): Promise<void> {
+    await db.delete(builds).where(eq(builds.id, buildId));
   }
 
   /**
