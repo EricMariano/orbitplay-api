@@ -92,6 +92,13 @@
       "when": 1791854659842,
       "tag": "0012_audience_player_tier_boost",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791856093228,
+      "tag": "0013_player_profile",
+      "breakpoints": true
     }
   ]
 }

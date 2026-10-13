@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { toBuildView } from '../builds/build-view.mapper';
 import { BuildsRepository } from '../builds/builds.repository';
 import { AppException } from '../../shared/errors/app.exception';
+import { ReportSnapshotCache } from '../../infra/database/report-snapshot-cache';
 import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import type { ParticipationRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
@@ -17,6 +18,7 @@ export class ParticipationsService {
     private readonly repo: ParticipationsRepository,
     private readonly builds: BuildsRepository,
     private readonly dashboardKpis: DashboardKpiCache,
+    private readonly reportSnapshots: ReportSnapshotCache,
   ) {}
 
   /**
@@ -63,6 +65,8 @@ export class ParticipationsService {
       throw err;
     }
     await this.dashboardKpis.invalidate(test.organizationId);
+    // M10: participations/testers of the test's report just changed.
+    await this.reportSnapshots.invalidate(test.id);
 
     return this.toView(row, test);
   }

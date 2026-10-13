@@ -23,6 +23,8 @@ import {
   ReportSessionQueryDto,
   SessionEvaluationDto,
   SessionRatingDto,
+  TestInsightsDto,
+  TestInsightsQueryDto,
   TestReportDto,
 } from './dto/report.dto';
 import { ReportsService } from './reports.service';
@@ -119,5 +121,27 @@ export class ReportsController {
     @Param('exportId') exportId: string,
   ) {
     return this.reports.getExport(organizationId, testId, exportId);
+  }
+}
+
+/**
+ * Tela 11 "Insights de IA" (`GET /tests/{id}/insights?q=&category=`). Geração
+ * deferida (BACKEND-SPEC §10) — hoje responde `status: unavailable`.
+ */
+@ApiTags('reports')
+@ApiBearerAuth()
+@Controller('tests/:testId/insights')
+export class TestInsightsController {
+  constructor(private readonly reports: ReportsService) {}
+
+  @Get()
+  @Roles(...STUDIO_ROLES)
+  @ZodResponse({ type: TestInsightsDto })
+  list(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('testId') testId: string,
+    @Query() query: TestInsightsQueryDto,
+  ) {
+    return this.reports.listInsights(organizationId, testId, query);
   }
 }

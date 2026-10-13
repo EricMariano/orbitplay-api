@@ -26,6 +26,7 @@ import {
 } from './participations.repository';
 import { tutorialForModel } from './tutorial.catalog';
 import type { SessionRow, SessionValidationRow } from '../../infra/database/schema/participations';
+import { ReportSnapshotCache } from '../../infra/database/report-snapshot-cache';
 
 const CONSENT_FIELD_BY_KIND: Record<
   ConsentKind,
@@ -48,6 +49,7 @@ export class SessionsService {
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly reportSnapshots: ReportSnapshotCache,
   ) {}
 
   /**
@@ -80,6 +82,8 @@ export class SessionsService {
 
     const session = await this.repo.startSession(participationId, test.id, test.organizationId);
     await this.touchHeartbeat(session.id);
+    // M10: the report's evolution counts sessions by start date.
+    await this.reportSnapshots.invalidate(test.id);
 
     return {
       sessionId: session.id,
@@ -134,6 +138,8 @@ export class SessionsService {
     await this.queue.ensureEnqueued(JobName.SESSION_VALIDATE, sessionValidateJobId(sessionId), {
       sessionId,
     });
+    // M10: duration and "ended without a form" (dropout) just changed.
+    await this.reportSnapshots.invalidate(updated.testId);
 
     return this.toSessionView(updated, null);
   }
@@ -227,6 +233,9 @@ export class SessionsService {
       }
       throw err;
     }
+
+    // M10: evaluations, ratings and the overview average just changed.
+    await this.reportSnapshots.invalidate(session.testId);
 
     return { id: response.id, sessionId, submittedAt: response.submittedAt.toISOString() };
   }

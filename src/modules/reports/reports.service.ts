@@ -4,6 +4,7 @@ import type {
   TestReportExportRow,
   TestReportSnapshotRow,
 } from '../../infra/database/schema/community';
+import { isSnapshotFresh } from '../../infra/database/report-snapshot-cache';
 import { newId } from '../../infra/database/schema/_helpers';
 import { JobName, reportExportJobId } from '../../infra/queue/queue.constants';
 import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
@@ -12,7 +13,12 @@ import { AppException } from '../../shared/errors/app.exception';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 import {
+  TELEMETRY_STORE_PORT,
+  type TelemetryStorePort,
+} from '../../shared/ports/telemetry-store.port';
+import {
   reportBlockKeyValues,
+  reportBlockPayloadSchemas,
   type CreateReportExportRequest,
   type RateSessionRequest,
   type ReportBlockKey,
@@ -22,6 +28,8 @@ import {
   type ReportSessionView,
   type SessionEvaluationView,
   type SessionRatingView,
+  type TestInsightsQuery,
+  type TestInsightsView,
   type TestReportView,
 } from './dto/report.dto';
 import {
@@ -33,7 +41,8 @@ import {
 /** Download links for a finished export stay valid for 15 minutes. */
 export const REPORT_DOWNLOAD_TTL_SECONDS = 900;
 
-type BlockComputer = () => Promise<Record<string, unknown>>;
+/** A computer resolves `null` when the block has no data source yet (`unavailable`). */
+type BlockComputer = () => Promise<object | null>;
 
 @Injectable()
 export class ReportsService {
@@ -44,6 +53,7 @@ export class ReportsService {
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
     private readonly dashboardKpis: DashboardKpiCache,
+    @Inject(TELEMETRY_STORE_PORT) private readonly telemetry: TelemetryStorePort,
   ) {}
 
   /* ------------------------------ M10-02: blocks ----------------------------- */
@@ -51,7 +61,10 @@ export class ReportsService {
   /**
    * Returns every report block. Blocks are computed on demand and cached as
    * `test_report_snapshots` rows; each block is computed on its own, so one
-   * failing block is reported as `failed` without hiding the others.
+   * failing block is reported as `failed` without hiding the others. Writes
+   * that feed the report drop the cache (`ReportSnapshotCache`); a snapshot
+   * past the TTL, or whose payload no longer matches the block's schema
+   * (written before the contract grew), is recomputed instead of served.
    */
   async getReport(organizationId: string, testId: string): Promise<TestReportView> {
     await this.assertTestInOrg(organizationId, testId);
@@ -63,7 +76,13 @@ export class ReportsService {
     const blocks = await Promise.all(
       reportBlockKeyValues.map(async (key): Promise<ReportBlockView> => {
         const existing = stored.get(key);
-        if (existing && existing.status === 'ready') return this.toBlockView(existing);
+        if (
+          existing?.status === 'ready' &&
+          isSnapshotFresh(existing.computedAt) &&
+          isCurrentPayload(key, existing.payload)
+        ) {
+          return this.toBlockView(existing);
+        }
         return this.computeBlock(testId, key);
       }),
     );
@@ -73,12 +92,14 @@ export class ReportsService {
   private async computeBlock(testId: string, key: ReportBlockKey): Promise<ReportBlockView> {
     try {
       const payload = await this.blockComputers(testId)[key]();
+      // Not cached: the source may appear later (e.g. a build with the plug-in).
+      if (payload === null) return blockView(key, 'unavailable', null, null);
       await this.repo.upsertSnapshot(testId, key, { status: 'ready', payload });
-      return { key, status: 'ready', payload, computedAt: new Date().toISOString() };
+      return blockView(key, 'ready', payload, new Date().toISOString());
     } catch (err) {
       this.logger.error(`report block "${key}" failed for test ${testId}: ${String(err)}`);
       await this.repo.upsertSnapshot(testId, key, { status: 'failed' }).catch(() => undefined);
-      return { key, status: 'failed', payload: null, computedAt: null };
+      return blockView(key, 'failed', null, null);
     }
   }
 
@@ -88,16 +109,48 @@ export class ReportsService {
       evolution: () => this.repo.computeEvolution(testId),
       rating_distribution: () => this.repo.computeRatingDistribution(testId),
       tester_profile: () => this.repo.computeTesterProfile(testId),
+      evaluations: () => this.repo.computeEvaluations(testId),
+      telemetry: () => this.computeTelemetry(testId),
+    };
+  }
+
+  /** Orbit Plug-in block — only when the test's build ships the plug-in manifest. */
+  private async computeTelemetry(testId: string) {
+    const plugin = await this.repo.findPluginSummary(testId);
+    if (!plugin) return null;
+    return {
+      sessionsAnalyzed: await this.telemetry.countSessionsWithEvents(testId),
+      activeTriggers: plugin.activeTriggers,
+      // Generated by the AI (deferred, BACKEND-SPEC §10).
+      discoveries: null,
+      aiSuggestions: null,
     };
   }
 
   private toBlockView(row: TestReportSnapshotRow): ReportBlockView {
-    return {
-      key: row.blockKey as ReportBlockKey,
-      status: row.status,
-      payload: (row.payload as Record<string, unknown> | null) ?? null,
-      computedAt: row.computedAt?.toISOString() ?? null,
-    };
+    return blockView(
+      row.blockKey as ReportBlockKey,
+      row.status,
+      row.payload as object | null,
+      row.computedAt?.toISOString() ?? null,
+    );
+  }
+
+  /* ------------------------------ AI insights ------------------------------ */
+
+  /**
+   * Tela 11 "Insights de IA". Generation through `AiPort` is deferred
+   * (BACKEND-SPEC §10): until it exists the list is empty and flagged
+   * `unavailable` — never placeholder insights. `q`/`category` are already part
+   * of the contract so the screen's search/filter won't change when it lands.
+   */
+  async listInsights(
+    organizationId: string,
+    testId: string,
+    _query: TestInsightsQuery,
+  ): Promise<TestInsightsView> {
+    await this.assertTestInOrg(organizationId, testId);
+    return { status: 'unavailable', model: null, data: [] };
   }
 
   /* ------------------------ M10-03: sessions & evaluation --------------------- */
@@ -106,10 +159,13 @@ export class ReportsService {
     organizationId: string,
     testId: string,
     query: ReportSessionQuery,
-  ): Promise<{ data: ReportSessionView[]; nextCursor: string | null }> {
+  ): Promise<{ data: ReportSessionView[]; nextCursor: string | null; total: number }> {
     await this.assertTestInOrg(organizationId, testId);
-    const page = await this.repo.listSessions(organizationId, testId, query);
-    return { data: page.data.map(toSessionView), nextCursor: page.nextCursor };
+    const [page, total] = await Promise.all([
+      this.repo.listSessions(organizationId, testId, query),
+      this.repo.countSessions(organizationId, testId),
+    ]);
+    return { data: page.data.map(toSessionView), nextCursor: page.nextCursor, total };
   }
 
   async getSessionEvaluation(
@@ -250,7 +306,30 @@ function toSessionView(row: ReportSessionRow): ReportSessionView {
     durationMs: row.durationMs,
     valid: row.valid,
     averageRating: row.averageRating,
+    archetype: row.archetype,
+    playerTier: row.playerTier,
+    // AI session quality — deferred (BACKEND-SPEC §10).
+    aiQualityScore: null,
+    telemetryConnected: row.telemetryConnected,
   };
+}
+
+function isCurrentPayload(key: ReportBlockKey, payload: unknown): boolean {
+  return reportBlockPayloadSchemas[key].safeParse(payload).success;
+}
+
+/**
+ * The block union is discriminated by `key`; the payload is produced by the
+ * computer registered for that same key (or validated by `isCurrentPayload`),
+ * which is what makes this cast sound.
+ */
+function blockView(
+  key: ReportBlockKey,
+  status: ReportBlockView['status'],
+  payload: object | null,
+  computedAt: string | null,
+): ReportBlockView {
+  return { key, status, payload, computedAt } as ReportBlockView;
 }
 
 function toEvaluationView(row: SessionEvaluationRow): SessionEvaluationView {

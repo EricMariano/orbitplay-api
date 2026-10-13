@@ -54,4 +54,14 @@ export class PostgresTelemetryStoreAdapter implements TelemetryStorePort {
     `;
     return result[0]?.count ?? 0;
   }
+
+  async countSessionsWithEvents(testId: string): Promise<number> {
+    const result = await this.sql<{ count: number }[]>`
+      SELECT count(DISTINCT e.session_id)::int AS count
+      FROM telemetry_events e
+      INNER JOIN sessions s ON s.id = e.session_id
+      WHERE s.test_id = ${testId}
+    `;
+    return result[0]?.count ?? 0;
+  }
 }

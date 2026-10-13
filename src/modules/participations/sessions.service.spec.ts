@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReportSnapshotCache } from '../../infra/database/report-snapshot-cache';
 import type { SessionRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
 import type { BuildsRepository } from '../builds/builds.repository';
@@ -67,6 +68,7 @@ describe('SessionsService', () => {
   let queue: { ensureEnqueued: ReturnType<typeof vi.fn> };
   let storage: { createDownloadUrl: ReturnType<typeof vi.fn> };
   let redis: { set: ReturnType<typeof vi.fn>; del: ReturnType<typeof vi.fn> };
+  let reportSnapshots: { invalidate: ReturnType<typeof vi.fn> };
   let service: SessionsService;
 
   beforeEach(() => {
@@ -90,6 +92,7 @@ describe('SessionsService', () => {
     queue = { ensureEnqueued: vi.fn().mockResolvedValue(undefined) };
     storage = { createDownloadUrl: vi.fn().mockResolvedValue('https://signed') };
     redis = { set: vi.fn().mockResolvedValue('OK'), del: vi.fn().mockResolvedValue(1) };
+    reportSnapshots = { invalidate: vi.fn().mockResolvedValue(undefined) };
     service = new SessionsService(
       repo as unknown as ParticipationsRepository,
       builds as unknown as BuildsRepository,
@@ -97,6 +100,7 @@ describe('SessionsService', () => {
       queue as never,
       storage as never,
       redis as never,
+      reportSnapshots as unknown as ReportSnapshotCache,
     );
   });
 
@@ -145,6 +149,7 @@ describe('SessionsService', () => {
       expect(started.sessionId).toBe(SESSION_ID);
       expect(started.recordingRequired).toBe(true);
       expect(redis.set).toHaveBeenCalled();
+      expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
     });
   });
 
@@ -188,6 +193,7 @@ describe('SessionsService', () => {
         { sessionId: SESSION_ID },
       );
       expect(redis.del).toHaveBeenCalled();
+      expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
     });
 
     it('409s when the repository reports the session already closed', async () => {
@@ -224,6 +230,7 @@ describe('SessionsService', () => {
         service.submitFormResponse(SESSION_ID, USER_ID, { answers: [] }, undefined),
       ).rejects.toMatchObject({ status: 422 });
       expect(repo.insertFormResponse).not.toHaveBeenCalled();
+      expect(reportSnapshots.invalidate).not.toHaveBeenCalled();
     });
 
     it('409s on a duplicate submit (unique violation)', async () => {
@@ -257,6 +264,7 @@ describe('SessionsService', () => {
       );
       expect(response.id).toBe('resp-1');
       expect(response.sessionId).toBe(SESSION_ID);
+      expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
     });
   });
 });

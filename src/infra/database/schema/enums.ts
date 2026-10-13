@@ -134,5 +134,16 @@ export const playerTierEnum = pgEnum('player_tier', [
   'qa',
 ]);
 
+/**
+ * Arquétipo de Bartle do jogador (perfil). Mesmas chaves que o critério de
+ * público `test_audience_criteria.archetypes` (Tela 09), sem o "todos".
+ */
+export const playerArchetypeEnum = pgEnum('player_archetype', [
+  'achiever',
+  'explorer',
+  'socializer',
+  'killer',
+]);
+
 /** Output format of a studio report export (M10-04). */
 export const reportExportFormatEnum = pgEnum('report_export_format', ['csv', 'pdf']);

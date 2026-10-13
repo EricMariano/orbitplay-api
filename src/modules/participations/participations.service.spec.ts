@@ -4,6 +4,7 @@ import type { TestRow } from '../../infra/database/schema/tests';
 import type { BuildsRepository } from '../builds/builds.repository';
 import { ParticipationsService } from './participations.service';
 import type { ParticipationsRepository } from './participations.repository';
+import type { ReportSnapshotCache } from '../../infra/database/report-snapshot-cache';
 import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 
 const TEST_ID = '01990000-0000-7000-8000-0000000000c1';
@@ -72,6 +73,7 @@ describe('ParticipationsService', () => {
     sumXpForSession: ReturnType<typeof vi.fn>;
   };
   let builds: { findLatestBuild: ReturnType<typeof vi.fn> };
+  let reportSnapshots: { invalidate: ReturnType<typeof vi.fn> };
   let service: ParticipationsService;
 
   beforeEach(() => {
@@ -92,10 +94,12 @@ describe('ParticipationsService', () => {
       sumXpForSession: vi.fn().mockResolvedValue(0),
     };
     builds = { findLatestBuild: vi.fn().mockResolvedValue(null) };
+    reportSnapshots = { invalidate: vi.fn().mockResolvedValue(undefined) };
     service = new ParticipationsService(
       repo as unknown as ParticipationsRepository,
       builds as unknown as BuildsRepository,
       { invalidate: vi.fn().mockResolvedValue(undefined) } as unknown as DashboardKpiCache,
+      reportSnapshots as unknown as ReportSnapshotCache,
     );
   });
 
@@ -109,6 +113,7 @@ describe('ParticipationsService', () => {
       repo.findTestById.mockResolvedValue(makeTestRow({ status: 'draft' }));
       await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({ status: 409 });
       expect(repo.reserveParticipation).not.toHaveBeenCalled();
+      expect(reportSnapshots.invalidate).not.toHaveBeenCalled();
     });
 
     it('409s when the test already ended', async () => {
@@ -137,6 +142,7 @@ describe('ParticipationsService', () => {
       expect(view.id).toBe(PARTICIPATION_ID);
       expect(view.status).toBe('reserved');
       expect(view.gameId).toBe(GAME_ID);
+      expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
     });
 
     it('409s when reserveParticipation reports a unique violation (already active)', async () => {

@@ -9,6 +9,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 import { primaryId } from './_helpers';
+import { playerArchetypeEnum, playerTierEnum } from './enums';
 import { games } from './games';
 import { users } from './users';
 
@@ -20,6 +21,14 @@ export const playerPreferences = pgTable('player_preferences', {
   genres: text('genres').array(),
   platforms: text('platforms').array(),
   deviceProfile: jsonb('device_profile'),
+  /**
+   * Perfil do jogador agregado no relatório do estúdio (Tela 11 "Testadores &
+   * Arquétipos"). Nulo até o jogador preencher — o relatório conta como
+   * "não informado". `player_tier` reaproveita o enum do critério de público;
+   * `all` só faz sentido como filtro e não é gravado aqui.
+   */
+  archetype: playerArchetypeEnum('archetype'),
+  playerTier: playerTierEnum('player_tier'),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

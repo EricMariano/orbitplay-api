@@ -471,3 +471,39 @@ findLatestSnapshot` busca o snapshot mais recente por
   (`listActiveAnyOrg`), preservando o mesmo padrão de fachada que
   `existsAnyOrg`/`getAnyOrg` já estabeleceram — outros módulos nunca importam
   `GamesRepository` diretamente.
+- **M10 (Tela 11 completa) — blocos `evaluations`/`telemetry`, perfil do
+  jogador e insights como contrato.** O relatório ganhou os blocos
+  `evaluations` (resumo por pergunta, tempo médio entre o fim da sessão e o
+  envio do formulário, desistência = sessões encerradas sem formulário) e
+  `telemetry`, e o bloco virou uma **união discriminada por `key`** com
+  payload tipado no OpenAPI (o front não escreve tipo à mão). Snapshot em
+  cache cujo payload não valida mais no schema do bloco é recalculado, então
+  crescer o contrato não serve formato velho. Arquétipo e tipo de jogador
+  vêm de `player_preferences.archetype`/`player_tier` (migração 0013), com o
+  mesmo vocabulário do critério de público da Tela 09 (`achiever`…`killer`,
+  `casual`/`experienced`/`trained`/`qa`) — não o "Hardcore/Testador/
+  Desenvolvedor" do Figma, para não haver dois vocabulários; quem não
+  preencheu conta como `unknown`. O preenchimento pelo jogador fica para a
+  tela de perfil. Tudo que depende da IA (deferida, §10) sai `null`, nunca
+  provisório: `aiScore`, `funFactor`, `bugsCount` do `overview`,
+  `aiQualityScore` da sessão, `discoveries`/`aiSuggestions` do `telemetry`;
+  `GET /tests/{id}/insights?q=&category=` já existe com o formato final e
+  responde `status: unavailable`. O bloco `telemetry` só fica `ready` quando
+  a build tem manifesto do plug-in (`unavailable` sem ele, e não é cacheado
+  para aparecer assim que o manifesto chegar). `GET …/report/sessions`
+  ganhou `total` para o "Mostrando X–Y de N" — a paginação continua por
+  cursor.
+- **M10 — cache dos blocos do relatório: invalidação explícita + TTL de 5
+  min.** Antes, um bloco `ready` em `test_report_snapshots` era servido para
+  sempre (só avaliar uma sessão apagava o cache), então sessões e respostas
+  novas nunca apareciam no relatório. Agora `ReportSnapshotCache`
+  (`src/infra/database/report-snapshot-cache.ts`) apaga os blocos do teste
+  ao reservar participação, iniciar e encerrar sessão, enviar o formulário e
+  no worker `session.validate` (função `invalidateReportSnapshots`, sem
+  container Nest) — o `reconcile` não invalida porque sempre enfileira o
+  `session.validate` em seguida. O TTL (`REPORT_SNAPSHOT_TTL_SECONDS`) cobre
+  o que muda sem invalidação explícita (perfil do jogador, formulário
+  editado, telemetria futura). Mora em infra pelo mesmo motivo do
+  `DashboardKpiCache`; é provider do `ParticipationsModule` (e não do
+  `DatabaseModule`, que geraria import circular com o token `DRIZZLE`).
+  Falha ao apagar nunca derruba a escrita que a disparou — só loga.

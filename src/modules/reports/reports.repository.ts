@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import {
   testReportExports,
@@ -17,25 +17,47 @@ import {
   sessionValidations,
   type SessionRatingRow,
 } from '../../infra/database/schema/participations';
-import { testFormOptions, testFormQuestions, tests } from '../../infra/database/schema/tests';
+import { playerPreferences } from '../../infra/database/schema/player';
+import {
+  pluginManifests,
+  sessionTokens,
+  triggerDefinitions,
+} from '../../infra/database/schema/plugin';
+import {
+  builds,
+  testFormOptions,
+  testFormQuestions,
+  tests,
+} from '../../infra/database/schema/tests';
 import { users } from '../../infra/database/schema/users';
 import { AppException } from '../../shared/errors/app.exception';
 import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
-import type {
-  EvolutionPayload,
-  OverviewPayload,
-  RatingDistributionPayload,
-  ReportBlockKey,
-  ReportSessionQuery,
-  TesterProfilePayload,
+import {
+  playerArchetypeValues,
+  playerProfileTierValues,
+  type EvaluationQuestionSummary,
+  type EvaluationsPayload,
+  type EvolutionPayload,
+  type OverviewPayload,
+  type RatingDistributionPayload,
+  type ReportBlockKey,
+  type ReportSessionQuery,
+  type TesterProfilePayload,
 } from './dto/report.dto';
+import { groupEvolutionByWeek } from './report-weeks';
 
 /** `session_validations.reason` written when the studio marks a session invalid. */
 export const STUDIO_INVALID_REASON = 'Marcada como inválida pelo estúdio';
 
 /** Question types whose numeric answer counts as a "nota" (rating). */
 const RATING_QUESTION_TYPES = ['scale', 'nps'] as const;
+
+/** Open-text answers shown per question in the `evaluations` block. */
+const EVALUATION_SAMPLE_SIZE = 3;
+
+type PlayerArchetype = (typeof playerArchetypeValues)[number];
+type PlayerProfileTier = (typeof playerProfileTierValues)[number];
 
 export interface ReportSessionRow {
   id: string;
@@ -49,6 +71,14 @@ export interface ReportSessionRow {
   durationMs: number | null;
   valid: boolean | null;
   averageRating: number | null;
+  archetype: PlayerArchetype | null;
+  playerTier: PlayerProfileTier | null;
+  telemetryConnected: boolean;
+}
+
+/** What the `telemetry` block needs from the test's build (null = no plug-in). */
+export interface PluginSummaryRow {
+  activeTriggers: number;
 }
 
 export interface EvaluationAnswerRow {
@@ -103,7 +133,7 @@ export class ReportsRepository {
   async upsertSnapshot(
     testId: string,
     blockKey: ReportBlockKey,
-    result: { status: 'ready'; payload: Record<string, unknown> } | { status: 'failed' },
+    result: { status: 'ready'; payload: object } | { status: 'failed' },
   ): Promise<void> {
     const values = {
       testId,
@@ -127,6 +157,7 @@ export class ReportsRepository {
     const [counts] = await this.db
       .select({
         totalParticipations: sql<number>`count(distinct ${participations.id})::int`,
+        testersCount: sql<number>`count(distinct ${participations.userId})::int`,
         completedSessions: sql<number>`count(distinct ${sessions.id}) filter (where ${sessions.status} = 'completed')::int`,
         validSessions: sql<number>`count(distinct ${sessions.id}) filter (where ${sessionValidations.valid} = true)::int`,
         averageDurationMs: sql<
@@ -149,6 +180,11 @@ export class ReportsRepository {
       completionRate: total > 0 ? completed / total : null,
       averageDurationMs: counts?.averageDurationMs ?? null,
       averageRating,
+      testersCount: counts?.testersCount ?? 0,
+      // Derived from AI insights — deferred (BACKEND-SPEC §10).
+      aiScore: null,
+      funFactor: null,
+      bugsCount: null,
     };
   }
 
@@ -160,7 +196,17 @@ export class ReportsRepository {
       .where(eq(sessions.testId, testId))
       .groupBy(day)
       .orderBy(day);
-    return { points: rows };
+
+    const [test] = await this.db
+      .select({
+        startDate: sql<
+          string | null
+        >`to_char(coalesce(${tests.startsAt}, ${tests.publishedAt}), 'YYYY-MM-DD')`,
+      })
+      .from(tests)
+      .where(eq(tests.id, testId))
+      .limit(1);
+    return { points: rows, weeks: groupEvolutionByWeek(rows, test?.startDate ?? null) };
   }
 
   async computeRatingDistribution(testId: string): Promise<RatingDistributionPayload> {
@@ -184,9 +230,10 @@ export class ReportsRepository {
   }
 
   /**
-   * Age brackets computed from `users.birthdate` — the only demographic the
-   * schema stores about a tester today. Country/archetype/device are not
-   * columns on `users`, so they are not reported.
+   * Age brackets from `users.birthdate`; archetype and player tier from the
+   * player's profile (`player_preferences`) — a player who hasn't filled it in
+   * counts as `unknown`. Every known key is returned (zeros included) in a
+   * fixed order, so the chart legend doesn't reshuffle between tests.
    */
   async computeTesterProfile(testId: string): Promise<TesterProfilePayload> {
     const age = sql`date_part('year', age(${users.birthdate}))`;
@@ -204,7 +251,218 @@ export class ReportsRepository {
       .where(eq(participations.testId, testId))
       .groupBy(bracket)
       .orderBy(bracket);
-    return { ageBrackets: rows };
+
+    const archetype = sql<string>`coalesce(${playerPreferences.archetype}::text, 'unknown')`;
+    const tier = sql<string>`coalesce(${playerPreferences.playerTier}::text, 'unknown')`;
+    const profileRows = await this.db
+      .select({
+        archetype,
+        tier,
+        count: sql<number>`count(distinct ${participations.userId})::int`,
+      })
+      .from(participations)
+      .leftJoin(playerPreferences, eq(playerPreferences.userId, participations.userId))
+      .where(eq(participations.testId, testId))
+      .groupBy(archetype, tier);
+
+    const tally = <K extends string>(
+      keys: readonly K[],
+      pick: (r: (typeof profileRows)[number]) => string,
+    ) =>
+      [...keys, 'unknown' as const].map((key) => ({
+        key,
+        count: profileRows.filter((r) => pick(r) === key).reduce((sum, r) => sum + r.count, 0),
+      }));
+
+    return {
+      ageBrackets: rows,
+      archetypes: tally(playerArchetypeValues, (r) => r.archetype),
+      playerTiers: tally(playerProfileTierValues, (r) => r.tier),
+    };
+  }
+
+  /**
+   * Form summary for the "Avaliações" card: global numbers plus one summary
+   * per question (distribution for scale/NPS, counts per option for choices,
+   * latest answers for open text). Every aggregate runs in SQL, grouped by
+   * question — answers are never pulled in bulk.
+   */
+  async computeEvaluations(testId: string): Promise<EvaluationsPayload> {
+    const questions = await this.db
+      .select({
+        id: testFormQuestions.id,
+        position: testFormQuestions.position,
+        label: testFormQuestions.label,
+        type: testFormQuestions.type,
+        scaleMin: testFormQuestions.scaleMin,
+        scaleMax: testFormQuestions.scaleMax,
+      })
+      .from(testFormQuestions)
+      .where(eq(testFormQuestions.testId, testId))
+      .orderBy(testFormQuestions.position);
+
+    const [responses] = await this.db
+      .select({
+        responsesCount: sql<number>`count(*)::int`,
+        averageResponseTimeMs: sql<
+          number | null
+        >`(avg(extract(epoch from (${formResponses.submittedAt} - ${sessions.endedAt})) * 1000) filter (where ${sessions.endedAt} is not null and ${formResponses.submittedAt} >= ${sessions.endedAt}))::float8`,
+      })
+      .from(formResponses)
+      .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
+      .where(eq(sessions.testId, testId));
+
+    const [ended] = await this.db
+      .select({
+        ended: sql<number>`count(*)::int`,
+        withoutForm: sql<number>`count(*) filter (where ${formResponses.id} is null)::int`,
+      })
+      .from(sessions)
+      .leftJoin(formResponses, eq(formResponses.sessionId, sessions.id))
+      .where(and(eq(sessions.testId, testId), isNotNull(sessions.endedAt)));
+
+    const answerScope = and(eq(sessions.testId, testId), eq(testFormQuestions.testId, testId));
+    const answersBase = () =>
+      this.db
+        .select({
+          questionId: formAnswers.questionId,
+          count: count(),
+          average: sql<number | null>`avg(${formAnswers.valueNumber})::float8`,
+        })
+        .from(formAnswers)
+        .innerJoin(formResponses, eq(formResponses.id, formAnswers.responseId))
+        .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
+        .innerJoin(testFormQuestions, eq(testFormQuestions.id, formAnswers.questionId));
+
+    const totals = await answersBase().where(answerScope).groupBy(formAnswers.questionId);
+
+    const value = sql<number>`round(${formAnswers.valueNumber})::int`;
+    const distribution = await this.db
+      .select({ questionId: formAnswers.questionId, value, count: count() })
+      .from(formAnswers)
+      .innerJoin(formResponses, eq(formResponses.id, formAnswers.responseId))
+      .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
+      .innerJoin(testFormQuestions, eq(testFormQuestions.id, formAnswers.questionId))
+      .where(
+        and(
+          answerScope,
+          inArray(testFormQuestions.type, RATING_QUESTION_TYPES),
+          isNotNull(formAnswers.valueNumber),
+        ),
+      )
+      .groupBy(formAnswers.questionId, value);
+
+    const optionId = sql<string>`unnest(${formAnswers.optionIds})`;
+    const chosen = this.db
+      .select({ questionId: formAnswers.questionId, optionId: optionId.as('option_id') })
+      .from(formAnswers)
+      .innerJoin(formResponses, eq(formResponses.id, formAnswers.responseId))
+      .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
+      .innerJoin(testFormQuestions, eq(testFormQuestions.id, formAnswers.questionId))
+      .where(answerScope)
+      .as('chosen');
+    const optionCounts = await this.db
+      .select({
+        questionId: testFormOptions.questionId,
+        label: testFormOptions.label,
+        position: testFormOptions.position,
+        count: sql<number>`count(${chosen.optionId})::int`,
+      })
+      .from(testFormOptions)
+      .innerJoin(testFormQuestions, eq(testFormQuestions.id, testFormOptions.questionId))
+      .leftJoin(chosen, sql`${chosen.optionId} = ${testFormOptions.id}`)
+      .where(eq(testFormQuestions.testId, testId))
+      .groupBy(testFormOptions.questionId, testFormOptions.label, testFormOptions.position)
+      .orderBy(testFormOptions.questionId, testFormOptions.position);
+
+    const ranked = this.db
+      .select({
+        questionId: formAnswers.questionId,
+        valueText: formAnswers.valueText,
+        rank: sql<number>`row_number() over (partition by ${formAnswers.questionId} order by ${formResponses.submittedAt} desc, ${formAnswers.id} desc)`.as(
+          'rank',
+        ),
+      })
+      .from(formAnswers)
+      .innerJoin(formResponses, eq(formResponses.id, formAnswers.responseId))
+      .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
+      .innerJoin(testFormQuestions, eq(testFormQuestions.id, formAnswers.questionId))
+      .where(
+        and(
+          answerScope,
+          eq(testFormQuestions.type, 'open_text'),
+          sql`nullif(trim(${formAnswers.valueText}), '') is not null`,
+        ),
+      )
+      .as('ranked');
+    const samples = await this.db
+      .select({ questionId: ranked.questionId, valueText: ranked.valueText })
+      .from(ranked)
+      .where(sql`${ranked.rank} <= ${EVALUATION_SAMPLE_SIZE}`)
+      .orderBy(ranked.questionId, ranked.rank);
+
+    const summaries: EvaluationQuestionSummary[] = questions.map((q) => {
+      const total = totals.find((t) => t.questionId === q.id);
+      const isRating = (RATING_QUESTION_TYPES as readonly string[]).includes(q.type);
+      const values = distribution.filter((d) => d.questionId === q.id);
+      const min = q.scaleMin ?? Math.min(...values.map((d) => d.value));
+      const max = q.scaleMax ?? Math.max(...values.map((d) => d.value));
+      return {
+        questionId: q.id,
+        position: q.position,
+        label: q.label,
+        type: q.type,
+        responsesCount: total?.count ?? 0,
+        average: isRating ? (total?.average ?? null) : null,
+        distribution:
+          isRating && Number.isFinite(min) && Number.isFinite(max)
+            ? Array.from({ length: max - min + 1 }, (_, i) => min + i).map((v) => ({
+                value: v,
+                count: values.find((d) => d.value === v)?.count ?? 0,
+              }))
+            : [],
+        options: optionCounts
+          .filter((o) => o.questionId === q.id)
+          .map((o) => ({ label: o.label, count: o.count })),
+        samples: samples
+          .filter((s) => s.questionId === q.id)
+          .map((s) => s.valueText)
+          .filter((t): t is string => t !== null),
+      };
+    });
+
+    const endedCount = ended?.ended ?? 0;
+    return {
+      questionsCount: questions.length,
+      responsesCount: responses?.responsesCount ?? 0,
+      averageResponseTimeMs: responses?.averageResponseTimeMs ?? null,
+      dropoutRate: endedCount > 0 ? (ended?.withoutForm ?? 0) / endedCount : null,
+      questions: summaries,
+    };
+  }
+
+  /**
+   * Plug-in data of the test's build: `null` when the build has no plug-in
+   * manifest (telemetry block is then `unavailable`).
+   */
+  async findPluginSummary(testId: string): Promise<PluginSummaryRow | null> {
+    const manifests = await this.db
+      .select({ id: pluginManifests.id })
+      .from(pluginManifests)
+      .innerJoin(builds, eq(builds.id, pluginManifests.buildId))
+      .where(eq(builds.testId, testId));
+    if (manifests.length === 0) return null;
+
+    const [triggers] = await this.db
+      .select({ count: count() })
+      .from(triggerDefinitions)
+      .where(
+        inArray(
+          triggerDefinitions.manifestId,
+          manifests.map((m) => m.id),
+        ),
+      );
+    return { activeTriggers: triggers?.count ?? 0 };
   }
 
   private async averageRating(testId: string): Promise<number | null> {
@@ -254,6 +512,11 @@ export class ReportsRepository {
       durationMs: sessions.durationMs,
       valid: sessionValidations.valid,
       averageRating,
+      archetype: playerPreferences.archetype,
+      playerTier: sql<PlayerProfileTier | null>`nullif(${playerPreferences.playerTier}::text, 'all')`,
+      telemetryConnected: sql<boolean>`exists (
+        select 1 from ${sessionTokens} where ${sessionTokens.sessionId} = ${sessions.id}
+      )`,
     };
   }
 
@@ -271,12 +534,21 @@ export class ReportsRepository {
       .from(sessions)
       .innerJoin(participations, eq(participations.id, sessions.participationId))
       .innerJoin(users, eq(users.id, participations.userId))
+      .leftJoin(playerPreferences, eq(playerPreferences.userId, users.id))
       .leftJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
       .where(and(...filters))
       .orderBy(desc(sessions.id))
       .limit(query.limit + 1);
 
     return buildPage(rows, query.limit);
+  }
+
+  async countSessions(organizationId: string, testId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ count: count() })
+      .from(sessions)
+      .where(and(eq(sessions.testId, testId), eq(sessions.organizationId, organizationId)));
+    return row?.count ?? 0;
   }
 
   /** Every session of a test, unpaginated — used by the export worker only. */
@@ -286,6 +558,7 @@ export class ReportsRepository {
       .from(sessions)
       .innerJoin(participations, eq(participations.id, sessions.participationId))
       .innerJoin(users, eq(users.id, participations.userId))
+      .leftJoin(playerPreferences, eq(playerPreferences.userId, users.id))
       .leftJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
       .where(and(eq(sessions.testId, testId), eq(sessions.organizationId, organizationId)))
       .orderBy(sessions.startedAt);
@@ -303,6 +576,7 @@ export class ReportsRepository {
       .from(sessions)
       .innerJoin(participations, eq(participations.id, sessions.participationId))
       .innerJoin(users, eq(users.id, participations.userId))
+      .leftJoin(playerPreferences, eq(playerPreferences.userId, users.id))
       .leftJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
       .where(
         and(

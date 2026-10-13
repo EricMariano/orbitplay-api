@@ -22,6 +22,8 @@ export interface TelemetryStorePort {
    */
   append(events: TelemetryEvent[]): Promise<void>;
   countForSession(sessionId: string): Promise<number>;
+  /** Sessões distintas de um teste com ao menos um evento recebido. */
+  countSessionsWithEvents(testId: string): Promise<number>;
 }
 
 export const TELEMETRY_STORE_PORT = Symbol('TELEMETRY_STORE_PORT');
