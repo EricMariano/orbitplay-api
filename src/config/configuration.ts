@@ -1,4 +1,4 @@
-import { validateEnv, type Env } from './env.schema';
+import { splitList, validateEnv, type Env } from './env.schema';
 
 /**
  * Convert a duration string ("15m", "30d", "900s", "500ms") into milliseconds.
@@ -28,6 +28,7 @@ export function buildConfig(env: Env) {
   if (env.BUILD_MALWARE_SCAN_BYPASS && env.NODE_ENV === 'production') {
     throw new Error('BUILD_MALWARE_SCAN_BYPASS=true is not allowed in production');
   }
+  const webOrigins = splitList(env.WEB_ORIGIN);
   return {
     nodeEnv: env.NODE_ENV,
     isProduction: env.NODE_ENV === 'production',
@@ -58,7 +59,10 @@ export function buildConfig(env: Env) {
       from: env.MAIL_FROM,
     },
     web: {
-      origin: env.WEB_ORIGIN,
+      /** Canonical front origin — base for links in e-mails. */
+      origin: webOrigins[0],
+      /** Every front origin CORS accepts. */
+      allowedOrigins: webOrigins,
     },
     authThrottle: {
       ttl: env.AUTH_THROTTLE_TTL,

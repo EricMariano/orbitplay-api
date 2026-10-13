@@ -7,6 +7,16 @@ import { z } from 'zod';
  * fast, pointing at the offending variable, instead of blowing up on the first
  * request or silently running with a wrong value.
  */
+/** Split a comma-separated list, trimming blanks. */
+export function splitList(input: string): string[] {
+  return input
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+const isUrl = (value: string): boolean => z.string().url().safeParse(value).success;
+
 const durationString = z
   .string()
   .regex(/^\d+(ms|s|m|h|d)$/, 'must be a duration like "15m", "30d", "900s"');
@@ -33,7 +43,16 @@ export const envSchema = z.object({
   SMTP_PORT: z.coerce.number().int().positive(),
   MAIL_FROM: z.string().min(1, 'MAIL_FROM is required'),
 
-  WEB_ORIGIN: z.string().url('WEB_ORIGIN must be a URL'),
+  /**
+   * Comma-separated web front origins allowed by CORS (HTTP + Socket.IO).
+   * The FIRST one is canonical: it's the base for links sent by e-mail.
+   * Stays a string here (split in configuration.ts): @nestjs/config copies the
+   * validated values back into process.env, which drops non-scalar values.
+   */
+  WEB_ORIGIN: z.string().refine((v) => {
+    const origins = splitList(v);
+    return origins.length > 0 && origins.every(isUrl);
+  }, 'WEB_ORIGIN must be one or more comma-separated URLs'),
 
   AUTH_THROTTLE_TTL: z.coerce.number().int().positive(),
   AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive(),

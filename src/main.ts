@@ -19,7 +19,7 @@ async function bootstrap(): Promise<void> {
   app.use(helmet());
   app.use(cookieParser());
   app.enableCors({
-    origin: config.get<string>('web.origin'),
+    origin: config.get<string[]>('web.allowedOrigins'),
     credentials: true, // allow the refresh-token cookie
   });
   app.enableShutdownHooks(); // triggers onModuleDestroy → close DB/Redis

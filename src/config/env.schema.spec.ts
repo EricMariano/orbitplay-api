@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateEnv } from './env.schema';
+import { splitList, validateEnv } from './env.schema';
 
 const validEnv = {
   NODE_ENV: 'test',
@@ -44,6 +44,20 @@ describe('validateEnv', () => {
     const missing: Partial<typeof validEnv> = { ...validEnv };
     delete missing.JWT_ACCESS_SECRET;
     expect(() => validateEnv(missing)).toThrowError(/JWT_ACCESS_SECRET/);
+  });
+
+  it('accepts a comma-separated WEB_ORIGIN list', () => {
+    const env = validateEnv({
+      ...validEnv,
+      WEB_ORIGIN: 'http://localhost:5173, http://localhost:5199',
+    });
+    expect(splitList(env.WEB_ORIGIN)).toEqual(['http://localhost:5173', 'http://localhost:5199']);
+  });
+
+  it('rejects a WEB_ORIGIN entry that is not a URL', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, WEB_ORIGIN: 'http://localhost:5173,nope' }),
+    ).toThrowError(/WEB_ORIGIN/);
   });
 
   it('rejects an invalid duration format', () => {
