@@ -21,6 +21,7 @@ import { Roles } from '../../shared/decorators/roles.decorator';
 import { STUDIO_ROLES } from '../../shared/auth/roles';
 import {
   BuildDto,
+  BuildSettingsRequestDto,
   BuildUploadUrlRequestDto,
   BuildUploadUrlResponseDto,
   ConfirmBuildRequestDto,
@@ -150,6 +151,18 @@ export class TestsController {
     @Req() req: Request,
   ) {
     await this.tests.deleteBuild(organizationId, id, req);
+  }
+
+  @Patch('tests/:id/build-settings')
+  @Roles(...STUDIO_ROLES)
+  @ZodResponse({ type: TestDto })
+  setBuildSettings(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Body() dto: BuildSettingsRequestDto,
+    @Req() req: Request,
+  ) {
+    return this.tests.setBuildSettings(organizationId, id, dto, req);
   }
 
   @Patch('tests/:id/audience')

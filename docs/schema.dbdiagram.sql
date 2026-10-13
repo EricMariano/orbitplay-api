@@ -182,6 +182,7 @@ CREATE TABLE tests (
   reward_amount_cents     integer,
   reward_currency         text,
   report_stage            report_stage NOT NULL DEFAULT 'none',
+  gamepad_supported       boolean NOT NULL DEFAULT false,
   created_at              timestamptz NOT NULL DEFAULT now(),
   updated_at              timestamptz NOT NULL DEFAULT now()
 );

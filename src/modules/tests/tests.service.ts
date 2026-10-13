@@ -19,6 +19,7 @@ import {
   WIZARD_STEP_NUMBER,
   type AudienceRequest,
   type AudienceView,
+  type BuildSettingsRequest,
   type BuildUploadUrlRequest,
   type BuildView,
   type ConfirmBuildRequest,
@@ -333,6 +334,33 @@ export class TestsService {
     });
   }
 
+  async setBuildSettings(
+    organizationId: string,
+    id: string,
+    dto: BuildSettingsRequest,
+    req: Request,
+  ): Promise<TestView> {
+    const { before, updated } = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (test, updateTest) => {
+        this.assertDraft(test);
+        const updated = await updateTest({ gamepadSupported: dto.gamepadSupported });
+        return { before: test, updated };
+      },
+    );
+
+    const view = await this.toView(updated);
+    recordAudit(req, {
+      action: 'test.build_settings.updated',
+      entity: 'tests',
+      entityId: id,
+      before: { gamepadSupported: before.gamepadSupported },
+      after: { gamepadSupported: updated.gamepadSupported },
+    });
+    return view;
+  }
+
   async setAudience(
     organizationId: string,
     id: string,
@@ -567,6 +595,7 @@ export class TestsService {
       spotsTotal: test.slotsTotal,
       spotsTaken: test.slotsTaken,
       rewardCents: test.rewardAmountCents,
+      gamepadSupported: test.gamepadSupported,
       expiresAt: test.endsAt ? test.endsAt.toISOString() : null,
       publishedAt: test.publishedAt ? test.publishedAt.toISOString() : null,
       createdAt: test.createdAt.toISOString(),

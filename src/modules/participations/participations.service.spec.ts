@@ -31,6 +31,7 @@ function makeTestRow(overrides: Partial<TestRow> = {}): TestRow {
     rewardAmountCents: null,
     rewardCurrency: null,
     reportStage: 'none',
+    gamepadSupported: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,

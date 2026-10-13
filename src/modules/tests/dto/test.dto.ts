@@ -111,6 +111,7 @@ export const testSchema = z.object({
   spotsTotal: z.number().int().nullable(),
   spotsTaken: z.number().int().nullable(),
   rewardCents: z.number().int().nullable(),
+  gamepadSupported: z.boolean(),
   expiresAt: z.string().nullable(),
   publishedAt: z.string().nullable(),
   createdAt: z.string(),
@@ -243,6 +244,11 @@ export const audienceRequestSchema = z
     }
   });
 
+/** Etapa 3 (Tela 08): ajustes do teste que acompanham a build, independentes do upload. */
+export const buildSettingsRequestSchema = z.object({
+  gamepadSupported: z.boolean(),
+});
+
 export const setStatusSchema = z.object({
   status: z.enum(['paused', 'published', 'finished']),
 });
@@ -276,6 +282,7 @@ export class BuildUploadUrlResponseDto extends createZodDto(buildUploadUrlRespon
 export class ConfirmBuildRequestDto extends createZodDto(confirmBuildRequestSchema) {}
 export class BuildDto extends createZodDto(buildSchema) {}
 export class AudienceRequestDto extends createZodDto(audienceRequestSchema) {}
+export class BuildSettingsRequestDto extends createZodDto(buildSettingsRequestSchema) {}
 export class SetStatusDto extends createZodDto(setStatusSchema) {}
 export class TestListQueryDto extends createZodDto(testListQuerySchema) {}
 export class TestListDto extends createZodDto(testListSchema) {}
@@ -294,6 +301,7 @@ export type BuildUploadUrlRequest = z.infer<typeof buildUploadUrlRequestSchema>;
 export type BuildUploadUrlResponse = z.infer<typeof buildUploadUrlResponseSchema>;
 export type ConfirmBuildRequest = z.infer<typeof confirmBuildRequestSchema>;
 export type AudienceRequest = z.infer<typeof audienceRequestSchema>;
+export type BuildSettingsRequest = z.infer<typeof buildSettingsRequestSchema>;
 export type SetStatusRequest = z.infer<typeof setStatusSchema>;
 export type TestListQuery = z.infer<typeof testListQuerySchema>;
 export type TestStatusValue = (typeof testStatusValues)[number];

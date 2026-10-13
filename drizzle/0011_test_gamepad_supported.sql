@@ -1,0 +1,1 @@
+ALTER TABLE "tests" ADD COLUMN "gamepad_supported" boolean DEFAULT false NOT NULL;

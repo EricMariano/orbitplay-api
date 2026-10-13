@@ -43,6 +43,7 @@ function makeTestRow(overrides: Partial<TestRow> = {}): TestRow {
     rewardAmountCents: null,
     rewardCurrency: null,
     reportStage: 'none',
+    gamepadSupported: false,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -334,6 +335,31 @@ describe('TestsService', () => {
       );
 
       expect(view.questions[0]).toMatchObject({ scaleMinLabel: 'Nada', scaleMaxLabel: 'Muito' });
+    });
+  });
+
+  describe('setBuildSettings', () => {
+    it('stores whether the build is playable with a gamepad', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ currentStep: 'build' }));
+      repo.updateByIdInOrg.mockResolvedValue(
+        makeTestRow({ currentStep: 'build', gamepadSupported: true }),
+      );
+
+      const view = await service.setBuildSettings(ORG, TEST_ID, { gamepadSupported: true }, req);
+
+      expect(view.gamepadSupported).toBe(true);
+      expect(repo.updateByIdInOrg).toHaveBeenCalledWith(
+        ORG,
+        TEST_ID,
+        expect.objectContaining({ gamepadSupported: true }),
+      );
+    });
+
+    it('refuses to change a published test', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ status: 'published' }));
+      await expect(
+        service.setBuildSettings(ORG, TEST_ID, { gamepadSupported: true }, req),
+      ).rejects.toMatchObject({ status: 409 });
     });
   });
 

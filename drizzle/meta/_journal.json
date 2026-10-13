@@ -78,6 +78,13 @@
       "when": 1791852579094,
       "tag": "0010_form_scale_labels",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791853136272,
+      "tag": "0011_test_gamepad_supported",
+      "breakpoints": true
     }
   ]
 }

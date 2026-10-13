@@ -54,6 +54,8 @@ export const tests = pgTable(
     rewardAmountCents: integer('reward_amount_cents'),
     rewardCurrency: text('reward_currency'),
     reportStage: reportStageEnum('report_stage').notNull().default('none'),
+    /** Etapa 3 (Tela 08): "Jogável com controle". */
+    gamepadSupported: boolean('gamepad_supported').notNull().default(false),
     ...timestamps,
   },
   (t) => [
