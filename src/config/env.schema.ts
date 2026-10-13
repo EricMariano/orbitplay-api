@@ -48,6 +48,15 @@ export const envSchema = z.object({
   /** Flood control for chat messages: at most LIMIT per TTL seconds, per user. */
   CHAT_MESSAGE_THROTTLE_TTL: z.coerce.number().int().positive(),
   CHAT_MESSAGE_THROTTLE_LIMIT: z.coerce.number().int().positive(),
+
+  /**
+   * Dev-only: mark the build malware scan as skipped instead of failing it
+   * (no scanner is integrated yet). Refused in production by `buildConfig`.
+   */
+  BUILD_MALWARE_SCAN_BYPASS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
 });
 
 export type Env = z.infer<typeof envSchema>;

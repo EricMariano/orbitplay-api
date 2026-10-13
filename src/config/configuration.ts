@@ -25,6 +25,9 @@ export function durationToMs(input: string): number {
  * process.env directly.
  */
 export function buildConfig(env: Env) {
+  if (env.BUILD_MALWARE_SCAN_BYPASS && env.NODE_ENV === 'production') {
+    throw new Error('BUILD_MALWARE_SCAN_BYPASS=true is not allowed in production');
+  }
   return {
     nodeEnv: env.NODE_ENV,
     isProduction: env.NODE_ENV === 'production',
@@ -70,6 +73,9 @@ export function buildConfig(env: Env) {
     chat: {
       messageThrottleTtl: env.CHAT_MESSAGE_THROTTLE_TTL,
       messageThrottleLimit: env.CHAT_MESSAGE_THROTTLE_LIMIT,
+    },
+    builds: {
+      malwareScanBypass: env.BUILD_MALWARE_SCAN_BYPASS,
     },
   };
 }

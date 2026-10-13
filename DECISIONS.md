@@ -158,6 +158,14 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
     (`visible | hidden | removed`), para moderar mensagem e moderar publicação
     significarem exatamente a mesma coisa.
 
+- **Flag de dev para pular a verificação de malware das builds.** Não há
+  antivírus integrado, e o worker reprova toda build no passo `malware_scan`
+  (falha fechada, de propósito). Para exercitar o wizard de ponta a ponta em
+  desenvolvimento, `BUILD_MALWARE_SCAN_BYPASS=true` marca esse passo como
+  pulado — a mensagem do passo diz "PULADA", nunca "aprovada" — e valida a
+  build. Padrão `false`; `buildConfig` derruba o boot se a flag vier `true`
+  com `NODE_ENV=production`. Remover quando um scanner real for integrado.
+
 ## 3. Notas de implementação relevantes
 
 - **404, não 403, para recurso de outra organização.** Garantido no

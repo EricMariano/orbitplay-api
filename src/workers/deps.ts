@@ -20,6 +20,8 @@ export interface WorkerDeps {
   queue: Queue;
   /** Plain ioredis client — same store the API's heartbeat keys live in (see `heartbeat.store.ts`). */
   redis: Redis;
+  /** Dev-only: skip the (not yet integrated) malware scan — see `processBuildValidate`. */
+  malwareScanBypass: boolean;
 }
 
 export async function createWorkerDeps(): Promise<WorkerDeps> {
@@ -31,7 +33,7 @@ export async function createWorkerDeps(): Promise<WorkerDeps> {
   );
   const queue = new Queue(MAIN_QUEUE, { connection: redisConnectionOptions(config.redis.url) });
   const redis = new Redis(config.redis.url, { maxRetriesPerRequest: null });
-  return { db, storage, sql, queue, redis };
+  return { db, storage, sql, queue, redis, malwareScanBypass: config.builds.malwareScanBypass };
 }
 
 export async function closeWorkerDeps(deps: WorkerDeps): Promise<void> {

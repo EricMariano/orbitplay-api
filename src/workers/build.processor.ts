@@ -32,7 +32,10 @@ const FORMAT_SIGNATURES: Record<string, readonly number[]> = {
  * checksum and sniff the format's magic bytes — neither trusts anything the
  * client claimed at upload time. There is no malware scanner integrated yet,
  * so that step always fails closed: a build can never be auto-approved for a
- * scan that never ran. `plugin_manifest` is a reserved future step
+ * scan that never ran — except in local development with
+ * `BUILD_MALWARE_SCAN_BYPASS=true`, which marks the step as skipped (never as
+ * scanned) so the wizard can be exercised end to end. `buildConfig` refuses
+ * the flag in production. `plugin_manifest` is a reserved future step
  * (ORB-M6-02 scope) and is never instantiated here.
  */
 export async function processBuildValidate(deps: WorkerDeps, buildId: string): Promise<void> {
@@ -93,6 +96,21 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
     'ready',
     `Formato .${ext} confirmado por assinatura binária`,
   );
+
+  if (deps.malwareScanBypass) {
+    await setStep(
+      deps,
+      buildId,
+      'malware_scan',
+      'ready',
+      'Verificação de malware PULADA (BUILD_MALWARE_SCAN_BYPASS, só em desenvolvimento)',
+    );
+    await deps.db
+      .update(builds)
+      .set({ status: 'validated', failureReason: null })
+      .where(eq(builds.id, buildId));
+    return;
+  }
 
   // No AV/malware scanner is integrated in this environment. Fail closed
   // rather than pretend a scan happened — the build stays blocked until a
