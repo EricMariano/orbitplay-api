@@ -6,6 +6,7 @@ import type {
 } from '../../infra/database/schema/community';
 import { newId } from '../../infra/database/schema/_helpers';
 import { JobName, reportExportJobId } from '../../infra/queue/queue.constants';
+import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
@@ -13,12 +14,14 @@ import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port'
 import {
   reportBlockKeyValues,
   type CreateReportExportRequest,
+  type RateSessionRequest,
   type ReportBlockKey,
   type ReportBlockView,
   type ReportExportView,
   type ReportSessionQuery,
   type ReportSessionView,
   type SessionEvaluationView,
+  type SessionRatingView,
   type TestReportView,
 } from './dto/report.dto';
 import {
@@ -40,6 +43,7 @@ export class ReportsService {
     private readonly repo: ReportsRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
+    private readonly dashboardKpis: DashboardKpiCache,
   ) {}
 
   /* ------------------------------ M10-02: blocks ----------------------------- */
@@ -117,6 +121,39 @@ export class ReportsService {
     const row = await this.repo.findSessionEvaluation(organizationId, testId, sessionId);
     if (!row) throw AppException.notFound('Sessão não encontrada');
     return toEvaluationView(row);
+  }
+
+  async rateSession(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    dto: RateSessionRequest,
+    req: Request,
+  ): Promise<SessionRatingView> {
+    const row = await this.repo.rateSession(organizationId, userId, sessionId, {
+      rating: dto.rating,
+      comment: dto.comment || null,
+      markedInvalid: dto.markedInvalid,
+    });
+    if (!row) throw AppException.notFound('Sessão não encontrada');
+    // M11: `sessionsValid` on the studio dashboard may have just changed.
+    await this.dashboardKpis.invalidate(organizationId);
+
+    recordAudit(req, {
+      action: 'session.rated',
+      entity: 'session_ratings',
+      entityId: row.sessionId,
+      before: null,
+      after: { rating: row.rating, markedInvalid: row.markedInvalid },
+    });
+    return {
+      sessionId: row.sessionId,
+      rating: row.rating,
+      comment: row.comment,
+      markedInvalid: row.markedInvalid,
+      ratedByUserId: row.ratedByUserId,
+      updatedAt: row.updatedAt.toISOString(),
+    };
   }
 
   /* --------------------------- M10-04: async export --------------------------- */

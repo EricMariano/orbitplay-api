@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   numeric,
@@ -141,6 +142,34 @@ export const sessionValidations = pgTable('session_validations', {
   validatedAt: timestamp('validated_at', { withTimezone: true }),
 });
 
+/**
+ * Avaliação do estúdio sobre a sessão de um tester (M10-03). Uma por sessão
+ * (PK = session_id); reavaliar faz upsert. `marked_invalid` tira a sessão das
+ * métricas do relatório (Tela 11 RN-01).
+ */
+export const sessionRatings = pgTable(
+  'session_ratings',
+  {
+    sessionId: uuid('session_id')
+      .primaryKey()
+      .references(() => sessions.id, { onDelete: 'cascade' }),
+    organizationId: uuid('organization_id')
+      .notNull()
+      .references(() => organizations.id, { onDelete: 'cascade' }),
+    ratedByUserId: uuid('rated_by_user_id')
+      .notNull()
+      .references(() => users.id),
+    rating: integer('rating').notNull(),
+    comment: text('comment'),
+    markedInvalid: boolean('marked_invalid').notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [
+    index('session_ratings_org_idx').on(t.organizationId),
+    check('session_ratings_rating_range', sql`${t.rating} between 1 and 5`),
+  ],
+);
+
 export const formResponses = pgTable(
   'form_responses',
   {
@@ -177,5 +206,7 @@ export type SessionDeviceEventRow = typeof sessionDeviceEvents.$inferSelect;
 export type SessionRecordingRow = typeof sessionRecordings.$inferSelect;
 export type NewSessionRecordingRow = typeof sessionRecordings.$inferInsert;
 export type SessionValidationRow = typeof sessionValidations.$inferSelect;
+export type SessionRatingRow = typeof sessionRatings.$inferSelect;
+export type NewSessionRatingRow = typeof sessionRatings.$inferInsert;
 export type FormResponseRow = typeof formResponses.$inferSelect;
 export type FormAnswerRow = typeof formAnswers.$inferSelect;

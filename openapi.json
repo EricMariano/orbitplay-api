@@ -3560,6 +3560,51 @@
         ]
       }
     },
+    "/sessions/{id}/rate": {
+      "post": {
+        "operationId": "SessionRatingsController_rate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateSessionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "default": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRatingDto_Output"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "tags": [
+          "reports"
+        ]
+      }
+    },
     "/studio/dashboard": {
       "get": {
         "operationId": "DashboardController_getDashboard",
@@ -8886,6 +8931,65 @@
           "failureReason",
           "createdAt",
           "completedAt"
+        ],
+        "additionalProperties": false
+      },
+      "RateSessionDto": {
+        "type": "object",
+        "properties": {
+          "rating": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 5
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 1000,
+            "nullable": true
+          },
+          "markedInvalid": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "rating"
+        ]
+      },
+      "SessionRatingDto_Output": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "comment": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markedInvalid": {
+            "type": "boolean"
+          },
+          "ratedByUserId": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "rating",
+          "comment",
+          "markedInvalid",
+          "ratedByUserId",
+          "updatedAt"
         ],
         "additionalProperties": false
       },
