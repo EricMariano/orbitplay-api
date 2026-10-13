@@ -4,6 +4,7 @@ import type { TestRow } from '../../infra/database/schema/tests';
 import type { BuildsRepository } from '../builds/builds.repository';
 import { ParticipationsService } from './participations.service';
 import type { ParticipationsRepository } from './participations.repository';
+import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 
 const TEST_ID = '01990000-0000-7000-8000-0000000000c1';
 const GAME_ID = '01990000-0000-7000-8000-0000000000b1';
@@ -93,6 +94,7 @@ describe('ParticipationsService', () => {
     service = new ParticipationsService(
       repo as unknown as ParticipationsRepository,
       builds as unknown as BuildsRepository,
+      { invalidate: vi.fn().mockResolvedValue(undefined) } as unknown as DashboardKpiCache,
     );
   });
 
