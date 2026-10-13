@@ -45,6 +45,7 @@ CREATE TYPE recording_kind       AS ENUM ('screen', 'webcam', 'microphone');
 CREATE TYPE asset_kind           AS ENUM ('cover', 'banner', 'screenshot');
 CREATE TYPE post_status          AS ENUM ('visible', 'hidden', 'removed');
 CREATE TYPE report_stage         AS ENUM ('none', 'partial', 'final');
+CREATE TYPE player_tier          AS ENUM ('all', 'casual', 'experienced', 'trained', 'qa');
 
 
 -- =============================================================================
@@ -205,7 +206,9 @@ CREATE TABLE test_audience_criteria (
   age_max         integer,
   tester_count    integer,
   keep_active     boolean NOT NULL DEFAULT true,
-  estimated_reach integer
+  estimated_reach integer,
+  player_tier     player_tier NOT NULL DEFAULT 'all',
+  boosted         boolean NOT NULL DEFAULT false
 );
 COMMENT ON COLUMN test_audience_criteria.age_min IS 'Minimo 18 e menor ou igual a age_max.';
 COMMENT ON COLUMN test_audience_criteria.estimated_reach IS 'Calculado no servidor. Precisa ser maior que zero para publicar (Tela 09 RN-01).';

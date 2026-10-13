@@ -389,6 +389,8 @@ export class TestsService {
             testerCount: dto.quantity,
             keepActive: dto.keepActive ?? false,
             estimatedReach,
+            playerTier: dto.playerTier ?? 'all',
+            boosted: dto.boosted ?? false,
           },
           tx,
         );
@@ -631,6 +633,8 @@ function toAudienceView(row: TestAudienceCriteriaRow, durationDays: number | nul
     deviceRequirements: (row.platforms ?? []) as AudienceView['deviceRequirements'],
     keepActive: row.keepActive,
     estimatedReach: row.estimatedReach ?? 0,
+    playerTier: row.playerTier,
+    boosted: row.boosted,
   };
 }
 

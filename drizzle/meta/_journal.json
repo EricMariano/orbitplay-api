@@ -85,6 +85,13 @@
       "when": 1791853136272,
       "tag": "0011_test_gamepad_supported",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791854659842,
+      "tag": "0012_audience_player_tier_boost",
+      "breakpoints": true
     }
   ]
 }

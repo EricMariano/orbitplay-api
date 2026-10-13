@@ -14,6 +14,7 @@ import { primaryId, timestamps } from './_helpers';
 import {
   buildStatusEnum,
   buildStepKeyEnum,
+  playerTierEnum,
   processingStatusEnum,
   questionTypeEnum,
   reportStageEnum,
@@ -89,6 +90,9 @@ export const testAudienceCriteria = pgTable('test_audience_criteria', {
   testerCount: integer('tester_count'),
   keepActive: boolean('keep_active').notNull().default(true),
   estimatedReach: integer('estimated_reach'),
+  playerTier: playerTierEnum('player_tier').notNull().default('all'),
+  /** Tela 09 "Impulsionar teste": destaque pago na vitrine dos jogadores. */
+  boosted: boolean('boosted').notNull().default(false),
 });
 
 export const testFormQuestions = pgTable(

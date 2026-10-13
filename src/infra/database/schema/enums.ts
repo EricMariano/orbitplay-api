@@ -125,5 +125,14 @@ export const postStatusEnum = pgEnum('post_status', ['visible', 'hidden', 'remov
 
 export const reportStageEnum = pgEnum('report_stage', ['none', 'partial', 'final']);
 
+/** Tela 09 "Tipo de jogador": perfil de tester que o estúdio quer no teste. */
+export const playerTierEnum = pgEnum('player_tier', [
+  'all',
+  'casual',
+  'experienced',
+  'trained',
+  'qa',
+]);
+
 /** Output format of a studio report export (M10-04). */
 export const reportExportFormatEnum = pgEnum('report_export_format', ['csv', 'pdf']);

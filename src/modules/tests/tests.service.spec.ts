@@ -87,6 +87,8 @@ function makeAudience(overrides: Partial<TestAudienceCriteriaRow> = {}): TestAud
     testerCount: 10,
     keepActive: false,
     estimatedReach: 5,
+    playerTier: 'all',
+    boosted: false,
     ...overrides,
   };
 }
@@ -360,6 +362,41 @@ describe('TestsService', () => {
       await expect(
         service.setBuildSettings(ORG, TEST_ID, { gamepadSupported: true }, req),
       ).rejects.toMatchObject({ status: 409 });
+    });
+  });
+
+  describe('setAudience', () => {
+    it('stores the player tier and the boost with the audience', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ currentStep: 'audience' }));
+      repo.updateByIdInOrg.mockResolvedValue(
+        makeTestRow({ currentStep: 'review', durationDays: 30 }),
+      );
+      repo.countEligiblePlayers.mockResolvedValue(40);
+      repo.findAudience.mockResolvedValue(
+        makeAudience({ playerTier: 'experienced', boosted: true, testerCount: 750 }),
+      );
+
+      const view = await service.setAudience(
+        ORG,
+        TEST_ID,
+        {
+          ageMin: 18,
+          ageMax: 40,
+          quantity: 750,
+          durationDays: 30,
+          keepActive: false,
+          playerTier: 'experienced',
+          boosted: true,
+        },
+        req,
+      );
+
+      expect(repo.upsertAudience).toHaveBeenCalledWith(
+        TEST_ID,
+        expect.objectContaining({ playerTier: 'experienced', boosted: true, estimatedReach: 40 }),
+        undefined,
+      );
+      expect(view.audience).toMatchObject({ playerTier: 'experienced', boosted: true });
     });
   });
 

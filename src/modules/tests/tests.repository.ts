@@ -25,7 +25,7 @@ import { OrgScopedRepository } from '../../infra/database/base.repository';
 import { AppException } from '../../shared/errors/app.exception';
 import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
-import type { FormQuestionInput, TestListQuery } from './dto/test.dto';
+import type { FormQuestionInput, PlayerTierValue, TestListQuery } from './dto/test.dto';
 
 /** `tab=active` (default, Tela 05) — see the note on `testListQuerySchema`. */
 const ACTIVE_TEST_STATUSES = ['draft', 'published', 'paused'] as const;
@@ -43,6 +43,8 @@ export interface UpsertAudienceInput {
   testerCount: number;
   keepActive: boolean;
   estimatedReach: number;
+  playerTier: PlayerTierValue;
+  boosted: boolean;
 }
 
 @Injectable()

@@ -23,6 +23,8 @@ export const questionTypeValues = [
   'boolean',
   'nps',
 ] as const;
+/** Tela 09 "Tipo de jogador" — mirrors `player_tier` in the schema. */
+export const playerTierValues = ['all', 'casual', 'experienced', 'trained', 'qa'] as const;
 export const buildStatusValues = [
   'awaiting_upload',
   'uploading',
@@ -95,6 +97,8 @@ export const audienceSchema = z.object({
   deviceRequirements: z.array(z.enum(platformValues)),
   keepActive: z.boolean(),
   estimatedReach: z.number().int(),
+  playerTier: z.enum(playerTierValues),
+  boosted: z.boolean(),
 });
 
 export const testSchema = z.object({
@@ -232,6 +236,8 @@ export const audienceRequestSchema = z
     durationDays: z.number().int().min(1).max(365),
     deviceRequirements: z.array(z.enum(platformValues)).optional(),
     keepActive: z.boolean().optional().default(false),
+    playerTier: z.enum(playerTierValues).optional().default('all'),
+    boosted: z.boolean().optional().default(false),
   })
   /** RN-02 (Tela 09): ageMin <= ageMax, both within the 18+ product floor. */
   .superRefine((v, ctx) => {
@@ -306,3 +312,4 @@ export type SetStatusRequest = z.infer<typeof setStatusSchema>;
 export type TestListQuery = z.infer<typeof testListQuerySchema>;
 export type TestStatusValue = (typeof testStatusValues)[number];
 export type WizardStepValue = (typeof wizardStepValues)[number];
+export type PlayerTierValue = (typeof playerTierValues)[number];
