@@ -210,6 +210,8 @@ describe('SessionsService', () => {
         position: 0,
         scaleMin: null,
         scaleMax: null,
+        scaleMinLabel: null,
+        scaleMaxLabel: null,
       },
     ];
 

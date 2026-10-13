@@ -275,6 +275,8 @@ describe('TestsService', () => {
           position: 0,
           scaleMin: null,
           scaleMax: null,
+          scaleMinLabel: null,
+          scaleMaxLabel: null,
           options: [],
         },
       ]);
@@ -292,6 +294,46 @@ describe('TestsService', () => {
         TEST_ID,
         expect.objectContaining({ currentStep: 'build' }),
       );
+    });
+
+    it('returns the scale end markers saved with a scale question', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ currentStep: 'form' }));
+      repo.replaceForm.mockResolvedValue([
+        {
+          id: 'q1',
+          testId: TEST_ID,
+          type: 'scale',
+          label: 'Gostou da paleta de cor?',
+          helpText: null,
+          required: false,
+          position: 0,
+          scaleMin: 1,
+          scaleMax: 5,
+          scaleMinLabel: 'Nada',
+          scaleMaxLabel: 'Muito',
+          options: [],
+        },
+      ]);
+
+      const view = await service.putForm(
+        ORG,
+        TEST_ID,
+        [
+          {
+            type: 'scale',
+            prompt: 'Gostou da paleta de cor?',
+            required: false,
+            position: 0,
+            scaleMin: 1,
+            scaleMax: 5,
+            scaleMinLabel: 'Nada',
+            scaleMaxLabel: 'Muito',
+          },
+        ],
+        req,
+      );
+
+      expect(view.questions[0]).toMatchObject({ scaleMinLabel: 'Nada', scaleMaxLabel: 'Muito' });
     });
   });
 

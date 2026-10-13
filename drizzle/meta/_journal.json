@@ -71,6 +71,13 @@
       "when": 1791849179802,
       "tag": "0009_session_ratings",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791852579094,
+      "tag": "0010_form_scale_labels",
+      "breakpoints": true
     }
   ]
 }

@@ -103,6 +103,8 @@ export const testFormQuestions = pgTable(
     position: integer('position').notNull(),
     scaleMin: integer('scale_min'),
     scaleMax: integer('scale_max'),
+    scaleMinLabel: text('scale_min_label'),
+    scaleMaxLabel: text('scale_max_label'),
   },
   (t) => [uniqueIndex('test_form_questions_order_unique').on(t.testId, t.position)],
 );

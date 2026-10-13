@@ -586,6 +586,8 @@ function toQuestionView(q: FormQuestionWithOptions) {
     options: q.options.map((o) => ({ id: o.id, label: o.label, position: o.position })),
     scaleMin: q.scaleMin,
     scaleMax: q.scaleMax,
+    scaleMinLabel: q.scaleMinLabel,
+    scaleMaxLabel: q.scaleMaxLabel,
   };
 }
 

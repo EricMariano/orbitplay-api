@@ -180,6 +180,8 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
             position: q.position,
             scaleMin: q.scaleMin ?? null,
             scaleMax: q.scaleMax ?? null,
+            scaleMinLabel: q.scaleMinLabel ?? null,
+            scaleMaxLabel: q.scaleMaxLabel ?? null,
           })
           .returning();
 

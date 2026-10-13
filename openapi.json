@@ -6115,6 +6115,14 @@
                   "type": "integer",
                   "minimum": -9007199254740991,
                   "maximum": 9007199254740991
+                },
+                "scaleMinLabel": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "scaleMaxLabel": {
+                  "type": "string",
+                  "maxLength": 300
                 }
               },
               "required": [
@@ -6208,6 +6216,18 @@
                   "minimum": -9007199254740991,
                   "maximum": 9007199254740991,
                   "nullable": true
+                },
+                "scaleMinLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "scaleMaxLabel": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -6219,7 +6239,9 @@
                 "position",
                 "options",
                 "scaleMin",
-                "scaleMax"
+                "scaleMax",
+                "scaleMinLabel",
+                "scaleMaxLabel"
               ],
               "additionalProperties": false
             }
@@ -7531,6 +7553,18 @@
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991,
                       "nullable": true
+                    },
+                    "scaleMinLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scaleMaxLabel": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
                     }
                   },
                   "required": [
@@ -7542,7 +7576,9 @@
                     "position",
                     "options",
                     "scaleMin",
-                    "scaleMax"
+                    "scaleMax",
+                    "scaleMinLabel",
+                    "scaleMaxLabel"
                   ],
                   "additionalProperties": false
                 }

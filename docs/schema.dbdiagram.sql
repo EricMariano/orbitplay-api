@@ -218,7 +218,9 @@ CREATE TABLE test_form_questions (
   required  boolean NOT NULL DEFAULT false,
   position  integer NOT NULL,
   scale_min integer,
-  scale_max integer
+  scale_max integer,
+  scale_min_label text,
+  scale_max_label text
 );
 COMMENT ON COLUMN test_form_questions.required IS 'Bloqueia o envio do formulario pelo jogador enquanto nao respondida.';
 COMMENT ON COLUMN test_form_questions.position IS 'Ordem persistida EXATAMENTE como definida. O PUT do formulario substitui o conjunto inteiro numa transacao, o que torna a reordenacao atomica.';

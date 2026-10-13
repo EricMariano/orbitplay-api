@@ -30,7 +30,12 @@ export const buildStatusValues = [
   'validated',
   'failed',
 ] as const;
-export const buildStepKeyValues = ['checksum', 'malware_scan', 'metadata', 'plugin_manifest'] as const;
+export const buildStepKeyValues = [
+  'checksum',
+  'malware_scan',
+  'metadata',
+  'plugin_manifest',
+] as const;
 export const buildStepStatusValues = ['processing', 'ready', 'failed', 'unavailable'] as const;
 
 /** `wizard_step` is an ordered enum; the API exposes it as the design's 1-5 integer. */
@@ -129,6 +134,9 @@ const formQuestionInputSchema = z
     options: z.array(formOptionInputSchema).optional(),
     scaleMin: z.number().int().optional(),
     scaleMax: z.number().int().optional(),
+    /** Markers shown at the scale ends (Tela 07, "Primeiro/Último marcador"). */
+    scaleMinLabel: z.string().max(300).optional(),
+    scaleMaxLabel: z.string().max(300).optional(),
   })
   /** RN-02 (Tela 07): choice types need at least two options. */
   .superRefine((q, ctx) => {
@@ -178,6 +186,8 @@ const formQuestionSchema = z.object({
   options: z.array(formOptionSchema),
   scaleMin: z.number().int().nullable(),
   scaleMax: z.number().int().nullable(),
+  scaleMinLabel: z.string().nullable(),
+  scaleMaxLabel: z.string().nullable(),
 });
 
 export const testFormSchema = z.object({
