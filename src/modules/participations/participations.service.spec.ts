@@ -71,8 +71,16 @@ describe('ParticipationsService', () => {
     findOpenOrLastSessionId: ReturnType<typeof vi.fn>;
     findSessionValidation: ReturnType<typeof vi.fn>;
     sumXpForSession: ReturnType<typeof vi.fn>;
+    listForUser: ReturnType<typeof vi.fn>;
+    findTestsByIds: ReturnType<typeof vi.fn>;
+    findConsentsByParticipationIds: ReturnType<typeof vi.fn>;
+    findOpenSessionIdsByParticipationIds: ReturnType<typeof vi.fn>;
+    findSessionBoundsByParticipationIds: ReturnType<typeof vi.fn>;
   };
-  let builds: { findLatestBuild: ReturnType<typeof vi.fn> };
+  let builds: {
+    findLatestBuild: ReturnType<typeof vi.fn>;
+    findLatestBuildsByTestIds: ReturnType<typeof vi.fn>;
+  };
   let reportSnapshots: { invalidate: ReturnType<typeof vi.fn> };
   let service: ParticipationsService;
 
@@ -92,8 +100,16 @@ describe('ParticipationsService', () => {
       findOpenOrLastSessionId: vi.fn().mockResolvedValue(null),
       findSessionValidation: vi.fn().mockResolvedValue(null),
       sumXpForSession: vi.fn().mockResolvedValue(0),
+      listForUser: vi.fn(),
+      findTestsByIds: vi.fn().mockResolvedValue(new Map()),
+      findConsentsByParticipationIds: vi.fn().mockResolvedValue(new Map()),
+      findOpenSessionIdsByParticipationIds: vi.fn().mockResolvedValue(new Map()),
+      findSessionBoundsByParticipationIds: vi.fn().mockResolvedValue(new Map()),
     };
-    builds = { findLatestBuild: vi.fn().mockResolvedValue(null) };
+    builds = {
+      findLatestBuild: vi.fn().mockResolvedValue(null),
+      findLatestBuildsByTestIds: vi.fn().mockResolvedValue(new Map()),
+    };
     reportSnapshots = { invalidate: vi.fn().mockResolvedValue(undefined) };
     service = new ParticipationsService(
       repo as unknown as ParticipationsRepository,
@@ -172,6 +188,75 @@ describe('ParticipationsService', () => {
     it('404s when the participation belongs to someone else (repo enforces this)', async () => {
       repo.getByIdForUserOrThrow.mockRejectedValue({ status: 404 });
       await expect(service.get(PARTICIPATION_ID, USER_ID)).rejects.toMatchObject({ status: 404 });
+    });
+  });
+
+  describe('list', () => {
+    const query = { limit: 20 };
+
+    it('returns an empty page when the caller has no participations', async () => {
+      repo.listForUser.mockResolvedValue({ data: [], nextCursor: null });
+      const page = await service.list(USER_ID, query);
+      expect(page).toEqual({ data: [], nextCursor: null });
+    });
+
+    it('merges consent, open session and session bounds per row, and keeps nextCursor', async () => {
+      const done = makeParticipation({ id: 'p-done', status: 'completed' });
+      const live = makeParticipation({ id: 'p-live', status: 'playing' });
+      repo.listForUser.mockResolvedValue({ data: [live, done], nextCursor: 'next' });
+      repo.findTestsByIds.mockResolvedValue(new Map([[TEST_ID, makeTestRow()]]));
+      repo.findConsentsByParticipationIds.mockResolvedValue(
+        new Map([['p-live', { acceptedAt: new Date('2026-01-01T00:00:00Z') }]]),
+      );
+      repo.findOpenSessionIdsByParticipationIds.mockResolvedValue(new Map([['p-live', 'sess-1']]));
+      repo.findSessionBoundsByParticipationIds.mockResolvedValue(
+        new Map([
+          ['p-live', { startedAt: new Date('2026-01-02T00:00:00Z'), endedAt: null }],
+          [
+            'p-done',
+            {
+              startedAt: new Date('2026-01-03T00:00:00Z'),
+              endedAt: new Date('2026-01-04T00:00:00Z'),
+            },
+          ],
+        ]),
+      );
+
+      const page = await service.list(USER_ID, query);
+
+      expect(page.nextCursor).toBe('next');
+      const [liveView, doneView] = page.data;
+      expect(liveView).toMatchObject({
+        id: 'p-live',
+        currentSessionId: 'sess-1',
+        consentsGranted: true,
+        startedAt: '2026-01-02T00:00:00.000Z',
+        completedAt: null,
+      });
+      expect(doneView).toMatchObject({
+        id: 'p-done',
+        currentSessionId: null,
+        consentsGranted: false,
+        completedAt: '2026-01-04T00:00:00.000Z',
+      });
+    });
+
+    it('only reports completedAt for completed participations', async () => {
+      const row = makeParticipation({ status: 'abandoned' });
+      repo.listForUser.mockResolvedValue({ data: [row], nextCursor: null });
+      repo.findTestsByIds.mockResolvedValue(new Map([[TEST_ID, makeTestRow()]]));
+      repo.findSessionBoundsByParticipationIds.mockResolvedValue(
+        new Map([[row.id, { startedAt: new Date(), endedAt: new Date() }]]),
+      );
+
+      const page = await service.list(USER_ID, query);
+      expect(page.data[0].completedAt).toBeNull();
+    });
+
+    it('drops rows whose test vanished instead of failing the page', async () => {
+      repo.listForUser.mockResolvedValue({ data: [makeParticipation()], nextCursor: null });
+      const page = await service.list(USER_ID, query);
+      expect(page.data).toEqual([]);
     });
   });
 
