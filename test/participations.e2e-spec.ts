@@ -202,4 +202,101 @@ describe('Participations — M7-02 (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`);
     expect(get.status).toBe(404);
   });
+  describe('GET /player/participations', () => {
+    async function join(testId: string): Promise<string> {
+      const res = await request(app.getHttpServer())
+        .post(`/player/tests/${testId}/participations`)
+        .set('Authorization', `Bearer ${playerToken}`)
+        .send();
+      expect(res.status).toBe(201);
+      return res.body.id as string;
+    }
+
+    it('403s a studio-role token (player-only route)', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/player/participations')
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.status).toBe(403);
+    });
+
+    it('lists the caller own participations newest first, in the Participation shape', async () => {
+      const first = uuidv7();
+      const second = uuidv7();
+      await seedPublishedTest({ id: first, slotsTotal: 5 });
+      await seedPublishedTest({ id: second, slotsTotal: 5 });
+      const firstId = await join(first);
+      const secondId = await join(second);
+
+      const res = await request(app.getHttpServer())
+        .get('/player/participations?limit=100')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(res.status).toBe(200);
+      const ids = (res.body.data as { id: string }[]).map((p) => p.id);
+      expect(ids).toContain(secondId);
+      expect(ids.indexOf(secondId)).toBeLessThan(ids.indexOf(firstId));
+
+      const item = res.body.data.find((p: { id: string }) => p.id === secondId);
+      expect(item).toMatchObject({
+        testId: second,
+        gameId: GAME_IDS.two,
+        status: 'reserved',
+        currentSessionId: null,
+        consentsGranted: false,
+        build: null,
+        startedAt: null,
+        completedAt: null,
+      });
+    });
+
+    it('paginates by cursor without repeating items', async () => {
+      const a = uuidv7();
+      const b = uuidv7();
+      await seedPublishedTest({ id: a, slotsTotal: 5 });
+      await seedPublishedTest({ id: b, slotsTotal: 5 });
+      await join(a);
+      await join(b);
+
+      const page1 = await request(app.getHttpServer())
+        .get('/player/participations?limit=1')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(page1.status).toBe(200);
+      expect(page1.body.data).toHaveLength(1);
+      expect(page1.body.nextCursor).toEqual(expect.any(String));
+
+      const page2 = await request(app.getHttpServer())
+        .get(`/player/participations?limit=1&cursor=${page1.body.nextCursor}`)
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(page2.status).toBe(200);
+      expect(page2.body.data).toHaveLength(1);
+      expect(page2.body.data[0].id).not.toBe(page1.body.data[0].id);
+    });
+
+    it('filters by status', async () => {
+      const testId = uuidv7();
+      await seedPublishedTest({ id: testId, slotsTotal: 5 });
+      const id = await join(testId);
+      await sql`UPDATE participations SET status = 'completed' WHERE id = ${id}`;
+
+      const done = await request(app.getHttpServer())
+        .get('/player/participations?status=completed&limit=100')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(done.status).toBe(200);
+      expect((done.body.data as { id: string }[]).map((p) => p.id)).toContain(id);
+      expect((done.body.data as { status: string }[]).every((p) => p.status === 'completed')).toBe(
+        true,
+      );
+
+      const reserved = await request(app.getHttpServer())
+        .get('/player/participations?status=reserved&limit=100')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect((reserved.body.data as { id: string }[]).map((p) => p.id)).not.toContain(id);
+    });
+
+    it('422s an unknown status', async () => {
+      const res = await request(app.getHttpServer())
+        .get('/player/participations?status=banana')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(res.status).toBe(422);
+    });
+  });
 });

@@ -507,3 +507,33 @@ findLatestSnapshot` busca o snapshot mais recente por
   `DashboardKpiCache`; é provider do `ParticipationsModule` (e não do
   `DatabaseModule`, que geraria import circular com o token `DRIZZLE`).
   Falha ao apagar nunca derruba a escrita que a disparou — só loga.
+- **ORB-M8-03 — leituras do jogador (`GET /player/games/{gameId}`,
+  `.../tests`, `/player/tests/{testId}`, `/player/participations`) vivem no
+  módulo `participations`, não em `player`.** É o módulo que já lê `tests`
+  cross-org para o jogador (`ParticipationsRepository`, sem
+  `OrgScopedRepository` — mesmo raciocínio do feed e de entrar num teste) e
+  que monta o `ParticipationView` embutido em cada teste. `/player/home` e
+  `/player/feed/filters` (mesmo card) ficaram de fora: nenhuma tela consome.
+- **M8-03 — visibilidade.** Jogo ou teste `draft` responde `404` ao jogador
+  (estado privado do estúdio). A lista de testes de um jogo traz `published`
+  e `paused` — o pausado aparece desabilitado com motivo (Tela 14 RN-03) em
+  vez de sumir; `finished`/`expired` saem da lista, mas
+  `GET /player/tests/{testId}` continua respondendo (quem participou chega
+  neles por `/player/participations`).
+- **M8-03 — CTA (Tela 15 RN-01).** Participação ativa vence a
+  disponibilidade do teste (quem já tem a vaga continua mesmo que o teste
+  tenha lotado/pausado depois): `reserved`/`tutorial`/`ready`/`playing`/
+  `form_pending` → `continue`; `downloading`, `in_review` e `completed` têm
+  CTA próprio. `abandoned`/`rejected` não seguram vaga (índice
+  `participations_active_test_user_unique`), então caem na disponibilidade:
+  `start` se o teste está aberto (publicado, no prazo, com vaga), senão
+  `unavailable` + `disabledReason`. A regra "aberto" existe em TS
+  (`player-cta.ts`) e em SQL (`findOpenTestStats`, que alimenta `openTests`/
+  `maxRewardCents`) — manter as duas iguais.
+- **M8-03 — campos sem fonte ainda.** `durationMinutes` é sempre `null`
+  (nenhum modelo/teste define duração de sessão); `title` cai para o título
+  do jogo quando o teste não tem `name`; `platforms` vem de
+  `test_audience_criteria.platforms`, descartando valores fora do enum;
+  `specs` reaproveita o stub `EMPTY_GAME_SPECS`; `promoted` é sempre `false`
+  (§10). `GET /games/{id}/achievements` continua bloqueado pelo motivo já
+  registrado acima (sem `game_id` em `achievements`).

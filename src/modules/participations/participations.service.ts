@@ -7,7 +7,8 @@ import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import type { ParticipationRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
 import type { ConsentRecordView, ConsentRequest, TutorialView } from './dto/consent.dto';
-import type { ParticipationView } from './dto/participation.dto';
+import type { Page } from '../../shared/pagination/pagination';
+import type { ParticipationListQuery, ParticipationView } from './dto/participation.dto';
 import type { ParticipationResultView } from './dto/session.dto';
 import { ParticipationsRepository } from './participations.repository';
 import { tutorialForModel } from './tutorial.catalog';
@@ -93,6 +94,48 @@ export class ParticipationsService {
     const test = await this.repo.findTestById(row.testId);
     if (!test) throw AppException.notFound();
     return this.toView(row, test);
+  }
+
+  /**
+   * Tela 13: "Meus testes". Same view as `get`, built from batch lookups so a
+   * page costs a fixed number of queries instead of N per row. Scoped to the
+   * caller's `userId` by the repository — another player's rows never appear.
+   */
+  async list(userId: string, query: ParticipationListQuery): Promise<Page<ParticipationView>> {
+    const page = await this.repo.listForUser(userId, query);
+    const rows = page.data;
+    const ids = rows.map((r) => r.id);
+    const testIds = [...new Set(rows.map((r) => r.testId))];
+
+    const [testsById, consents, openSessions, bounds, buildsByTest] = await Promise.all([
+      this.repo.findTestsByIds(testIds),
+      this.repo.findConsentsByParticipationIds(ids),
+      this.repo.findOpenSessionIdsByParticipationIds(ids),
+      this.repo.findSessionBoundsByParticipationIds(ids),
+      this.builds.findLatestBuildsByTestIds(testIds),
+    ]);
+
+    const data: ParticipationView[] = [];
+    for (const row of rows) {
+      const test = testsById.get(row.testId);
+      if (!test) continue; // FK cascades, so only a concurrent delete can land here
+      const build = buildsByTest.get(row.testId);
+      const range = bounds.get(row.id);
+      data.push({
+        id: row.id,
+        testId: row.testId,
+        gameId: test.gameId,
+        status: row.status,
+        currentSessionId: openSessions.get(row.id) ?? null,
+        resumePoint: row.resumePoint,
+        consentsGranted: consents.get(row.id)?.acceptedAt != null,
+        build: build ? toBuildView(build) : null,
+        startedAt: range?.startedAt ? range.startedAt.toISOString() : null,
+        completedAt:
+          row.status === 'completed' && range?.endedAt ? range.endedAt.toISOString() : null,
+      });
+    }
+    return { data, nextCursor: page.nextCursor };
   }
 
   /** Tela 16 RN-01: tutorial content follows the test's MODEL, not the game. */
@@ -187,7 +230,8 @@ export class ParticipationsService {
     };
   }
 
-  private async toView(row: ParticipationRow, test: TestRow): Promise<ParticipationView> {
+  /** Public view of one participation — also used by `PlayerCatalogService` for embedded/listed participations. */
+  async toView(row: ParticipationRow, test: TestRow): Promise<ParticipationView> {
     const [buildWithSteps, consent, openSessionId, startedSession, completedSession] =
       await Promise.all([
         this.builds.findLatestBuild(test.id),

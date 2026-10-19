@@ -8,6 +8,7 @@ import {
   Ip,
   Param,
   Post,
+  Query,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
@@ -15,7 +16,11 @@ import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { Role } from '../../shared/auth/roles';
 import { ConsentRecordDto, ConsentRequestDto, TutorialDto } from './dto/consent.dto';
-import { ParticipationDto } from './dto/participation.dto';
+import {
+  ParticipationDto,
+  ParticipationListDto,
+  ParticipationListQueryDto,
+} from './dto/participation.dto';
 import {
   ParticipationResultDto,
   SessionStartedDto,
@@ -40,6 +45,14 @@ export class ParticipationsController {
   @ZodResponse({ type: ParticipationDto })
   join(@CurrentUser('userId') userId: string, @Param('testId') testId: string) {
     return this.participations.join(testId, userId);
+  }
+
+  /** Own route (not `/player/tests/mine`): the literal segment would collide with `/player/tests/:testId`. */
+  @Get('player/participations')
+  @Roles(Role.PLAYER)
+  @ZodResponse({ type: ParticipationListDto })
+  list(@CurrentUser('userId') userId: string, @Query() query: ParticipationListQueryDto) {
+    return this.participations.list(userId, query);
   }
 
   @Get('participations/:id')

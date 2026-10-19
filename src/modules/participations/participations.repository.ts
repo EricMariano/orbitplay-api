@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { newId } from '../../infra/database/schema/_helpers';
 import {
@@ -32,13 +32,28 @@ import {
 import { xpEvents } from '../../infra/database/schema/player';
 import { users } from '../../infra/database/schema/users';
 import { AppException } from '../../shared/errors/app.exception';
+import {
+  buildPage,
+  decodeCursor,
+  type Page,
+  type PaginationQuery,
+} from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
 import type { AnswerInput } from './dto/session.dto';
 import type { ConsentKind } from './dto/consent.dto';
+import type { ParticipationListQuery } from './dto/participation.dto';
 
 export interface FormQuestionWithOptions extends TestFormQuestionRow {
   options: TestFormOptionRow[];
 }
+
+/**
+ * M8-03: test statuses a player sees in a game's test list. `paused` stays
+ * visible (shown disabled, with a reason — Tela 14 RN-03) instead of vanishing;
+ * `draft` is the studio's private wizard state and `finished`/`expired` are
+ * over (a player who took part still reaches them via `/player/participations`).
+ */
+export const PLAYER_LISTED_TEST_STATUSES = ['published', 'paused'] as const;
 
 /** Participation statuses that still hold a slot (mirrors `participations_active_test_user_unique`). */
 export const ACTIVE_PARTICIPATION_STATUSES = [
@@ -147,6 +162,80 @@ export class ParticipationsRepository {
     const row = await this.findById(id);
     if (!row || row.userId !== userId) throw AppException.notFound();
     return row;
+  }
+
+  /** The caller's own participations, newest first (UUIDv7 ⇒ chronological), optionally by status. */
+  async listForUser(
+    userId: string,
+    query: ParticipationListQuery,
+  ): Promise<Page<ParticipationRow>> {
+    const cursorId = decodeCursor(query.cursor);
+    const filters = [eq(participations.userId, userId)];
+    if (cursorId) filters.push(lt(participations.id, cursorId));
+    if (query.status) filters.push(eq(participations.status, query.status));
+
+    const rows = await this.db
+      .select()
+      .from(participations)
+      .where(and(...filters))
+      .orderBy(desc(participations.id))
+      .limit(query.limit + 1);
+    return buildPage(rows, query.limit);
+  }
+
+  async findTestsByIds(testIds: string[]): Promise<Map<string, TestRow>> {
+    if (testIds.length === 0) return new Map();
+    const rows = await this.db.select().from(tests).where(inArray(tests.id, testIds));
+    return new Map(rows.map((t) => [t.id, t]));
+  }
+
+  /** Batch `findConsent` for a page — keyed by participation id. */
+  async findConsentsByParticipationIds(ids: string[]): Promise<Map<string, SessionConsentRow>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .select()
+      .from(sessionConsents)
+      .where(inArray(sessionConsents.participationId, ids));
+    return new Map(rows.map((c) => [c.participationId, c]));
+  }
+
+  /** Batch `findOpenSessionId`: most recent still-open session per participation. */
+  async findOpenSessionIdsByParticipationIds(ids: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    if (ids.length === 0) return result;
+    const rows = await this.db
+      .select({ id: sessions.id, participationId: sessions.participationId })
+      .from(sessions)
+      .where(
+        and(
+          inArray(sessions.participationId, ids),
+          inArray(sessions.status, OPEN_SESSION_STATUSES),
+        ),
+      )
+      .orderBy(desc(sessions.startedAt));
+    for (const row of rows) {
+      if (!result.has(row.participationId)) result.set(row.participationId, row.id);
+    }
+    return result;
+  }
+
+  /** Batch first-start / last-end per participation, in one aggregate query. */
+  async findSessionBoundsByParticipationIds(
+    ids: string[],
+  ): Promise<Map<string, { startedAt: Date | null; endedAt: Date | null }>> {
+    if (ids.length === 0) return new Map();
+    const rows = await this.db
+      .select({
+        participationId: sessions.participationId,
+        startedAt: sql<Date | null>`min(${sessions.startedAt})`.mapWith(sessions.startedAt),
+        endedAt: sql<Date | null>`max(${sessions.endedAt})`.mapWith(sessions.endedAt),
+      })
+      .from(sessions)
+      .where(inArray(sessions.participationId, ids))
+      .groupBy(sessions.participationId);
+    return new Map(
+      rows.map((r) => [r.participationId, { startedAt: r.startedAt, endedAt: r.endedAt }]),
+    );
   }
 
   async findConsent(participationId: string): Promise<SessionConsentRow | null> {
@@ -440,6 +529,82 @@ export class ParticipationsRepository {
       .from(xpEvents)
       .where(and(eq(xpEvents.sourceType, 'session'), eq(xpEvents.sourceId, sessionId)));
     return rows.reduce((sum, r) => sum + r.xp, 0);
+  }
+
+  /** M8-03 — cursor page of a game's tests as listed to players (newest first). */
+  async listPlayerTestsForGame(gameId: string, query: PaginationQuery): Promise<Page<TestRow>> {
+    if (!isUuid(gameId)) return { data: [], nextCursor: null };
+    const cursorId = decodeCursor(query.cursor);
+    const filters = [eq(tests.gameId, gameId), inArray(tests.status, PLAYER_LISTED_TEST_STATUSES)];
+    if (cursorId) filters.push(lt(tests.id, cursorId));
+
+    const rows = await this.db
+      .select()
+      .from(tests)
+      .where(and(...filters))
+      .orderBy(desc(tests.id))
+      .limit(query.limit + 1);
+    return buildPage(rows, query.limit);
+  }
+
+  /**
+   * Tela 15 header: tests a player can join right now — mirrors the "open"
+   * branch of `testUnavailableReason` (published, within the deadline, with a
+   * free slot). Keep both in sync.
+   */
+  async findOpenTestStats(
+    gameId: string,
+    now: Date,
+  ): Promise<{ openTests: number; maxRewardCents: number | null }> {
+    const rows = await this.db
+      .select({
+        openTests: sql<number>`count(*)::int`,
+        maxRewardCents: sql<number | null>`max(${tests.rewardAmountCents})`,
+      })
+      .from(tests)
+      .where(
+        and(
+          eq(tests.gameId, gameId),
+          eq(tests.status, 'published'),
+          or(isNull(tests.endsAt), gt(tests.endsAt, now)),
+          lt(tests.slotsTaken, tests.slotsTotal),
+        ),
+      );
+    return {
+      openTests: rows[0]?.openTests ?? 0,
+      maxRewardCents: rows[0]?.maxRewardCents ?? null,
+    };
+  }
+
+  /** Audience platforms (`test_audience_criteria.platforms`) per test; tests without criteria are absent. */
+  async findAudiencePlatforms(testIds: string[]): Promise<Map<string, string[]>> {
+    if (testIds.length === 0) return new Map();
+    const rows = await this.db
+      .select({ testId: testAudienceCriteria.testId, platforms: testAudienceCriteria.platforms })
+      .from(testAudienceCriteria)
+      .where(inArray(testAudienceCriteria.testId, testIds));
+    return new Map(rows.map((row) => [row.testId, row.platforms ?? []]));
+  }
+
+  /**
+   * The caller's most recent participation in each of these tests (newest id
+   * wins — ids are UUIDv7). An `abandoned`/`rejected` one is still returned:
+   * the service decides what it means for the CTA.
+   */
+  async findLatestParticipations(
+    userId: string,
+    testIds: string[],
+  ): Promise<Map<string, ParticipationRow>> {
+    if (testIds.length === 0) return new Map();
+    const rows = await this.db
+      .select()
+      .from(participations)
+      .where(and(eq(participations.userId, userId), inArray(participations.testId, testIds)))
+      .orderBy(desc(participations.id));
+
+    const latest = new Map<string, ParticipationRow>();
+    for (const row of rows) if (!latest.has(row.testId)) latest.set(row.testId, row);
+    return latest;
   }
 }
 

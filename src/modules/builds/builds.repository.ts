@@ -51,6 +51,29 @@ export class BuildsRepository extends OrgScopedRepository<BuildRow, NewBuildRow>
     return { build, steps };
   }
 
+  /** Batch `findLatestBuild` for a page of tests — one query per table instead of one per test. */
+  async findLatestBuildsByTestIds(testIds: string[]): Promise<Map<string, BuildWithSteps>> {
+    const result = new Map<string, BuildWithSteps>();
+    if (testIds.length === 0) return result;
+    const rows = await this.db
+      .select()
+      .from(builds)
+      .where(inArray(builds.testId, testIds))
+      .orderBy(desc(builds.createdAt));
+    for (const build of rows) {
+      if (!result.has(build.testId)) result.set(build.testId, { build, steps: [] });
+    }
+    const buildIds = [...result.values()].map((v) => v.build.id);
+    if (buildIds.length === 0) return result;
+    const steps = await this.db
+      .select()
+      .from(buildValidationSteps)
+      .where(inArray(buildValidationSteps.buildId, buildIds));
+    const byBuild = new Map([...result.values()].map((v) => [v.build.id, v]));
+    for (const step of steps) byBuild.get(step.buildId)?.steps.push(step);
+    return result;
+  }
+
   /** Inside `TestsRepository.withRowLock`, pass its transaction as `db` (see the note there). */
   async createBuildWithSteps(
     values: NewBuildRow,
