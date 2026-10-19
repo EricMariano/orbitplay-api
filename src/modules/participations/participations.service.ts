@@ -230,7 +230,8 @@ export class ParticipationsService {
     };
   }
 
-  private async toView(row: ParticipationRow, test: TestRow): Promise<ParticipationView> {
+  /** Public view of one participation — also used by `PlayerCatalogService` for embedded/listed participations. */
+  async toView(row: ParticipationRow, test: TestRow): Promise<ParticipationView> {
     const [buildWithSteps, consent, openSessionId, startedSession, completedSession] =
       await Promise.all([
         this.builds.findLatestBuild(test.id),
