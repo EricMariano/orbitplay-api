@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
 import type { GameAssetRow } from '../../infra/database/schema/game-assets';
-import type { GameRow } from '../../infra/database/schema/games';
+import type { GameRow, NewGameRow } from '../../infra/database/schema/games';
 import { newId } from '../../infra/database/schema/_helpers';
 import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
 import { recordAudit } from '../../shared/audit/audit-context';
@@ -13,8 +13,8 @@ import { slugify } from '../../shared/util/slugify';
 import {
   ASSET_UPLOAD_TTL_SECONDS,
   EMPTY_GAME_METRICS,
-  EMPTY_GAME_SPECS,
   MAX_GAME_ASSET_BYTES,
+  gameSpecsOf,
   type AssetKind,
   type AssetUploadUrlRequest,
   type ConfirmAssetRequest,
@@ -119,10 +119,13 @@ export class GamesService {
     };
   }
 
-  /** See EMPTY_GAME_SPECS: stub pending the Tela 04 field decision. */
+  /** Plataformas e idiomas persistidos; requisitos seguem vazios (ver `gameSpecsOf`). */
   async specs(organizationId: string, id: string): Promise<GameSpecsView> {
-    await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    return EMPTY_GAME_SPECS;
+    const row = await this.repo.getByIdInOrgOrThrow(organizationId, id);
+    return gameSpecsOf({
+      supportedPlatforms: row.supportedPlatforms as GameView['supportedPlatforms'],
+      languages: row.languages,
+    });
   }
 
   async create(organizationId: string, dto: CreateGameDto, req: Request): Promise<GameView> {
@@ -136,13 +139,18 @@ export class GamesService {
       title: dto.title,
       slug,
       description: dto.description ?? null,
-      genre: dto.genre ?? null,
-      platform: dto.platform ?? null,
+      genre: dto.genre ?? summarize(dto.genres),
+      platform: dto.platform ?? summarize(dto.supportedPlatforms),
+      ...catalogColumns(dto),
       status: dto.status ?? 'draft',
     });
     await this.dashboardKpis.invalidate(organizationId);
 
-    const view = toView(row, null, null, { ...EMPTY_GAME_METRICS });
+    const view = toView(
+      row,
+      { coverUrl: null, bannerUrl: null, logoUrl: null, iconUrl: null },
+      { ...EMPTY_GAME_METRICS },
+    );
     recordAudit(req, {
       action: 'game.created',
       entity: 'games',
@@ -174,6 +182,13 @@ export class GamesService {
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.genre !== undefined ? { genre: dto.genre } : {}),
       ...(dto.platform !== undefined ? { platform: dto.platform } : {}),
+      ...(dto.genre === undefined && dto.genres !== undefined
+        ? { genre: summarize(dto.genres) }
+        : {}),
+      ...(dto.platform === undefined && dto.supportedPlatforms !== undefined
+        ? { platform: summarize(dto.supportedPlatforms) }
+        : {}),
+      ...catalogColumns(dto),
       ...(dto.status !== undefined ? { status: dto.status } : {}),
     });
 
@@ -311,17 +326,23 @@ export class GamesService {
     const ids = rows.map((r) => r.id);
     const [metrics, assets] = await Promise.all([
       this.repo.metricsByGameIds(organizationId, ids),
-      this.repo.findCoverAndBannerByGameIds(organizationId, ids),
+      this.repo.findDisplayAssetsByGameIds(organizationId, ids),
     ]);
 
     return Promise.all(
       rows.map(async (row) => {
-        const pair = assets.get(row.id) ?? { cover: null, banner: null };
-        const [coverUrl, bannerUrl] = await Promise.all([
-          this.signedOrNull(pair.cover),
-          this.signedOrNull(pair.banner),
+        const set = assets.get(row.id) ?? { cover: null, banner: null, logo: null, icon: null };
+        const [coverUrl, bannerUrl, logoUrl, iconUrl] = await Promise.all([
+          this.signedOrNull(set.cover),
+          this.signedOrNull(set.banner),
+          this.signedOrNull(set.logo),
+          this.signedOrNull(set.icon),
         ]);
-        return toView(row, coverUrl, bannerUrl, metrics.get(row.id) ?? { ...EMPTY_GAME_METRICS });
+        return toView(
+          row,
+          { coverUrl, bannerUrl, logoUrl, iconUrl },
+          metrics.get(row.id) ?? { ...EMPTY_GAME_METRICS },
+        );
       }),
     );
   }
@@ -348,12 +369,46 @@ export class GamesService {
   }
 }
 
-function toView(
-  row: GameRow,
-  coverUrl: string | null,
-  bannerUrl: string | null,
-  metrics: GameMetricsView,
-): GameView {
+type GameImageUrls = Pick<GameView, 'coverUrl' | 'bannerUrl' | 'logoUrl' | 'iconUrl'>;
+
+/** Resumo textual dos arrays do cadastro, mantido nas colunas legadas `genre`/`platform`. */
+function summarize(values: string[] | undefined): string | null {
+  return values && values.length > 0 ? values.join(', ') : null;
+}
+
+/** Campos de catálogo da Tela 04 que mapeiam 1:1 para colunas de `games`. */
+function catalogColumns(
+  dto: CreateGameDto | UpdateGameDto,
+): Partial<
+  Pick<
+    NewGameRow,
+    | 'tagline'
+    | 'genres'
+    | 'subgenres'
+    | 'supportedPlatforms'
+    | 'gameModes'
+    | 'engine'
+    | 'developmentStage'
+    | 'ageRating'
+    | 'languages'
+    | 'trailerUrl'
+  >
+> {
+  return {
+    ...(dto.tagline !== undefined ? { tagline: dto.tagline || null } : {}),
+    ...(dto.genres !== undefined ? { genres: dto.genres } : {}),
+    ...(dto.subgenres !== undefined ? { subgenres: dto.subgenres } : {}),
+    ...(dto.supportedPlatforms !== undefined ? { supportedPlatforms: dto.supportedPlatforms } : {}),
+    ...(dto.gameModes !== undefined ? { gameModes: dto.gameModes } : {}),
+    ...(dto.engine !== undefined ? { engine: dto.engine || null } : {}),
+    ...(dto.developmentStage !== undefined ? { developmentStage: dto.developmentStage } : {}),
+    ...(dto.ageRating !== undefined ? { ageRating: dto.ageRating } : {}),
+    ...(dto.languages !== undefined ? { languages: dto.languages } : {}),
+    ...(dto.trailerUrl !== undefined ? { trailerUrl: dto.trailerUrl } : {}),
+  };
+}
+
+function toView(row: GameRow, images: GameImageUrls, metrics: GameMetricsView): GameView {
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -362,9 +417,18 @@ function toView(
     description: row.description,
     genre: row.genre,
     platform: row.platform,
+    tagline: row.tagline,
+    genres: row.genres,
+    subgenres: row.subgenres,
+    supportedPlatforms: row.supportedPlatforms as GameView['supportedPlatforms'],
+    gameModes: row.gameModes as GameView['gameModes'],
+    engine: row.engine,
+    developmentStage: row.developmentStage as GameView['developmentStage'],
+    ageRating: row.ageRating as GameView['ageRating'],
+    languages: row.languages,
+    trailerUrl: row.trailerUrl,
     status: row.status,
-    coverUrl,
-    bannerUrl,
+    ...images,
     metrics,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -382,7 +446,7 @@ function buildAssetStorageKey(
 }
 
 const STORAGE_KEY_RE =
-  /^orgs\/([0-9a-f-]{36})\/games\/([0-9a-f-]{36})\/assets\/(cover|banner|screenshot)\/([0-9a-f-]{36})\.(png|jpg|webp)$/i;
+  /^orgs\/([0-9a-f-]{36})\/games\/([0-9a-f-]{36})\/assets\/(cover|banner|screenshot|logo|icon)\/([0-9a-f-]{36})\.(png|jpg|webp)$/i;
 
 function storageKeyBelongsToGame(
   storageKey: string,

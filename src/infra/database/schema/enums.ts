@@ -119,7 +119,13 @@ export const sessionStatusEnum = pgEnum('session_status', [
  */
 export const recordingKindEnum = pgEnum('recording_kind', ['screen', 'webcam', 'microphone']);
 
-export const assetKindEnum = pgEnum('asset_kind', ['cover', 'banner', 'screenshot']);
+export const assetKindEnum = pgEnum('asset_kind', [
+  'cover',
+  'banner',
+  'screenshot',
+  'logo',
+  'icon',
+]);
 
 export const postStatusEnum = pgEnum('post_status', ['visible', 'hidden', 'removed']);
 

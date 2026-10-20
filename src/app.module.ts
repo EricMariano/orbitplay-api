@@ -14,6 +14,7 @@ import { QueueModule } from './infra/queue/queue.module';
 import { RedisModule } from './infra/redis/redis.module';
 import { StorageModule } from './infra/storage/storage.module';
 import { TelemetryModule } from './infra/telemetry/telemetry.module';
+import { AccessModule } from './modules/access/access.module';
 import { AuditModule } from './modules/audit/audit.module';
 import { BuildsModule } from './modules/builds/builds.module';
 import { ChatModule } from './modules/chat/chat.module';
@@ -87,6 +88,7 @@ import { PlayerModule } from './modules/player/player.module';
     AuthModule,
     OrgsModule,
     GamesModule,
+    AccessModule,
     MediaModule,
     NotificationsModule,
     TestModelsModule,

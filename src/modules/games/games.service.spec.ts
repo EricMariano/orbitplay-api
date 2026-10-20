@@ -22,6 +22,16 @@ function makeRow(overrides: Partial<GameRow> = {}): GameRow {
     description: null,
     genre: null,
     platform: null,
+    tagline: null,
+    genres: [],
+    subgenres: [],
+    supportedPlatforms: [],
+    gameModes: [],
+    engine: null,
+    developmentStage: null,
+    ageRating: null,
+    languages: [],
+    trailerUrl: null,
     status: 'draft',
     createdAt: now,
     updatedAt: now,
@@ -58,7 +68,7 @@ describe('GamesService', () => {
     updateByIdInOrg: ReturnType<typeof vi.fn>;
     softDeleteByIdInOrg: ReturnType<typeof vi.fn>;
     metricsByGameIds: ReturnType<typeof vi.fn>;
-    findCoverAndBannerByGameIds: ReturnType<typeof vi.fn>;
+    findDisplayAssetsByGameIds: ReturnType<typeof vi.fn>;
     findAssetByStorageKeyInOrg: ReturnType<typeof vi.fn>;
     findAssetByIdInOrg: ReturnType<typeof vi.fn>;
     createAssetInOrg: ReturnType<typeof vi.fn>;
@@ -87,9 +97,11 @@ describe('GamesService', () => {
       updateByIdInOrg: vi.fn(),
       softDeleteByIdInOrg: vi.fn(),
       metricsByGameIds: vi.fn().mockResolvedValue(new Map([[GAME_ID, { ...EMPTY_GAME_METRICS }]])),
-      findCoverAndBannerByGameIds: vi
+      findDisplayAssetsByGameIds: vi
         .fn()
-        .mockResolvedValue(new Map([[GAME_ID, { cover: null, banner: null }]])),
+        .mockResolvedValue(
+          new Map([[GAME_ID, { cover: null, banner: null, logo: null, icon: null }]]),
+        ),
       findAssetByStorageKeyInOrg: vi.fn().mockResolvedValue(null),
       findAssetByIdInOrg: vi.fn(),
       createAssetInOrg: vi.fn(),

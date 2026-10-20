@@ -19,6 +19,18 @@ export const games = pgTable(
     description: text('description'),
     genre: text('genre'),
     platform: text('platform'),
+    // Tela 04 (cadastro completo): campos de catálogo. `genre`/`platform`
+    // acima seguem como resumo textual legado dos arrays abaixo.
+    tagline: text('tagline'),
+    genres: text('genres').array().notNull().default([]),
+    subgenres: text('subgenres').array().notNull().default([]),
+    supportedPlatforms: text('supported_platforms').array().notNull().default([]),
+    gameModes: text('game_modes').array().notNull().default([]),
+    engine: text('engine'),
+    developmentStage: text('development_stage'),
+    ageRating: text('age_rating'),
+    languages: text('languages').array().notNull().default([]),
+    trailerUrl: text('trailer_url'),
     status: gameStatusEnum('status').notNull().default('draft'),
     ...timestamps,
     ...softDelete,

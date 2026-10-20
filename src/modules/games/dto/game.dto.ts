@@ -10,7 +10,7 @@ const slugField = z
 
 export const gameStatusValues = ['draft', 'active', 'archived'] as const;
 
-export const assetKindValues = ['cover', 'banner', 'screenshot'] as const;
+export const assetKindValues = ['cover', 'banner', 'screenshot', 'logo', 'icon'] as const;
 
 export const assetContentTypeValues = ['image/png', 'image/jpeg', 'image/webp'] as const;
 
@@ -19,6 +19,41 @@ export const MAX_GAME_ASSET_BYTES = 5 * 1024 * 1024;
 
 export const ASSET_UPLOAD_TTL_SECONDS = 900;
 
+export const platformValues = ['windows', 'macos', 'linux', 'android', 'ios', 'web'] as const;
+
+/** Tela 04 — "Modo de jogo". */
+export const gameModeValues = [
+  'singleplayer',
+  'local_multiplayer',
+  'online_multiplayer',
+  'coop',
+  'competitive',
+] as const;
+
+/** Tela 04 — "Estágio de desenvolvimento". */
+export const developmentStageValues = [
+  'concept',
+  'prototype',
+  'alpha',
+  'beta',
+  'released',
+] as const;
+
+/** Tela 04 — "Classificação indicativa" (ClassInd). */
+export const ageRatingValues = ['L', '10', '12', '14', '16', '18'] as const;
+
+const tagList = (max: number) => z.array(z.string().trim().min(1).max(60)).max(max);
+
+/** Idiomas como código BCP 47 curto (`pt-BR`, `en`, `es`). */
+const languageCode = z.string().regex(/^[a-z]{2,3}(-[A-Z]{2})?$/, 'Código de idioma inválido');
+
+const trailerUrlField = z
+  .string()
+  .trim()
+  .max(500)
+  .url('URL inválida')
+  .refine((value) => /^https?:\/\//i.test(value), 'Use uma URL http(s)');
+
 /** Input to create a game. slug is optional and derived from title when omitted. */
 export const createGameSchema = z.object({
   title: z.string().min(1, 'Título obrigatório').max(200),
@@ -26,6 +61,16 @@ export const createGameSchema = z.object({
   description: z.string().max(5000).optional(),
   genre: z.string().max(100).optional(),
   platform: z.string().max(100).optional(),
+  tagline: z.string().trim().max(200).optional(),
+  genres: tagList(5).optional(),
+  subgenres: tagList(8).optional(),
+  supportedPlatforms: z.array(z.enum(platformValues)).max(platformValues.length).optional(),
+  gameModes: z.array(z.enum(gameModeValues)).max(gameModeValues.length).optional(),
+  engine: z.string().trim().max(100).optional(),
+  developmentStage: z.enum(developmentStageValues).optional(),
+  ageRating: z.enum(ageRatingValues).optional(),
+  languages: z.array(languageCode).max(20).optional(),
+  trailerUrl: trailerUrlField.optional(),
   status: z.enum(gameStatusValues).optional(),
 });
 
@@ -50,9 +95,21 @@ export const gameSchema = z.object({
   description: z.string().nullable(),
   genre: z.string().nullable(),
   platform: z.string().nullable(),
+  tagline: z.string().nullable(),
+  genres: z.array(z.string()),
+  subgenres: z.array(z.string()),
+  supportedPlatforms: z.array(z.enum(platformValues)),
+  gameModes: z.array(z.enum(gameModeValues)),
+  engine: z.string().nullable(),
+  developmentStage: z.enum(developmentStageValues).nullable(),
+  ageRating: z.enum(ageRatingValues).nullable(),
+  languages: z.array(z.string()),
+  trailerUrl: z.string().nullable(),
   status: z.enum(gameStatusValues),
   coverUrl: z.string().nullable(),
   bannerUrl: z.string().nullable(),
+  logoUrl: z.string().nullable(),
+  iconUrl: z.string().nullable(),
   metrics: gameMetricsSchema,
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -77,14 +134,10 @@ export const gameSummarySchema = z.object({
   canEdit: z.boolean(),
 });
 
-export const platformValues = ['windows', 'macos', 'linux', 'android', 'ios', 'web'] as const;
-
 /**
- * Stub (BACKEND-SPEC.md §9, pendência #1): the "Novo jogo" (Tela 04) fields —
- * supported platforms, languages, min/recommended requirements — are still
- * undefined in the handoff, and `games` has no columns for them yet. Every
- * field is optional in the design contract; returning empty defaults now
- * closes the endpoint's shape without inventing schema ahead of that call.
+ * "Novo jogo" (Tela 04) specs. Supported platforms and languages come from the
+ * game's own columns; min/recommended requirements are still undefined in the
+ * handoff (BACKEND-SPEC.md §9, pendência #1) and stay empty.
  */
 export const gameSpecsSchema = z.object({
   minimumRequirements: z.record(z.string(), z.string()).optional(),
@@ -156,6 +209,18 @@ export const EMPTY_GAME_METRICS: GameMetricsView = {
   playersTotal: 0,
   averageRating: null,
 };
+
+/** Specs de um jogo: plataformas/idiomas persistidos; requisitos ainda vazios. */
+export function gameSpecsOf(
+  game: Pick<GameView, 'supportedPlatforms' | 'languages'>,
+): GameSpecsView {
+  return {
+    minimumRequirements: {},
+    recommendedRequirements: {},
+    supportedPlatforms: game.supportedPlatforms,
+    languages: game.languages,
+  };
+}
 
 export const EMPTY_GAME_SPECS: GameSpecsView = {
   minimumRequirements: {},

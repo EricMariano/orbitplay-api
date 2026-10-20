@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, ilike, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, ilike, inArray, isNull, lt, or, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { AppException } from '../../shared/errors/app.exception';
 import { newId } from '../../infra/database/schema/_helpers';
@@ -179,6 +179,31 @@ export class OrgsRepository {
       .limit(query.limit + 1);
 
     return buildPage(rows, query.limit);
+  }
+
+  /** Memberships (any status) of `userIds` inside the org — for cross-module validation. */
+  async findMembersByUserIds(organizationId: string, userIds: string[]): Promise<MemberRecord[]> {
+    const valid = userIds.filter(isUuid);
+    if (valid.length === 0) return [];
+    return this.db
+      .select({
+        id: memberships.id,
+        userId: users.id,
+        email: users.email,
+        displayName: users.displayName,
+        role: roles.key,
+        status: memberships.status,
+      })
+      .from(memberships)
+      .innerJoin(users, eq(memberships.userId, users.id))
+      .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .where(
+        and(
+          eq(memberships.organizationId, organizationId),
+          isNull(memberships.deletedAt),
+          inArray(memberships.userId, valid),
+        ),
+      );
   }
 
   async findRoleIdByKey(key: RoleValue): Promise<string | null> {

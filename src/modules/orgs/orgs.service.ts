@@ -88,6 +88,21 @@ export class OrgsService {
   }
 
   /**
+   * Members of the org among `userIds`, whatever their status. Lets other
+   * modules (e.g. `access`) validate ids without reaching into `memberships`.
+   */
+  async findMembersByIds(organizationId: string, userIds: string[]): Promise<MemberView[]> {
+    const rows = await this.repo.findMembersByUserIds(organizationId, userIds);
+    return rows.map((m) => ({
+      userId: m.userId,
+      email: m.email,
+      displayName: m.displayName,
+      role: m.role as MemberView['role'],
+      status: m.status as MemberView['status'],
+    }));
+  }
+
+  /**
    * Invite a member (ORB-M2-03, Tela 20): creates the `invited` membership and
    * sends the invitation e-mail. No password is set here — the invitee defines
    * theirs through the recovery flow, so an admin never knows it (RN-04).

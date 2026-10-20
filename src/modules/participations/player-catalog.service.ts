@@ -3,7 +3,7 @@ import type { ParticipationRow } from '../../infra/database/schema/participation
 import type { TestRow } from '../../infra/database/schema/tests';
 import { AppException } from '../../shared/errors/app.exception';
 import type { PaginationQuery } from '../../shared/pagination/pagination';
-import { EMPTY_GAME_SPECS, platformValues, type GameView } from '../games/dto/game.dto';
+import { gameSpecsOf, platformValues, type GameView } from '../games/dto/game.dto';
 import { GamesService } from '../games/games.service';
 import type { PlayerGameView, PlayerTestList, PlayerTestView } from './dto/player-catalog.dto';
 import { ParticipationsRepository } from './participations.repository';
@@ -35,7 +35,7 @@ export class PlayerCatalogService {
       playersTotal: game.metrics.playersTotal,
       openTests,
       maxRewardCents,
-      specs: EMPTY_GAME_SPECS,
+      specs: gameSpecsOf(game),
     };
   }
 

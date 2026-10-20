@@ -11,6 +11,7 @@ export * from './roles';
 export * from './memberships';
 export * from './games';
 export * from './game-assets';
+export * from './game-access';
 export * from './audit-log';
 export * from './refresh-tokens';
 export * from './password-reset-tokens';

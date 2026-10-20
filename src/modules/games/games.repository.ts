@@ -34,10 +34,15 @@ import { isUuid } from '../../shared/util/uuid';
 import type { AssetKind, GameListQuery, GameMetricsView } from './dto/game.dto';
 import { EMPTY_GAME_METRICS } from './dto/game.dto';
 
-export interface GameCoverBanner {
+/** Imagens "de vitrine" do jogo — uma corrente por tipo. */
+export interface GameDisplayAssets {
   cover: GameAssetRow | null;
   banner: GameAssetRow | null;
+  logo: GameAssetRow | null;
+  icon: GameAssetRow | null;
 }
+
+const DISPLAY_KINDS = ['cover', 'banner', 'logo', 'icon'] as const;
 
 /**
  * Games repository. Extends OrgScopedRepository so every read/write is
@@ -208,13 +213,13 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
     return result;
   }
 
-  async findCoverAndBannerByGameIds(
+  async findDisplayAssetsByGameIds(
     organizationId: string,
     gameIds: string[],
-  ): Promise<Map<string, GameCoverBanner>> {
-    const result = new Map<string, GameCoverBanner>();
+  ): Promise<Map<string, GameDisplayAssets>> {
+    const result = new Map<string, GameDisplayAssets>();
     if (gameIds.length === 0) return result;
-    for (const id of gameIds) result.set(id, { cover: null, banner: null });
+    for (const id of gameIds) result.set(id, { cover: null, banner: null, logo: null, icon: null });
 
     const rows = await this.db
       .select()
@@ -224,7 +229,7 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
           eq(gameAssets.organizationId, organizationId),
           isNull(gameAssets.deletedAt),
           inArray(gameAssets.gameId, gameIds),
-          inArray(gameAssets.kind, ['cover', 'banner']),
+          inArray(gameAssets.kind, [...DISPLAY_KINDS]),
         ),
       )
       .orderBy(desc(gameAssets.id));
@@ -232,8 +237,8 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
     for (const row of rows) {
       const slot = result.get(row.gameId);
       if (!slot) continue;
-      if (row.kind === 'cover' && !slot.cover) slot.cover = row;
-      if (row.kind === 'banner' && !slot.banner) slot.banner = row;
+      if (row.kind === 'screenshot') continue;
+      if (!slot[row.kind]) slot[row.kind] = row;
     }
     return result;
   }
@@ -289,7 +294,7 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
   }
 
   /**
-   * Soft-deletes previous cover/banner of the same kind so the card always
+   * Soft-deletes previous cover/banner/logo/icon of the same kind so the card always
    * has a single current image. Screenshots accumulate.
    */
   async retirePreviousUniqueAssets(

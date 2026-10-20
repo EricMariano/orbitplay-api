@@ -539,6 +539,35 @@ findLatestSnapshot` busca o snapshot mais recente por
   (nenhum modelo/teste define duração de sessão); `title` cai para o título
   do jogo quando o teste não tem `name`; `platforms` vem de
   `test_audience_criteria.platforms`, descartando valores fora do enum;
-  `specs` reaproveita o stub `EMPTY_GAME_SPECS`; `promoted` é sempre `false`
+  `specs` vem de `gameSpecsOf` (plataformas e idiomas do jogo; requisitos seguem vazios); `promoted` é sempre `false`
   (§10). `GET /games/{id}/achievements` continua bloqueado pelo motivo já
   registrado acima (sem `game_id` em `achievements`).
+
+- **Tela 04 — cadastro completo de jogo (`POST /games` / `PATCH /games/{id}`).**
+  `games` ganhou `tagline`, `genres`, `subgenres`, `supported_platforms`,
+  `game_modes`, `engine`, `development_stage`, `age_rating`, `languages` e
+  `trailer_url` (migração `0014`). "Descrição curta" do Figma é o `description`
+  existente. As colunas legadas `genre`/`platform` continuam e passam a ser o
+  resumo textual (`join(', ')`) de `genres`/`supportedPlatforms` quando o
+  cliente não as envia. Listas fechadas (plataforma, modo de jogo, estágio,
+  classificação indicativa) são enums no DTO; gênero, subgênero e engine são
+  texto livre — o catálogo de sugestões é do front. Idiomas são códigos BCP 47
+  curtos (`pt-BR`, `en`). `GET /games/{id}/specs` e `specs` do jogador passam a
+  devolver plataformas/idiomas reais; requisitos mínimos/recomendados seguem
+  fora (pendência #1 do `BACKEND-SPEC.md`).
+- **Tela 04 — imagens.** `asset_kind` ganhou `logo` e `icon` (um corrente por
+  tipo, como `cover`/`banner`); `GameView` expõe `logoUrl`/`iconUrl`. O
+  trailer é só uma URL http(s) (`trailerUrl`) — não há upload de vídeo aqui.
+- **Tela 04 — grupos e permissões por jogo (nova exceção ao §3).** Antes não
+  havia permissão por usuário, só papéis. A etapa "Responsáveis e permissões"
+  exige uma matriz por grupo/membro, então existem `org_groups`,
+  `org_group_members` e `game_access` (4 booleanos: gerenciar acessos/excluir,
+  editar informações, criar/editar testes, acessar relatórios). Rotas:
+  `/orgs/groups` (listar: studio+; criar/editar/excluir: owner/admin) e
+  `GET|PUT /games/{id}/access` (studio+; o PUT substitui a lista inteira).
+  Destinatários precisam ser membros ativos da org com papel de estúdio.
+  **As permissões são só persistidas e lidas: nenhum endpoint de jogos, testes
+  ou relatórios as consulta ainda** — o enforcement fica para a tela de
+  Gerenciamento de acessos, que reaproveita estas rotas. Sem linhas em
+  `game_access`, vale o comportamento anterior (qualquer papel de estúdio da
+  org).

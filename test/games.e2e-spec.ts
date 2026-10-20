@@ -142,6 +142,82 @@ describe('Games (e2e)', () => {
     expect(rows[0].actor_user_id).toBeTruthy();
   });
 
+  it('persists the Tela 04 catalog fields and exposes platforms/languages as specs', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/games')
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        title: 'Catalog Game',
+        slug: 'catalog-game',
+        description: 'Descrição curta',
+        tagline: 'Strategic battles beyond the end of the world',
+        genres: ['Action', 'Adventure'],
+        subgenres: ['Roguelike'],
+        supportedPlatforms: ['windows', 'web'],
+        gameModes: ['singleplayer', 'coop'],
+        engine: 'Unity',
+        developmentStage: 'beta',
+        ageRating: '12',
+        languages: ['pt-BR', 'en'],
+        trailerUrl: 'https://videos.example.com/trailer',
+      });
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      tagline: 'Strategic battles beyond the end of the world',
+      genres: ['Action', 'Adventure'],
+      subgenres: ['Roguelike'],
+      supportedPlatforms: ['windows', 'web'],
+      gameModes: ['singleplayer', 'coop'],
+      engine: 'Unity',
+      developmentStage: 'beta',
+      ageRating: '12',
+      languages: ['pt-BR', 'en'],
+      trailerUrl: 'https://videos.example.com/trailer',
+      // Legacy summary columns follow the arrays when not sent explicitly.
+      genre: 'Action, Adventure',
+      platform: 'windows, web',
+      logoUrl: null,
+      iconUrl: null,
+    });
+
+    const specs = await request(app.getHttpServer())
+      .get(`/games/${res.body.id}/specs`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(specs.body).toMatchObject({
+      supportedPlatforms: ['windows', 'web'],
+      languages: ['pt-BR', 'en'],
+    });
+
+    const patched = await request(app.getHttpServer())
+      .patch(`/games/${res.body.id}`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ genres: ['Puzzle'], developmentStage: 'released' });
+    expect(patched.status).toBe(200);
+    expect(patched.body).toMatchObject({
+      genres: ['Puzzle'],
+      genre: 'Puzzle',
+      developmentStage: 'released',
+      engine: 'Unity',
+    });
+  });
+
+  it('rejects invalid Tela 04 catalog values with 422', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/games')
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        title: 'Bad Catalog',
+        supportedPlatforms: ['playstation'],
+        ageRating: '99',
+        languages: ['português'],
+        trailerUrl: 'ftp://nope',
+      });
+    expect(res.status).toBe(422);
+    expect(Object.keys(res.body.fieldErrors)).toEqual(
+      expect.arrayContaining(['supportedPlatforms.0', 'ageRating', 'languages.0', 'trailerUrl']),
+    );
+  });
+
   it('makes duplicate Idempotency-Key requests a single effect (criterion #7)', async () => {
     // Unique per run: idempotency results live in Redis (24h TTL) and survive
     // the test-DB reset, so a fixed key would replay a stale cached response.
@@ -277,6 +353,48 @@ describe('Games (e2e)', () => {
       .get(`/games/${GAME_IDS.one}`)
       .set('Authorization', `Bearer ${studioToken}`);
     expect(after.body.coverUrl).toBeNull();
+  });
+
+  it('stores logo and icon assets and surfaces them on the game view', async () => {
+    const urls: Record<string, string> = {};
+    for (const kind of ['logo', 'icon'] as const) {
+      const upload = await request(app.getHttpServer())
+        .post(`/games/${GAME_IDS.two}/assets/upload-url`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({
+          kind,
+          contentType: 'image/png',
+          sizeBytes: PNG_1X1.length,
+          fileName: `${kind}.png`,
+        });
+      expect(upload.status).toBe(201);
+      expect(upload.body.storageKey).toContain(`/assets/${kind}/`);
+      const put = await fetch(upload.body.uploadUrl as string, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/png' },
+        body: PNG_1X1,
+      });
+      expect(put.ok).toBe(true);
+      const confirm = await request(app.getHttpServer())
+        .post(`/games/${GAME_IDS.two}/assets`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({ kind, storageKey: upload.body.storageKey });
+      expect(confirm.status).toBe(201);
+      expect(confirm.body.kind).toBe(kind);
+      urls[kind] = confirm.body.id as string;
+    }
+
+    const game = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.two}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(game.body.logoUrl).toMatch(/^https?:\/\//);
+    expect(game.body.iconUrl).toMatch(/^https?:\/\//);
+
+    for (const assetId of Object.values(urls)) {
+      await request(app.getHttpServer())
+        .delete(`/games/${GAME_IDS.two}/assets/${assetId}`)
+        .set('Authorization', `Bearer ${studioToken}`);
+    }
   });
 
   it('forbids a player from uploading assets and hides the rival org game', async () => {
