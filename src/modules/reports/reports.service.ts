@@ -27,6 +27,7 @@ import {
   type ReportSessionQuery,
   type ReportSessionView,
   type SessionEvaluationView,
+  type SessionDetailView,
   type SessionRatingView,
   type TestInsightsQuery,
   type TestInsightsView,
@@ -177,6 +178,66 @@ export class ReportsService {
     const row = await this.repo.findSessionEvaluation(organizationId, testId, sessionId);
     if (!row) throw AppException.notFound('Sessão não encontrada');
     return toEvaluationView(row);
+  }
+
+  /**
+   * Tela 12: dados de uma única sessão, sempre escopados por teste e organização.
+   * Transcrição e insights permanecem blocos indisponíveis até os pipelines ASR/IA existirem.
+   */
+  async getSessionDetail(
+    organizationId: string,
+    testId: string,
+    sessionId: string,
+  ): Promise<SessionDetailView> {
+    await this.assertTestInOrg(organizationId, testId);
+    const evaluation = await this.repo.findSessionEvaluation(organizationId, testId, sessionId);
+    if (!evaluation) throw AppException.notFound('Sessão não encontrada');
+
+    const [recordings, rating, insights] = await Promise.all([
+      this.repo.listRecordings(sessionId),
+      this.repo.findSessionRating(sessionId),
+      this.listInsights(organizationId, testId, {}),
+    ]);
+    const telemetry = evaluation.session.telemetryConnected
+      ? await this.telemetry.listForSession(sessionId, 500)
+      : [];
+
+    return {
+      session: toSessionView(evaluation.session),
+      evaluation: toEvaluationView(evaluation),
+      studioRating: rating
+        ? {
+            sessionId: rating.sessionId,
+            rating: rating.rating,
+            comment: rating.comment,
+            markedInvalid: rating.markedInvalid,
+            ratedByUserId: rating.ratedByUserId,
+            updatedAt: rating.updatedAt.toISOString(),
+          }
+        : null,
+      recordings: recordings.map((recording) => ({
+        id: recording.id,
+        kind: recording.kind,
+        status: recording.status,
+        contentType: recording.contentType,
+        durationMs: recording.durationMs,
+      })),
+      // ASR has no persistence/worker yet; its explicit state keeps the rest usable.
+      transcript: { status: 'unavailable', data: [] },
+      telemetry: {
+        status: evaluation.session.telemetryConnected ? 'ready' : 'unavailable',
+        data: telemetry.map((event) => ({
+          id: event.id,
+          triggerKey: event.triggerKey,
+          type: event.type,
+          valueNum: event.valueNum ?? null,
+          valueJson: event.valueJson ?? null,
+          tMs: event.tMs ?? null,
+          receivedAt: event.receivedAt,
+        })),
+      },
+      insights,
+    };
   }
 
   async rateSession(

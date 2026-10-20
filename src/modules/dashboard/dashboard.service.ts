@@ -8,7 +8,9 @@ import type {
   DashboardKpiKey,
   DashboardKpiView,
   StudioDashboardView,
+  StudioBenchmarkView,
 } from './dto/dashboard.dto';
+import type { PaginationQuery } from '../../shared/pagination/pagination';
 
 /** How many games / tests the Home lists (most recent first). */
 export const DASHBOARD_LIST_LIMIT = 5;
@@ -44,13 +46,25 @@ export class DashboardService {
     return { ...aggregates, games: games.data, recentTests };
   }
 
-  /**
-   * Pendência 7 (BACKEND-SPEC §9): the market benchmark's data source isn't
-   * defined. The contract exists so Tela 02 can render the block's state, but
-   * it is always `unavailable` — never a made-up number. See DECISIONS.md §3.
-   */
-  getBenchmark(): DashboardBlockView {
-    return { key: 'benchmark', status: 'unavailable', payload: null, computedAt: null };
+  /** Fonte aprovada: somente jogos da organização do token, sem dados de mercado. */
+  async getBenchmark(organizationId: string, query: PaginationQuery): Promise<StudioBenchmarkView> {
+    try {
+      const page = await this.repo.computeGameBenchmark(organizationId, query);
+      return {
+        key: 'benchmark',
+        status: 'ready',
+        payload: {
+          scope: 'organization',
+          period: 'all_time',
+          metric: 'completed_sessions_per_participation',
+          ...page,
+        },
+        computedAt: new Date().toISOString(),
+      };
+    } catch (err) {
+      this.logger.error(`dashboard benchmark failed for org ${organizationId}: ${String(err)}`);
+      return { key: 'benchmark', status: 'failed', payload: null, computedAt: null };
+    }
   }
 
   private async getAggregates(organizationId: string): Promise<DashboardAggregates> {

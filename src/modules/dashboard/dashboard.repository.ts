@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, count, countDistinct, eq, gte, isNull, sql } from 'drizzle-orm';
+import { and, count, countDistinct, eq, gte, inArray, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { OrgScopedRepository } from '../../infra/database/base.repository';
 import { gameReviews } from '../../infra/database/schema/community';
@@ -10,7 +10,8 @@ import {
   sessionValidations,
 } from '../../infra/database/schema/participations';
 import { tests } from '../../infra/database/schema/tests';
-import type { DashboardStatsPoint } from './dto/dashboard.dto';
+import type { DashboardStatsPoint, GameBenchmarkView } from './dto/dashboard.dto';
+import type { Page, PaginationQuery } from '../../shared/pagination/pagination';
 
 /** Window of the `stats` block (valid sessions per day). */
 export const DASHBOARD_STATS_DAYS = 30;
@@ -38,6 +39,65 @@ export interface DashboardKpiCounts {
 export class DashboardRepository extends OrgScopedRepository<GameRow, NewGameRow> {
   constructor(@Inject(DRIZZLE) db: Database) {
     super(db, games);
+  }
+
+  /** Agregações separadas evitam multiplicar sessões por avaliações em um join. */
+  async computeGameBenchmark(
+    organizationId: string,
+    query: PaginationQuery,
+  ): Promise<Page<GameBenchmarkView>> {
+    const page = await this.listInOrg(organizationId, query);
+    if (page.data.length === 0) return { data: [], nextCursor: page.nextCursor };
+    const gameIds = page.data.map((game) => game.id);
+    const [activity, ratings] = await Promise.all([
+      this.db
+        .select({
+          gameId: tests.gameId,
+          participationsTotal: countDistinct(participations.id),
+          sessionsCompleted: sql<number>`count(distinct ${sessions.id}) filter (where ${sessions.status} = 'completed')::int`,
+          playersTotal: countDistinct(participations.userId),
+        })
+        .from(tests)
+        .leftJoin(participations, eq(participations.testId, tests.id))
+        .leftJoin(
+          sessions,
+          and(
+            eq(sessions.participationId, participations.id),
+            eq(sessions.testId, tests.id),
+            eq(sessions.organizationId, organizationId),
+          ),
+        )
+        .where(and(eq(tests.organizationId, organizationId), inArray(tests.gameId, gameIds)))
+        .groupBy(tests.gameId),
+      this.db
+        .select({
+          gameId: gameReviews.gameId,
+          averageRating: sql<number | null>`avg(${gameReviews.rating})::float8`,
+        })
+        .from(gameReviews)
+        .innerJoin(games, eq(games.id, gameReviews.gameId))
+        .where(and(this.orgScope(organizationId), inArray(games.id, gameIds)))
+        .groupBy(gameReviews.gameId),
+    ]);
+    const byGame = new Map(activity.map((row) => [row.gameId, row]));
+    const ratingsByGame = new Map(ratings.map((row) => [row.gameId, row.averageRating]));
+    return {
+      data: page.data.map((game) => {
+        const row = byGame.get(game.id);
+        const participationsTotal = row?.participationsTotal ?? 0;
+        const sessionsCompleted = row?.sessionsCompleted ?? 0;
+        return {
+          gameId: game.id,
+          title: game.title,
+          participationsTotal,
+          sessionsCompleted,
+          playersTotal: row?.playersTotal ?? 0,
+          averageRating: ratingsByGame.get(game.id) ?? null,
+          completionRate: participationsTotal > 0 ? sessionsCompleted / participationsTotal : null,
+        };
+      }),
+      nextCursor: page.nextCursor,
+    };
   }
 
   async computeKpiCounts(organizationId: string): Promise<DashboardKpiCounts> {

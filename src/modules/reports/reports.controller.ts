@@ -21,6 +21,7 @@ import {
   ReportExportDto,
   ReportSessionListDto,
   ReportSessionQueryDto,
+  SessionDetailDto,
   SessionEvaluationDto,
   SessionRatingDto,
   TestInsightsDto,
@@ -96,6 +97,17 @@ export class ReportsController {
     @Param('sessionId') sessionId: string,
   ) {
     return this.reports.getSessionEvaluation(organizationId, testId, sessionId);
+  }
+
+  @Get('sessions/:sessionId/detail')
+  @Roles(...STUDIO_ROLES)
+  @ZodResponse({ type: SessionDetailDto })
+  getSessionDetail(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('testId') testId: string,
+    @Param('sessionId') sessionId: string,
+  ) {
+    return this.reports.getSessionDetail(organizationId, testId, sessionId);
   }
 
   @Post('exports')

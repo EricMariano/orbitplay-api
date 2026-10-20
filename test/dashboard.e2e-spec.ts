@@ -3,7 +3,7 @@ import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { DashboardKpiCache } from '../src/infra/redis/dashboard-kpi-cache';
-import { GAME_IDS, ORG_ID, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
+import { GAME_IDS, ORG_ID, SEED_EMAILS, SEED_PASSWORD, USER_IDS } from '../src/infra/database/seed';
 import { createE2EApp } from './helpers/e2e-app';
 import { TEST_DATABASE_URL } from './helpers/test-db';
 
@@ -157,21 +157,112 @@ describe('Studio dashboard (e2e)', () => {
     expect(anonymous.status).toBe(401);
   });
 
-  it('exposes the benchmark contract as unavailable until its data source is decided', async () => {
-    const res = await request(app.getHttpServer())
-      .get('/studio/benchmark')
+  it('returns a paginated benchmark of only the caller organization, excluding deleted games', async () => {
+    const first = await request(app.getHttpServer())
+      .get('/studio/benchmark?limit=1')
       .set('Authorization', `Bearer ${studioToken}`);
-    expect(res.status).toBe(200);
-    expect(res.body).toEqual({
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({
       key: 'benchmark',
-      status: 'unavailable',
-      payload: null,
-      computedAt: null,
+      status: 'ready',
+      payload: {
+        scope: 'organization',
+        period: 'all_time',
+        metric: 'completed_sessions_per_participation',
+      },
     });
+    expect(first.body.payload.data).toHaveLength(1);
+    expect(first.body.payload.nextCursor).toBeTypeOf('string');
+    const second = await request(app.getHttpServer())
+      .get(`/studio/benchmark?limit=1&cursor=${first.body.payload.nextCursor}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(second.status).toBe(200);
+    expect(second.body.payload.data[0].gameId).not.toBe(first.body.payload.data[0].gameId);
 
+    const rival = await request(app.getHttpServer())
+      .get(`/studio/benchmark?organizationId=${ORG_ID}`)
+      .set('Authorization', `Bearer ${rivalToken}`);
+    expect(rival.body.payload.data).toEqual([
+      {
+        gameId: RIVAL.gameId,
+        title: 'Rival Game',
+        participationsTotal: 0,
+        sessionsCompleted: 0,
+        playersTotal: 0,
+        averageRating: null,
+        completionRate: null,
+      },
+    ]);
+    await sql`UPDATE games SET deleted_at = now() WHERE id = ${RIVAL.gameId}`;
+    try {
+      const deleted = await request(app.getHttpServer())
+        .get('/studio/benchmark')
+        .set('Authorization', `Bearer ${rivalToken}`);
+      expect(deleted.body.payload.data).toEqual([]);
+      expect(deleted.body.payload.nextCursor).toBeNull();
+    } finally {
+      await sql`UPDATE games SET deleted_at = null WHERE id = ${RIVAL.gameId}`;
+    }
+  });
+
+  it('computes real per-game counts without multiplying sessions by reviews', async () => {
+    const gameId = '01998000-0000-7000-8000-0000000000d1';
+    const testId = '01998000-0000-7000-8000-0000000000c1';
+    await sql`INSERT INTO games (id, organization_id, title, slug, status)
+      VALUES (${gameId}, ${ORG_ID}, 'Benchmark Test', 'benchmark-test', 'active')`;
+    try {
+      await sql`INSERT INTO tests (id, organization_id, game_id, model_key, name)
+        VALUES (${testId}, ${ORG_ID}, ${gameId}, 'free_exploration', 'Benchmark')`;
+      const parts = await sql<
+        { id: string }[]
+      >`INSERT INTO participations (id, test_id, user_id, status)
+        VALUES (gen_random_uuid(), ${testId}, ${USER_IDS.player}, 'completed'),
+               (gen_random_uuid(), ${testId}, ${USER_IDS.owner}, 'completed'),
+               (gen_random_uuid(), ${testId}, ${USER_IDS.admin}, 'reserved') RETURNING id`;
+      await sql`INSERT INTO sessions (id, participation_id, test_id, organization_id, status)
+        VALUES (gen_random_uuid(), ${parts[0].id}, ${testId}, ${ORG_ID}, 'completed'),
+               (gen_random_uuid(), ${parts[1].id}, ${testId}, ${ORG_ID}, 'completed')`;
+      await sql`INSERT INTO game_reviews (id, game_id, user_id, rating)
+        VALUES (gen_random_uuid(), ${gameId}, ${USER_IDS.player}, 3),
+               (gen_random_uuid(), ${gameId}, ${USER_IDS.owner}, 5)`;
+      const res = await request(app.getHttpServer())
+        .get('/studio/benchmark?limit=100')
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(res.status).toBe(200);
+      const item = res.body.payload.data.find((row: { gameId: string }) => row.gameId === gameId);
+      expect(item).toEqual({
+        gameId,
+        title: 'Benchmark Test',
+        participationsTotal: 3,
+        sessionsCompleted: 2,
+        playersTotal: 3,
+        averageRating: 4,
+        completionRate: 2 / 3,
+      });
+      await sql`DELETE FROM sessions WHERE test_id = ${testId}`;
+      const noCompletions = await request(app.getHttpServer())
+        .get('/studio/benchmark?limit=100')
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(
+        noCompletions.body.payload.data.find((row: { gameId: string }) => row.gameId === gameId),
+      ).toMatchObject({ participationsTotal: 3, sessionsCompleted: 0, completionRate: 0 });
+    } finally {
+      await sql`DELETE FROM games WHERE id = ${gameId}`;
+    }
+  });
+
+  it('benchmark enforces studio roles and pagination limits', async () => {
     const asPlayer = await request(app.getHttpServer())
       .get('/studio/benchmark')
       .set('Authorization', `Bearer ${playerToken}`);
     expect(asPlayer.status).toBe(403);
+    expect((await request(app.getHttpServer()).get('/studio/benchmark')).status).toBe(401);
+    expect(
+      (
+        await request(app.getHttpServer())
+          .get('/studio/benchmark?limit=101')
+          .set('Authorization', `Bearer ${studioToken}`)
+      ).status,
+    ).toBe(422);
   });
 });

@@ -243,6 +243,53 @@ describe('Test report — M10 (e2e)', () => {
     });
   });
 
+  it('returns one organization-scoped session detail with recordings, evaluation and telemetry', async () => {
+    const recordingId = uuidv7();
+    await sql`
+      INSERT INTO session_recordings (id, session_id, kind, storage_key, content_type, duration_ms, status)
+      VALUES (${recordingId}, ${explorerSessionId}, 'screen', 'orgs/demo/sessions/demo/recordings/screen/demo',
+              'video/webm', 1200000, 'ready')`;
+    await sql`
+      INSERT INTO telemetry_events (id, session_id, trigger_key, type, value_num, t_ms, event_id)
+      VALUES (${uuidv7()}, ${explorerSessionId}, 'checkpoint_reached', 'counter', 1, 42000, 'checkpoint-1')`;
+
+    const detail = await request(app.getHttpServer())
+      .get(`/tests/${testId}/report/sessions/${explorerSessionId}/detail`)
+      .set('Authorization', `Bearer ${studioToken}`);
+
+    expect(detail.status).toBe(200);
+    expect(detail.body).toMatchObject({
+      session: { sessionId: explorerSessionId, testerName: 'Report Explorer' },
+      evaluation: {
+        submittedAt: '2026-01-02T10:35:00.000Z',
+        answers: expect.arrayContaining([
+          expect.objectContaining({ prompt: 'Quão divertido foi?', valueNumber: 5 }),
+        ]),
+      },
+      studioRating: null,
+      recordings: [
+        {
+          id: recordingId,
+          kind: 'screen',
+          status: 'ready',
+          contentType: 'video/webm',
+          durationMs: 1200000,
+        },
+      ],
+      transcript: { status: 'unavailable', data: [] },
+      telemetry: {
+        status: 'ready',
+        data: [expect.objectContaining({ triggerKey: 'checkpoint_reached', tMs: 42000 })],
+      },
+      insights: { status: 'unavailable', model: null, data: [] },
+    });
+
+    const player = await request(app.getHttpServer())
+      .get(`/tests/${testId}/report/sessions/${explorerSessionId}/detail`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(player.status).toBe(403);
+  });
+
   // Runs after the assertions above: it adds a third tester to the test.
   it('drops the cached blocks when a new form response arrives', async () => {
     const before = await getBlocks();

@@ -1,11 +1,12 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import { STUDIO_ROLES } from '../../shared/auth/roles';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { DashboardService } from './dashboard.service';
-import { DashboardBlockDto, StudioDashboardDto } from './dto/dashboard.dto';
+import { StudioBenchmarkDto, StudioDashboardDto } from './dto/dashboard.dto';
+import { PaginationQueryDto } from '../../shared/pagination/pagination';
 
 /**
  * M11 — dashboard do estúdio (Tela 02). Studio roles only; everything is
@@ -27,8 +28,11 @@ export class DashboardController {
 
   @Get('benchmark')
   @Roles(...STUDIO_ROLES)
-  @ZodResponse({ type: DashboardBlockDto })
-  getBenchmark() {
-    return this.dashboard.getBenchmark();
+  @ZodResponse({ type: StudioBenchmarkDto })
+  getBenchmark(
+    @CurrentUser('organizationId') organizationId: string,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.dashboard.getBenchmark(organizationId, query);
   }
 }

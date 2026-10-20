@@ -13,9 +13,11 @@ import {
   formResponses,
   participations,
   sessionRatings,
+  sessionRecordings,
   sessions,
   sessionValidations,
   type SessionRatingRow,
+  type SessionRecordingRow,
 } from '../../infra/database/schema/participations';
 import { playerPreferences } from '../../infra/database/schema/player';
 import {
@@ -623,6 +625,25 @@ export class ReportsRepository {
     }
 
     return { session, submittedAt: response.submittedAt, answers, optionLabels };
+  }
+
+  async listRecordings(sessionId: string): Promise<SessionRecordingRow[]> {
+    if (!isUuid(sessionId)) return [];
+    return this.db
+      .select()
+      .from(sessionRecordings)
+      .where(eq(sessionRecordings.sessionId, sessionId))
+      .orderBy(sessionRecordings.kind);
+  }
+
+  async findSessionRating(sessionId: string): Promise<SessionRatingRow | null> {
+    if (!isUuid(sessionId)) return null;
+    const rows = await this.db
+      .select()
+      .from(sessionRatings)
+      .where(eq(sessionRatings.sessionId, sessionId))
+      .limit(1);
+    return rows[0] ?? null;
   }
 
   /**

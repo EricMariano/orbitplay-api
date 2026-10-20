@@ -417,7 +417,7 @@ findLatestSnapshot` busca o snapshot mais recente por
   (`STUDIO_ROLES`), como todo o resto do `TestsController` e como a tabela
   do `BACKEND-SPEC.md` já listava.
 - **M11 (dashboard do estúdio) — KPIs reais, `delta` sempre `null`,
-  benchmark `unavailable`.** O handoff não fixa a lista de KPIs da Tela 02;
+  comparativo dos próprios jogos.** O handoff não fixa a lista de KPIs da Tela 02;
   `GET /studio/dashboard` expõe `gamesTotal`, `testsTotal`, `testsActive`,
   `sessionsValid`, `playersTotal`, `averageRating` e `completionRate`, todos
   lidos das tabelas reais com as **mesmas definições** já usadas pelo M3
@@ -426,14 +426,19 @@ findLatestSnapshot` busca o snapshot mais recente por
   participações) — a Home nunca diverge das telas de jogo e relatório.
   `delta` fica `null` porque o período de comparação (semana? mês? desde o
   último acesso?) não está definido; preencher depois não quebra o contrato.
-  Nada financeiro: pagamento é deferido (§1.2). `GET /studio/benchmark`
-  existe mas responde sempre `status: 'unavailable'` — a fonte do "benchmark
-  de mercado" é a pendência 7 do `BACKEND-SPEC.md` §9 (agregado interno de
-  outras organizações × fonte externa), e usar dados de outras orgs é decisão
-  de produto/privacidade, não de implementação. O bloco segue o formato dos
-  blocos do M10 (`key`/`status`/`payload`/`computedAt`), não o
-  `data`/`message` do `openapi.design.yaml`, para o front tratar blocos de
-  relatório e de dashboard da mesma forma.
+  Nada financeiro: pagamento é deferido (§1.2). A fonte do benchmark foi
+  definida pelo produto: **comparar apenas os próprios jogos**. Por isso,
+  `GET /studio/benchmark` retorna somente jogos da organização do token,
+  excluindo removidos, em todo o histórico (`period: all_time`), com paginação
+  por cursor (jogos mais recentes primeiro). Cada linha contém participações,
+  sessões concluídas, jogadores únicos, nota média e a mesma razão de conclusão
+  da Home/relatórios. Sem participações a razão é `null`; com participações e
+  nenhuma conclusão é zero. A média de avaliações é `null` sem avaliações.
+  Consultas separadas evitam multiplicar sessões por avaliações. O resultado
+  é calculado a cada leitura, sem cache e sem usar dados de outras organizações
+  ou fontes de mercado. Mantém o envelope de blocos do M10
+  (`key`/`status`/`payload`/`computedAt`), com payload tipado e `status: failed`
+  em falha de cálculo, preservando os demais blocos da Home.
 - **M11 — cache de KPIs: cache-aside no Redis, invalidação explícita + TTL de
   60s.** Chave `dashboard:kpis:{organizationId}` (só `kpis` e `stats` — as
   listas de jogos/testes carregam URLs assinadas e nunca são cacheadas). A

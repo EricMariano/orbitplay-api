@@ -203,6 +203,25 @@ export const sessionEvaluationSchema = z.object({
   answers: z.array(sessionEvaluationAnswerSchema),
 });
 
+/** Detalhe da sessão (Tela 12), com blocos independentes para fontes assíncronas. */
+export const sessionRecordingSchema = z.object({
+  id: z.string(),
+  kind: z.enum(['screen', 'webcam', 'microphone']),
+  status: z.enum(processingStatusValues),
+  contentType: z.string().nullable(),
+  durationMs: z.number().int().nullable(),
+});
+
+export const sessionTelemetryEventSchema = z.object({
+  id: z.string(),
+  triggerKey: z.string(),
+  type: z.enum(['counter', 'timer', 'ui_event', 'vector', 'input']),
+  valueNum: z.number().nullable(),
+  valueJson: z.unknown().nullable(),
+  tMs: z.number().int().nullable(),
+  receivedAt: z.string(),
+});
+
 export const rateSessionSchema = z.object({
   rating: z.number().int().min(1, 'Nota mínima é 1').max(5, 'Nota máxima é 5'),
   comment: z.string().trim().max(1000, 'Comentário muito longo').nullish(),
@@ -252,6 +271,34 @@ export const testInsightsSchema = z.object({
   data: z.array(insightSchema),
 });
 
+export const sessionDetailSchema = z.object({
+  session: reportSessionSchema,
+  evaluation: z.object({
+    submittedAt: z.string().nullable(),
+    answers: z.array(sessionEvaluationAnswerSchema),
+  }),
+  studioRating: z
+    .object({
+      sessionId: z.string(),
+      rating: z.number().int(),
+      comment: z.string().nullable(),
+      markedInvalid: z.boolean(),
+      ratedByUserId: z.string(),
+      updatedAt: z.string(),
+    })
+    .nullable(),
+  recordings: z.array(sessionRecordingSchema),
+  transcript: z.object({
+    status: z.enum(processingStatusValues),
+    data: z.array(z.object({ tMs: z.number().int(), text: z.string() })),
+  }),
+  telemetry: z.object({
+    status: z.enum(processingStatusValues),
+    data: z.array(sessionTelemetryEventSchema),
+  }),
+  insights: testInsightsSchema,
+});
+
 /* -------------------------------- Exportação -------------------------------- */
 
 export const createReportExportSchema = z.object({
@@ -275,6 +322,7 @@ export class TestInsightsDto extends createZodDto(testInsightsSchema) {}
 export class ReportSessionQueryDto extends createZodDto(reportSessionQuerySchema) {}
 export class ReportSessionListDto extends createZodDto(reportSessionListSchema) {}
 export class SessionEvaluationDto extends createZodDto(sessionEvaluationSchema) {}
+export class SessionDetailDto extends createZodDto(sessionDetailSchema) {}
 export class RateSessionDto extends createZodDto(rateSessionSchema) {}
 export class SessionRatingDto extends createZodDto(sessionRatingSchema) {}
 export class CreateReportExportDto extends createZodDto(createReportExportSchema) {}
@@ -297,6 +345,7 @@ export type TestInsightsView = z.infer<typeof testInsightsSchema>;
 export type ReportSessionView = z.infer<typeof reportSessionSchema>;
 export type ReportSessionQuery = z.infer<typeof reportSessionQuerySchema>;
 export type SessionEvaluationView = z.infer<typeof sessionEvaluationSchema>;
+export type SessionDetailView = z.infer<typeof sessionDetailSchema>;
 export type SessionEvaluationAnswerView = z.infer<typeof sessionEvaluationAnswerSchema>;
 export type RateSessionRequest = z.infer<typeof rateSessionSchema>;
 export type SessionRatingView = z.infer<typeof sessionRatingSchema>;

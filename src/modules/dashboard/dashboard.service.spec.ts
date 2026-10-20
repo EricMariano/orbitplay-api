@@ -45,6 +45,7 @@ describe('DashboardService', () => {
     repo = {
       computeKpiCounts: vi.fn().mockResolvedValue(COUNTS),
       computeValidSessionsPerDay: vi.fn().mockResolvedValue([{ date: '2026-09-24', sessions: 3 }]),
+      computeGameBenchmark: vi.fn().mockResolvedValue({ data: [], nextCursor: null }),
     };
     games = { list: vi.fn().mockResolvedValue({ data: [], nextCursor: null }) };
     tests = { listRecent: vi.fn().mockResolvedValue([]) };
@@ -135,10 +136,49 @@ describe('DashboardService', () => {
     });
   });
 
-  it('benchmark is always unavailable (pendência 7) — never a made-up number', () => {
-    expect(service.getBenchmark()).toEqual({
+  it('returns the organization benchmark and forwards pagination to the repository', async () => {
+    const page = {
+      data: [
+        {
+          gameId: 'game',
+          title: 'Meu jogo',
+          participationsTotal: 4,
+          sessionsCompleted: 3,
+          playersTotal: 2,
+          averageRating: 4.5,
+          completionRate: 0.75,
+        },
+      ],
+      nextCursor: 'next',
+    };
+    repo.computeGameBenchmark.mockResolvedValue(page);
+    const query = { limit: 5, cursor: 'previous' };
+    const result = await service.getBenchmark(ORG, query);
+    expect(repo.computeGameBenchmark).toHaveBeenCalledWith(ORG, query);
+    expect(result).toMatchObject({
       key: 'benchmark',
-      status: 'unavailable',
+      status: 'ready',
+      payload: {
+        scope: 'organization',
+        period: 'all_time',
+        metric: 'completed_sessions_per_participation',
+        ...page,
+      },
+    });
+    expect(Number.isFinite(Date.parse(result.computedAt!))).toBe(true);
+  });
+
+  it('returns an empty ready benchmark when the organization has no games', async () => {
+    const result = await service.getBenchmark(ORG, { limit: 5 });
+    expect(result.status).toBe('ready');
+    expect(result.payload?.data).toEqual([]);
+  });
+
+  it('isolates a benchmark failure in its block instead of failing the Home', async () => {
+    repo.computeGameBenchmark.mockRejectedValue(new Error('database unavailable'));
+    expect(await service.getBenchmark(ORG, { limit: 5 })).toEqual({
+      key: 'benchmark',
+      status: 'failed',
       payload: null,
       computedAt: null,
     });

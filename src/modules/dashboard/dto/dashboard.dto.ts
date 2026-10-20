@@ -48,11 +48,40 @@ export const studioDashboardSchema = z.object({
   stats: dashboardBlockSchema,
 });
 
+/** Comparativo dos jogos da própria organização, em todo o período. */
+export const gameBenchmarkSchema = z.object({
+  gameId: z.string(),
+  title: z.string(),
+  participationsTotal: z.number().int().nonnegative(),
+  sessionsCompleted: z.number().int().nonnegative(),
+  playersTotal: z.number().int().nonnegative(),
+  averageRating: z.number().min(1).max(5).nullable(),
+  completionRate: z.number().nonnegative().nullable(),
+});
+
+export const studioBenchmarkSchema = z.object({
+  key: z.literal('benchmark'),
+  status: z.enum(processingStatusValues),
+  payload: z
+    .object({
+      scope: z.literal('organization'),
+      period: z.literal('all_time'),
+      metric: z.literal('completed_sessions_per_participation'),
+      data: z.array(gameBenchmarkSchema),
+      nextCursor: z.string().nullable(),
+    })
+    .nullable(),
+  computedAt: z.string().nullable(),
+});
+
 export class StudioDashboardDto extends createZodDto(studioDashboardSchema) {}
 export class DashboardBlockDto extends createZodDto(dashboardBlockSchema) {}
+export class StudioBenchmarkDto extends createZodDto(studioBenchmarkSchema) {}
 
 export type DashboardKpiKey = (typeof dashboardKpiKeyValues)[number];
 export type DashboardKpiView = z.infer<typeof dashboardKpiSchema>;
 export type DashboardStatsPoint = z.infer<typeof dashboardStatsPointSchema>;
 export type DashboardBlockView = z.infer<typeof dashboardBlockSchema>;
 export type StudioDashboardView = z.infer<typeof studioDashboardSchema>;
+export type GameBenchmarkView = z.infer<typeof gameBenchmarkSchema>;
+export type StudioBenchmarkView = z.infer<typeof studioBenchmarkSchema>;
