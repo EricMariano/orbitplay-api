@@ -512,13 +512,17 @@ findLatestSnapshot` busca o snapshot mais recente por
   `DashboardKpiCache`; é provider do `ParticipationsModule` (e não do
   `DatabaseModule`, que geraria import circular com o token `DRIZZLE`).
   Falha ao apagar nunca derruba a escrita que a disparou — só loga.
-- **ORB-M8-03 — leituras do jogador (`GET /player/games/{gameId}`,
+- **ORB-M8-03 — leituras do jogador (`GET /player/home`, `GET /player/games/{gameId}`,
   `.../tests`, `/player/tests/{testId}`, `/player/participations`) vivem no
   módulo `participations`, não em `player`.** É o módulo que já lê `tests`
   cross-org para o jogador (`ParticipationsRepository`, sem
   `OrgScopedRepository` — mesmo raciocínio do feed e de entrar num teste) e
-  que monta o `ParticipationView` embutido em cada teste. `/player/home` e
-  `/player/feed/filters` (mesmo card) ficaram de fora: nenhuma tela consome.
+  que monta o `ParticipationView` embutido em cada teste. A Home reúne até
+  quatro participações recentes, escolhe a participação não encerrada mais
+  recente para continuidade e agrega somente recompensas de sessões validadas.
+  Valores de moedas diferentes não são somados: a resposta usa a primeira
+  moeda encontrada e descarta as demais até existir carteira multi-moeda.
+  `/player/feed/filters` continua fora do escopo.
 - **M8-03 — visibilidade.** Jogo ou teste `draft` responde `404` ao jogador
   (estado privado do estúdio). A lista de testes de um jogo traz `published`
   e `paused` — o pausado aparece desabilitado com motivo (Tela 14 RN-03) em

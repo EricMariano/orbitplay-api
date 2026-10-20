@@ -179,6 +179,18 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(start.status).toBe(201);
     const sessionId = start.body.sessionId as string;
 
+    const gameplay = await request(app.getHttpServer())
+      .get(`/sessions/${sessionId}/gameplay`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(gameplay.status).toBe(200);
+    expect(gameplay.body).toMatchObject({
+      session: { id: sessionId, participationId, status: 'active' },
+      test: { id: testId },
+      game: { id: GAME_IDS.two },
+      heartbeatIntervalMs: 15_000,
+      recordingRequired: true,
+    });
+
     const devices = await request(app.getHttpServer())
       .patch(`/sessions/${sessionId}/devices`)
       .set('Authorization', `Bearer ${playerToken}`)

@@ -1,6 +1,9 @@
 import swc from 'unplugin-swc';
 import { defineConfig } from 'vitest/config';
 
+const testDatabaseUrl =
+  process.env.TEST_DATABASE_URL ?? 'postgres://orbitplay:orbitplay@localhost:5432/orbitplay_test';
+
 // e2e tests: run serially against a dedicated test Postgres. globalSetup
 // migrates the test database once before the suite.
 export default defineConfig({
@@ -18,7 +21,7 @@ export default defineConfig({
     // which @nestjs/config loads without overriding these.
     env: {
       NODE_ENV: 'test',
-      DATABASE_URL: 'postgres://orbitplay:orbitplay@localhost:5432/orbitplay_test',
+      DATABASE_URL: testDatabaseUrl,
       // Higher limit so multi-login functional specs don't trip the throttle;
       // the dedicated ratelimit spec still exceeds it to prove the 429.
       AUTH_THROTTLE_LIMIT: '20',

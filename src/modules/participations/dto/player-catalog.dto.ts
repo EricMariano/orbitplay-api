@@ -58,11 +58,42 @@ export const playerGameSchema = z.object({
   specs: gameSpecsSchema,
 });
 
+/** Tela 13 — dados consolidados da Home do jogador. Recompensas só entram após validação da sessão. */
+export const playerHomeTestSchema = z.object({
+  participationId: z.string(),
+  testId: z.string(),
+  gameId: z.string(),
+  title: z.string(),
+  coverUrl: z.string().nullable(),
+  status: participationSchema.shape.status,
+  progress: z.number().int().min(0).max(100),
+  rewardCents: z.number().int().nullable(),
+  endsAt: z.string().nullable(),
+});
+
+export const playerEarningsPointSchema = z.object({
+  date: z.string(),
+  amountCents: z.number().int(),
+});
+
+export const playerHomeSchema = z.object({
+  continuing: playerHomeTestSchema.nullable(),
+  tests: z.array(playerHomeTestSchema),
+  earnings: z.object({
+    currency: z.string(),
+    last7DaysCents: z.number().int(),
+    totalValidatedCents: z.number().int(),
+    series: z.array(playerEarningsPointSchema),
+  }),
+});
+
 export class PlayerTestDto extends createZodDto(playerTestSchema) {}
 export class PlayerTestListDto extends createZodDto(playerTestListSchema) {}
 export class PlayerGameDto extends createZodDto(playerGameSchema) {}
+export class PlayerHomeDto extends createZodDto(playerHomeSchema) {}
 
 export type TestCta = (typeof testCtaValues)[number];
 export type PlayerTestView = z.infer<typeof playerTestSchema>;
 export type PlayerTestList = z.infer<typeof playerTestListSchema>;
 export type PlayerGameView = z.infer<typeof playerGameSchema>;
+export type PlayerHomeView = z.infer<typeof playerHomeSchema>;

@@ -14,6 +14,7 @@ import type {
   FormResponseRequest,
   FormResponseView,
   HeartbeatRequest,
+  SessionGameplayView,
   SessionStartedView,
   SessionSummaryView,
   SessionView,
@@ -195,6 +196,34 @@ export class SessionsService {
         : null,
       form: { testId: test.id, questions: questions.map(toQuestionView) },
       alreadySubmitted: formResponse !== null,
+    };
+  }
+
+  /** Tela 17: player-owned session plus the live-overlap configuration. */
+  async gameplay(sessionId: string, userId: string): Promise<SessionGameplayView> {
+    const session = await this.repo.getSessionForUserOrThrow(sessionId, userId);
+    const test = await this.repo.findTestById(session.testId);
+    if (!test) throw AppException.notFound();
+    const [game, validation] = await Promise.all([
+      this.games.getAnyOrg(test.gameId),
+      this.repo.findSessionValidation(sessionId),
+    ]);
+    const tutorial = tutorialForModel(test.modelKey);
+
+    return {
+      session: this.toSessionView(session, validation),
+      test: {
+        id: test.id,
+        gameId: test.gameId,
+        title: test.name,
+        testModelKey: test.modelKey,
+        status: test.status,
+        rewardCents: test.rewardAmountCents,
+        expiresAt: test.endsAt ? test.endsAt.toISOString() : null,
+      },
+      game,
+      heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
+      recordingRequired: tutorial.requiredConsents.includes('screen_recording'),
     };
   }
 

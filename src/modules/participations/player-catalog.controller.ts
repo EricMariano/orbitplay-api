@@ -5,7 +5,12 @@ import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { Role } from '../../shared/auth/roles';
 import { PaginationQueryDto } from '../../shared/pagination/pagination';
-import { PlayerGameDto, PlayerTestDto, PlayerTestListDto } from './dto/player-catalog.dto';
+import {
+  PlayerGameDto,
+  PlayerHomeDto,
+  PlayerTestDto,
+  PlayerTestListDto,
+} from './dto/player-catalog.dto';
 import { PlayerCatalogService } from './player-catalog.service';
 
 /** M8-03 — jogos, testes e participações vistos pelo jogador (Telas 14 e 15). Só `player`. */
@@ -14,6 +19,13 @@ import { PlayerCatalogService } from './player-catalog.service';
 @Controller('player')
 export class PlayerCatalogController {
   constructor(private readonly catalog: PlayerCatalogService) {}
+
+  @Get('home')
+  @Roles(Role.PLAYER)
+  @ZodResponse({ type: PlayerHomeDto })
+  home(@CurrentUser('userId') userId: string) {
+    return this.catalog.home(userId);
+  }
 
   @Get('games/:gameId')
   @Roles(Role.PLAYER)

@@ -95,6 +95,15 @@ export const sessionSummarySchema = z.object({
   alreadySubmitted: z.boolean(),
 });
 
+/** Tela 17: contexto mínimo para manter a sobreposição de gameplay ativa. */
+export const sessionGameplaySchema = z.object({
+  session: sessionSchema,
+  test: playerTestSchema,
+  game: gameSchema,
+  heartbeatIntervalMs: z.number().int(),
+  recordingRequired: z.boolean(),
+});
+
 export const answerInputSchema = z.object({
   questionId: z.string(),
   value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]),
@@ -129,6 +138,7 @@ export class DeviceEventRequestDto extends createZodDto(deviceEventRequestSchema
 export class HeartbeatRequestDto extends createZodDto(heartbeatRequestSchema) {}
 export class FinishSessionRequestDto extends createZodDto(finishSessionRequestSchema) {}
 export class SessionSummaryDto extends createZodDto(sessionSummarySchema) {}
+export class SessionGameplayDto extends createZodDto(sessionGameplaySchema) {}
 export class FormResponseRequestDto extends createZodDto(formResponseRequestSchema) {}
 export class FormResponseDto extends createZodDto(formResponseSchema) {}
 export class ParticipationResultDto extends createZodDto(participationResultSchema) {}
@@ -142,6 +152,7 @@ export type DeviceEventRequest = z.infer<typeof deviceEventRequestSchema>;
 export type HeartbeatRequest = z.infer<typeof heartbeatRequestSchema>;
 export type FinishSessionRequest = z.infer<typeof finishSessionRequestSchema>;
 export type SessionSummaryView = z.infer<typeof sessionSummarySchema>;
+export type SessionGameplayView = z.infer<typeof sessionGameplaySchema>;
 export type AnswerInput = z.infer<typeof answerInputSchema>;
 export type FormResponseRequest = z.infer<typeof formResponseRequestSchema>;
 export type FormResponseView = z.infer<typeof formResponseSchema>;

@@ -47,6 +47,12 @@ export interface FormQuestionWithOptions extends TestFormQuestionRow {
   options: TestFormOptionRow[];
 }
 
+export interface ValidatedRewardRow {
+  rewardCents: number | null;
+  currency: string | null;
+  validatedAt: Date | null;
+}
+
 /**
  * M8-03: test statuses a player sees in a game's test list. `paused` stays
  * visible (shown disabled, with a reason — Tela 14 RN-03) instead of vanishing;
@@ -187,6 +193,21 @@ export class ParticipationsRepository {
     if (testIds.length === 0) return new Map();
     const rows = await this.db.select().from(tests).where(inArray(tests.id, testIds));
     return new Map(rows.map((t) => [t.id, t]));
+  }
+
+  /** Rewards become real only when the player's session validation is positive. */
+  async listValidatedRewardsForUser(userId: string): Promise<ValidatedRewardRow[]> {
+    return this.db
+      .select({
+        rewardCents: tests.rewardAmountCents,
+        currency: tests.rewardCurrency,
+        validatedAt: sessionValidations.validatedAt,
+      })
+      .from(sessionValidations)
+      .innerJoin(sessions, eq(sessions.id, sessionValidations.sessionId))
+      .innerJoin(participations, eq(participations.id, sessions.participationId))
+      .innerJoin(tests, eq(tests.id, sessions.testId))
+      .where(and(eq(participations.userId, userId), eq(sessionValidations.valid, true)));
   }
 
   /** Batch `findConsent` for a page — keyed by participation id. */

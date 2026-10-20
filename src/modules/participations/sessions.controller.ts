@@ -21,6 +21,7 @@ import {
   FormResponseRequestDto,
   HeartbeatRequestDto,
   SessionDto,
+  SessionGameplayDto,
   SessionSummaryDto,
 } from './dto/session.dto';
 import { SessionsService } from './sessions.service';
@@ -65,6 +66,13 @@ export class SessionsController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
   ) {
     return this.sessions.finish(id, userId, dto, idempotencyKey);
+  }
+
+  @Get(':id/gameplay')
+  @Roles(Role.PLAYER)
+  @ZodResponse({ type: SessionGameplayDto })
+  gameplay(@CurrentUser('userId') userId: string, @Param('id') id: string) {
+    return this.sessions.gameplay(id, userId);
   }
 
   @Get(':id/summary')

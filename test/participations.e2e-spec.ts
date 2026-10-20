@@ -202,6 +202,76 @@ describe('Participations — M7-02 (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`);
     expect(get.status).toBe(404);
   });
+
+  describe('GET /player/home', () => {
+    it('returns own current participation, recent tests and validated rewards', async () => {
+      const activeTestId = uuidv7();
+      const completedTestId = uuidv7();
+      await seedPublishedTest({ id: activeTestId, slotsTotal: 5 });
+      await seedPublishedTest({ id: completedTestId, slotsTotal: 5 });
+      await sql`
+        UPDATE tests
+        SET name = 'Exploração de casa', reward_amount_cents = 2500, reward_currency = 'BRL'
+        WHERE id IN (${activeTestId}, ${completedTestId})`;
+
+      const active = await request(app.getHttpServer())
+        .post(`/player/tests/${activeTestId}/participations`)
+        .set('Authorization', `Bearer ${playerToken}`)
+        .send();
+      expect(active.status).toBe(201);
+
+      const completed = await request(app.getHttpServer())
+        .post(`/player/tests/${completedTestId}/participations`)
+        .set('Authorization', `Bearer ${playerToken}`)
+        .send();
+      expect(completed.status).toBe(201);
+      await sql`UPDATE participations SET status = 'completed' WHERE id = ${completed.body.id}`;
+      const sessionId = uuidv7();
+      await sql`
+        INSERT INTO sessions (id, participation_id, test_id, organization_id, status, ended_at, duration_ms)
+        VALUES (
+          ${sessionId},
+          ${completed.body.id},
+          ${completedTestId},
+          (SELECT organization_id FROM games WHERE id = ${GAME_IDS.two}),
+          'completed', now(), 60000
+        )`;
+      await sql`
+        INSERT INTO session_validations (session_id, valid, validated_at)
+        VALUES (${sessionId}, true, now())`;
+
+      const home = await request(app.getHttpServer())
+        .get('/player/home')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(home.status).toBe(200);
+      expect(home.body.continuing).toMatchObject({
+        participationId: active.body.id,
+        testId: activeTestId,
+        status: 'reserved',
+        progress: 10,
+      });
+      expect(home.body.tests).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ participationId: active.body.id, title: 'Exploração de casa' }),
+          expect.objectContaining({ participationId: completed.body.id, status: 'completed' }),
+        ]),
+      );
+      expect(home.body.earnings).toMatchObject({
+        currency: 'BRL',
+        last7DaysCents: 2500,
+        totalValidatedCents: 2500,
+      });
+      expect(home.body.earnings.series).toHaveLength(7);
+    });
+
+    it('403s a studio-role token', async () => {
+      const home = await request(app.getHttpServer())
+        .get('/player/home')
+        .set('Authorization', `Bearer ${studioToken}`);
+      expect(home.status).toBe(403);
+    });
+  });
+
   describe('GET /player/participations', () => {
     async function join(testId: string): Promise<string> {
       const res = await request(app.getHttpServer())
