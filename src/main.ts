@@ -41,4 +41,9 @@ async function bootstrap(): Promise<void> {
   app.get(Logger).log(`OrbitPlay API listening on http://localhost:${port}`, 'Bootstrap');
 }
 
-void bootstrap();
+bootstrap().catch((error: unknown) => {
+  // Fail fast and loud (e.g. Redis unreachable at boot) so the orchestrator restarts the container.
+  console.error('✗ bootstrap failed');
+  console.error(error);
+  process.exit(1);
+});
