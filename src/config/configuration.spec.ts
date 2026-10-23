@@ -43,6 +43,8 @@ describe('buildConfig — BUILD_MALWARE_SCAN_BYPASS', () => {
     const env = validateEnv({
       ...baseEnv,
       NODE_ENV: 'production',
+      JWT_ACCESS_SECRET: 'x'.repeat(40),
+      JWT_REFRESH_SECRET: 'y'.repeat(40),
       BUILD_MALWARE_SCAN_BYPASS: 'true',
     });
     expect(() => buildConfig(env)).toThrow(/not allowed in production/);

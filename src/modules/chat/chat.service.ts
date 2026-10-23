@@ -91,10 +91,7 @@ export class ChatService {
     return view;
   }
 
-  async listMessages(
-    channelId: string,
-    query: PaginationQuery,
-  ): Promise<Page<ChatMessageView>> {
+  async listMessages(channelId: string, query: PaginationQuery): Promise<Page<ChatMessageView>> {
     await this.getChannelOrThrow(channelId);
     const page = await this.repo.listVisibleMessages(channelId, query);
     return { data: page.data.map(toMessageView), nextCursor: page.nextCursor };
@@ -189,7 +186,7 @@ export class ChatService {
 
     const key = `chat:rate:${userId}`;
     const count = await this.redis.incr(key);
-    if (count === 1) await this.redis.expire(key, ttl);
+    if (count === 1 || (await this.redis.ttl(key)) === -1) await this.redis.expire(key, ttl);
     if (count > limit) {
       throw new AppException(
         HttpStatus.TOO_MANY_REQUESTS,

@@ -1,6 +1,9 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
 
+/** Upper bound so a huge password can't be used to burn CPU in argon2. */
+const PASSWORD_MAX = 256;
+
 /**
  * Login accepts credentials plus, optionally, which org to open a session
  * for. There is still deliberately no role/tab field — the role always comes
@@ -11,7 +14,7 @@ import { z } from 'zod';
  */
 export const loginSchema = z.object({
   email: z.string().min(1, 'E-mail obrigatório').email('E-mail inválido'),
-  password: z.string().min(1, 'Senha obrigatória'),
+  password: z.string().min(1, 'Senha obrigatória').max(PASSWORD_MAX, 'Senha muito longa'),
   organizationId: z.string().min(1).optional(),
 });
 
@@ -21,14 +24,20 @@ export const forgotPasswordSchema = z.object({
 
 export const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Token obrigatório'),
-  password: z.string().min(8, 'Senha deve ter no mínimo 8 caracteres'),
+  password: z
+    .string()
+    .min(8, 'Senha deve ter no mínimo 8 caracteres')
+    .max(PASSWORD_MAX, 'Senha muito longa'),
 });
 
 /** Studio signup — creates user + organization + owner membership (ORB-M1-02). */
 export const signupStudioSchema = z.object({
   displayName: z.string().min(1).max(200),
   email: z.string().min(1, 'E-mail obrigatório').email('E-mail inválido'),
-  password: z.string().min(8, 'Senha deve ter no mínimo 8 caracteres'),
+  password: z
+    .string()
+    .min(8, 'Senha deve ter no mínimo 8 caracteres')
+    .max(PASSWORD_MAX, 'Senha muito longa'),
   birthdate: z.iso.date(),
   organizationName: z.string().min(1).max(200),
   acceptedTerms: z.boolean().optional(),
@@ -38,7 +47,10 @@ export const signupStudioSchema = z.object({
 export const signupPlayerSchema = z.object({
   displayName: z.string().min(1).max(200),
   email: z.string().min(1, 'E-mail obrigatório').email('E-mail inválido'),
-  password: z.string().min(8, 'Senha deve ter no mínimo 8 caracteres'),
+  password: z
+    .string()
+    .min(8, 'Senha deve ter no mínimo 8 caracteres')
+    .max(PASSWORD_MAX, 'Senha muito longa'),
   birthdate: z.iso.date(),
   acceptedTerms: z.boolean().optional(),
 });

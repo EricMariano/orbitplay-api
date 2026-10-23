@@ -52,6 +52,7 @@ describe('AuthService login', () => {
   let config: { get: ReturnType<typeof vi.fn> };
   let redis: {
     incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
     expire: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
@@ -90,6 +91,7 @@ describe('AuthService login', () => {
     };
     redis = {
       incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
       expire: vi.fn().mockResolvedValue(1),
       del: vi.fn().mockResolvedValue(1),
     };
@@ -199,6 +201,7 @@ describe('AuthService password reset', () => {
   let config: { get: ReturnType<typeof vi.fn> };
   let redis: {
     incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
     expire: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
@@ -244,6 +247,7 @@ describe('AuthService password reset', () => {
     };
     redis = {
       incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
       expire: vi.fn().mockResolvedValue(1),
       del: vi.fn().mockResolvedValue(1),
     };
@@ -340,6 +344,7 @@ describe('AuthService signupStudio', () => {
   let config: { get: ReturnType<typeof vi.fn> };
   let redis: {
     incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
     expire: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
@@ -390,6 +395,7 @@ describe('AuthService signupStudio', () => {
     };
     redis = {
       incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
       expire: vi.fn().mockResolvedValue(1),
       del: vi.fn().mockResolvedValue(1),
     };
@@ -473,6 +479,7 @@ describe('AuthService signupPlayer', () => {
   let config: { get: ReturnType<typeof vi.fn> };
   let redis: {
     incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
     expire: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
@@ -522,6 +529,7 @@ describe('AuthService signupPlayer', () => {
     };
     redis = {
       incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
       expire: vi.fn().mockResolvedValue(1),
       del: vi.fn().mockResolvedValue(1),
     };
@@ -598,6 +606,7 @@ describe('AuthService checkSignupAvailability', () => {
   let config: { get: ReturnType<typeof vi.fn> };
   let redis: {
     incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
     expire: ReturnType<typeof vi.fn>;
     del: ReturnType<typeof vi.fn>;
   };
@@ -614,6 +623,7 @@ describe('AuthService checkSignupAvailability', () => {
     };
     redis = {
       incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
       expire: vi.fn().mockResolvedValue(1),
       del: vi.fn().mockResolvedValue(1),
     };
