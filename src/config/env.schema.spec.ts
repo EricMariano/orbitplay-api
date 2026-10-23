@@ -46,6 +46,29 @@ describe('validateEnv', () => {
     expect(() => validateEnv(missing)).toThrowError(/JWT_ACCESS_SECRET/);
   });
 
+  it('rejects identical access and refresh secrets', () => {
+    expect(() =>
+      validateEnv({ ...validEnv, JWT_ACCESS_SECRET: 'same', JWT_REFRESH_SECRET: 'same' }),
+    ).toThrowError(/JWT_REFRESH_SECRET must differ/);
+  });
+
+  it('requires long random JWT secrets in production only', () => {
+    const strong = { JWT_ACCESS_SECRET: 'x'.repeat(40), JWT_REFRESH_SECRET: 'y'.repeat(40) };
+    expect(() => validateEnv({ ...validEnv, NODE_ENV: 'production' })).toThrowError(
+      /at least 32 characters/,
+    );
+    expect(() =>
+      validateEnv({
+        ...validEnv,
+        NODE_ENV: 'production',
+        JWT_ACCESS_SECRET: 'dev-access-secret-change-me-please-123456',
+        JWT_REFRESH_SECRET: strong.JWT_REFRESH_SECRET,
+      }),
+    ).toThrowError(/JWT_ACCESS_SECRET/);
+    expect(() => validateEnv({ ...validEnv, NODE_ENV: 'production', ...strong })).not.toThrow();
+    expect(() => validateEnv({ ...validEnv, NODE_ENV: 'development' })).not.toThrow();
+  });
+
   it('accepts a comma-separated WEB_ORIGIN list', () => {
     const env = validateEnv({
       ...validEnv,

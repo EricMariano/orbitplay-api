@@ -521,7 +521,9 @@ export class AuthService {
     const { limit, ttl } = this.identifierLimitConfig(kind);
     const key = `${kind}:id:${email}`;
     const count = await this.redis.incr(key);
-    if (count === 1) await this.redis.expire(key, ttl);
+    // INCR and EXPIRE are separate commands: also re-arm the TTL if a previous
+    // attempt crashed in between, or the key would block this e-mail forever.
+    if (count === 1 || (await this.redis.ttl(key)) === -1) await this.redis.expire(key, ttl);
     if (count > limit) {
       throw new AppException(
         HttpStatus.TOO_MANY_REQUESTS,
