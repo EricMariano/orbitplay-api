@@ -47,6 +47,7 @@
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/infra/database/migrate.ts",
+    "db:migrate:prod": "node dist/infra/database/migrate.js",
     "db:seed": "tsx src/infra/database/seed.ts",
     "db:reset": "tsx src/infra/database/reset.ts",
     "openapi:generate": "nest build && node dist/openapi.js",
