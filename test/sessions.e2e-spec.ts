@@ -264,6 +264,68 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(start.status).toBe(409);
   });
 
+  async function finishAndWaitCompleted(participationId: string, sessionId: string) {
+    const finish = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/finish`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ tMs: 1, confirmed: true });
+    expect(finish.status).toBe(200);
+    const result = await waitForResult(participationId, (s) => s === 'completed');
+    expect(result.status).toBe('completed');
+  }
+
+  async function sessionXpEventsForTest(testId: string): Promise<number> {
+    const [row] = await sql`
+      SELECT count(*)::int AS n FROM xp_events x
+      JOIN sessions s ON s.id = x.source_id
+      WHERE x.source_type = 'session' AND s.test_id = ${testId}`;
+    return row.n as number;
+  }
+
+  it('refuses a second session on an already played participation', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await finishAndWaitCompleted(participationId, sessionId);
+
+    const again = await request(app.getHttpServer())
+      .post(`/participations/${participationId}/sessions`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ buildVersion: '1.0.0', platform: 'windows' });
+    expect(again.status).toBe(409);
+    expect(await sessionXpEventsForTest(testId)).toBe(1);
+  });
+
+  it('credits session XP once per test even after joining the test again', async () => {
+    const { testId } = await seedReadyTest();
+    const first = await joinAndStart(testId);
+    await finishAndWaitCompleted(first.participationId, first.sessionId);
+
+    const second = await joinAndStart(testId);
+    await finishAndWaitCompleted(second.participationId, second.sessionId);
+
+    expect(await sessionXpEventsForTest(testId)).toBe(1);
+  });
+
+  it('409s starting a session once the test is finished', async () => {
+    const { testId } = await seedReadyTest();
+    const join = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send();
+    const participationId = join.body.id as string;
+    await request(app.getHttpServer())
+      .post(`/participations/${participationId}/consents`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ consents: [{ kind: 'screen_recording', granted: true }] });
+    await sql`UPDATE tests SET status = 'finished' WHERE id = ${testId}`;
+
+    const start = await request(app.getHttpServer())
+      .post(`/participations/${participationId}/sessions`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ buildVersion: '1.0.0', platform: 'windows' });
+    expect(start.status).toBe(409);
+  });
+
   it('invalidates a session that never sends a heartbeat and reports rejected', async () => {
     const { testId } = await seedReadyTest();
     const { participationId, sessionId } = await joinAndStart(testId);

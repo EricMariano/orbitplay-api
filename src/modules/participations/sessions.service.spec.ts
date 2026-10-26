@@ -135,6 +135,35 @@ describe('SessionsService', () => {
       expect(repo.startSession).not.toHaveBeenCalled();
     });
 
+    it.each<[string, Partial<TestRow>]>([
+      ['finished', { status: 'finished' }],
+      ['expired', { status: 'expired' }],
+      ['draft', { status: 'draft' }],
+      ['past its endsAt', { status: 'published', endsAt: new Date(Date.now() - 1000) }],
+    ])('409s when the test is %s', async (_label, overrides) => {
+      repo.getByIdForUserOrThrow.mockResolvedValue(participation);
+      repo.findTestById.mockResolvedValue(makeTestRow(overrides));
+
+      await expect(
+        service.start(PARTICIPATION_ID, USER_ID, { buildVersion: '1.0.0', platform: 'windows' }),
+      ).rejects.toMatchObject({ status: 409 });
+      expect(repo.startSession).not.toHaveBeenCalled();
+    });
+
+    it('still starts on a paused test (a player holding a slot can resume)', async () => {
+      repo.getByIdForUserOrThrow.mockResolvedValue(participation);
+      repo.findTestById.mockResolvedValue(makeTestRow({ status: 'paused' }));
+      builds.findLatestBuild.mockResolvedValue(makeBuildWithSteps('validated'));
+      repo.findConsent.mockResolvedValue({ screenRecording: true });
+      repo.startSession.mockResolvedValue(makeSession());
+
+      await service.start(PARTICIPATION_ID, USER_ID, {
+        buildVersion: '1.0.0',
+        platform: 'windows',
+      });
+      expect(repo.startSession).toHaveBeenCalled();
+    });
+
     it('starts the session once build + consents are ready', async () => {
       repo.getByIdForUserOrThrow.mockResolvedValue(participation);
       repo.findTestById.mockResolvedValue(makeTestRow());
@@ -194,6 +223,31 @@ describe('SessionsService', () => {
       );
       expect(redis.del).toHaveBeenCalled();
       expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
+    });
+
+    it('caps the duration at the time the server actually saw, ignoring an inflated tMs', async () => {
+      repo.getSessionForUserOrThrow.mockResolvedValue(
+        makeSession({ startedAt: new Date(Date.now() - 5_000) }),
+      );
+      repo.finishSession.mockResolvedValue(makeSession({ status: 'processing' }));
+
+      await service.finish(SESSION_ID, USER_ID, { tMs: 2_000_000_000, confirmed: true }, undefined);
+
+      const patch = repo.finishSession.mock.calls[0][2] as { durationMs: number };
+      expect(patch.durationMs).toBeGreaterThanOrEqual(5_000);
+      expect(patch.durationMs).toBeLessThan(60_000);
+    });
+
+    it('keeps the client tMs when it is shorter than the elapsed time', async () => {
+      repo.getSessionForUserOrThrow.mockResolvedValue(
+        makeSession({ startedAt: new Date(Date.now() - 60_000) }),
+      );
+      repo.finishSession.mockResolvedValue(makeSession({ status: 'processing' }));
+
+      await service.finish(SESSION_ID, USER_ID, { tMs: 12_000, confirmed: true }, undefined);
+
+      const patch = repo.finishSession.mock.calls[0][2] as { durationMs: number };
+      expect(patch.durationMs).toBe(12_000);
     });
 
     it('409s when the repository reports the session already closed', async () => {
