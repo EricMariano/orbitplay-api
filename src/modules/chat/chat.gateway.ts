@@ -14,6 +14,7 @@ import type { Server, Socket } from 'socket.io';
 import type { DefaultEventsMap } from 'socket.io/dist/typed-events';
 import type { ZodType } from 'zod';
 import type { AccessTokenPayload } from '../../shared/auth/jwt-payload';
+import { AppException } from '../../shared/errors/app.exception';
 import { codeForStatus, ErrorCode } from '../../shared/errors/error-envelope';
 import {
   CHANNEL_ROOM_PREFIX,
@@ -175,9 +176,17 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   @SubscribeMessage('channel:presence')
-  async whoIsHere(@MessageBody() body: unknown): Promise<Ack<ChatPresenceView>> {
+  async whoIsHere(
+    @ConnectedSocket() client: ChatSocket,
+    @MessageBody() body: unknown,
+  ): Promise<Ack<ChatPresenceView>> {
     return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
+      requireUser(client);
+      // Presence is only visible to sockets that joined the channel.
+      if (!client.rooms.has(channelRoom(channelId))) {
+        throw AppException.forbidden('Entre no canal para ver quem está nele');
+      }
       return this.realtime.presence(channelId);
     });
   }

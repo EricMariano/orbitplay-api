@@ -21,62 +21,89 @@ const durationString = z
   .string()
   .regex(/^\d+(ms|s|m|h|d)$/, 'must be a duration like "15m", "30d", "900s"');
 
-export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']),
-  PORT: z.coerce.number().int().positive(),
+const MIN_PRODUCTION_SECRET_LENGTH = 32;
 
-  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
-  REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
+export const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']),
+    PORT: z.coerce.number().int().positive(),
 
-  JWT_ACCESS_SECRET: z.string().min(1, 'JWT_ACCESS_SECRET is required'),
-  JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
-  ACCESS_TOKEN_TTL: durationString,
-  REFRESH_TOKEN_TTL: durationString,
+    DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+    REDIS_URL: z.string().min(1, 'REDIS_URL is required'),
 
-  STORAGE_ENDPOINT: z.string().url('STORAGE_ENDPOINT must be a URL'),
-  STORAGE_BUCKET: z.string().min(1, 'STORAGE_BUCKET is required'),
-  STORAGE_ACCESS_KEY: z.string().min(1, 'STORAGE_ACCESS_KEY is required'),
-  STORAGE_SECRET_KEY: z.string().min(1, 'STORAGE_SECRET_KEY is required'),
-  STORAGE_FORCE_PATH_STYLE: z.enum(['true', 'false']).transform((v) => v === 'true'),
+    JWT_ACCESS_SECRET: z.string().min(1, 'JWT_ACCESS_SECRET is required'),
+    JWT_REFRESH_SECRET: z.string().min(1, 'JWT_REFRESH_SECRET is required'),
+    ACCESS_TOKEN_TTL: durationString,
+    REFRESH_TOKEN_TTL: durationString,
 
-  SMTP_HOST: z.string().min(1, 'SMTP_HOST is required'),
-  SMTP_PORT: z.coerce.number().int().positive(),
-  MAIL_FROM: z.string().min(1, 'MAIL_FROM is required'),
+    STORAGE_ENDPOINT: z.string().url('STORAGE_ENDPOINT must be a URL'),
+    STORAGE_BUCKET: z.string().min(1, 'STORAGE_BUCKET is required'),
+    STORAGE_ACCESS_KEY: z.string().min(1, 'STORAGE_ACCESS_KEY is required'),
+    STORAGE_SECRET_KEY: z.string().min(1, 'STORAGE_SECRET_KEY is required'),
+    STORAGE_FORCE_PATH_STYLE: z.enum(['true', 'false']).transform((v) => v === 'true'),
 
-  /**
-   * Comma-separated web front origins allowed by CORS (HTTP + Socket.IO).
-   * The FIRST one is canonical: it's the base for links sent by e-mail.
-   * Stays a string here (split in configuration.ts): @nestjs/config copies the
-   * validated values back into process.env, which drops non-scalar values.
-   */
-  WEB_ORIGIN: z.string().refine((v) => {
-    const origins = splitList(v);
-    return origins.length > 0 && origins.every(isUrl);
-  }, 'WEB_ORIGIN must be one or more comma-separated URLs'),
+    SMTP_HOST: z.string().min(1, 'SMTP_HOST is required'),
+    SMTP_PORT: z.coerce.number().int().positive(),
+    MAIL_FROM: z.string().min(1, 'MAIL_FROM is required'),
 
-  AUTH_THROTTLE_TTL: z.coerce.number().int().positive(),
-  AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive(),
+    /**
+     * Comma-separated web front origins allowed by CORS (HTTP + Socket.IO).
+     * The FIRST one is canonical: it's the base for links sent by e-mail.
+     * Stays a string here (split in configuration.ts): @nestjs/config copies the
+     * validated values back into process.env, which drops non-scalar values.
+     */
+    WEB_ORIGIN: z.string().refine((v) => {
+      const origins = splitList(v);
+      return origins.length > 0 && origins.every(isUrl);
+    }, 'WEB_ORIGIN must be one or more comma-separated URLs'),
 
-  /** Stricter IP throttle for signup email-availability checks (anti-enumeration). */
-  AUTH_AVAILABILITY_THROTTLE_TTL: z.coerce.number().int().positive(),
-  AUTH_AVAILABILITY_THROTTLE_LIMIT: z.coerce.number().int().positive(),
+    AUTH_THROTTLE_TTL: z.coerce.number().int().positive(),
+    AUTH_THROTTLE_LIMIT: z.coerce.number().int().positive(),
 
-  /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
-  PASSWORD_RESET_TTL: durationString,
+    /** Stricter IP throttle for signup email-availability checks (anti-enumeration). */
+    AUTH_AVAILABILITY_THROTTLE_TTL: z.coerce.number().int().positive(),
+    AUTH_AVAILABILITY_THROTTLE_LIMIT: z.coerce.number().int().positive(),
 
-  /** Flood control for chat messages: at most LIMIT per TTL seconds, per user. */
-  CHAT_MESSAGE_THROTTLE_TTL: z.coerce.number().int().positive(),
-  CHAT_MESSAGE_THROTTLE_LIMIT: z.coerce.number().int().positive(),
+    /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
+    PASSWORD_RESET_TTL: durationString,
 
-  /**
-   * Dev-only: mark the build malware scan as skipped instead of failing it
-   * (no scanner is integrated yet). Refused in production by `buildConfig`.
-   */
-  BUILD_MALWARE_SCAN_BYPASS: z
-    .enum(['true', 'false'])
-    .default('false')
-    .transform((v) => v === 'true'),
-});
+    /** Flood control for chat messages: at most LIMIT per TTL seconds, per user. */
+    CHAT_MESSAGE_THROTTLE_TTL: z.coerce.number().int().positive(),
+    CHAT_MESSAGE_THROTTLE_LIMIT: z.coerce.number().int().positive(),
+
+    /**
+     * Dev-only: mark the build malware scan as skipped instead of failing it
+     * (no scanner is integrated yet). Refused in production by `buildConfig`.
+     */
+    BUILD_MALWARE_SCAN_BYPASS: z
+      .enum(['true', 'false'])
+      .default('false')
+      .transform((v) => v === 'true'),
+  })
+  .superRefine((env, ctx) => {
+    // Distinct secrets: with a shared one a refresh token would verify as an
+    // access token.
+    if (env.JWT_ACCESS_SECRET === env.JWT_REFRESH_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['JWT_REFRESH_SECRET'],
+        message: 'JWT_REFRESH_SECRET must differ from JWT_ACCESS_SECRET',
+      });
+    }
+
+    // Dev throwaway values (see .env.example) stay valid outside production.
+    if (env.NODE_ENV !== 'production') return;
+    for (const name of ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET'] as const) {
+      const value = env[name];
+      if (value.length < MIN_PRODUCTION_SECRET_LENGTH || /change-me/i.test(value)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [name],
+          message: `${name} must be a random secret of at least ${MIN_PRODUCTION_SECRET_LENGTH} characters in production`,
+        });
+      }
+    }
+  });
 
 export type Env = z.infer<typeof envSchema>;
 

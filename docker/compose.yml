@@ -21,7 +21,7 @@ services:
       POSTGRES_PASSWORD: orbitplay
       POSTGRES_DB: orbitplay
     ports:
-      - '5432:5432'
+      - '127.0.0.1:5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -34,7 +34,7 @@ services:
     image: redis:7
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '127.0.0.1:6379:6379'
     volumes:
       - redis-data:/data
     healthcheck:
@@ -56,8 +56,8 @@ services:
       MINIO_API_STALE_UPLOADS_EXPIRY: 24h
       MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: 6h
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     volumes:
       - minio-data:/data
     healthcheck:
@@ -100,8 +100,8 @@ services:
     image: mailhog/mailhog:latest
     restart: unless-stopped
     ports:
-      - '1025:1025'
-      - '8025:8025'
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
 
 volumes:
   postgres-data:

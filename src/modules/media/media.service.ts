@@ -5,7 +5,11 @@ import type {
   SessionConsentRow,
   SessionRecordingRow,
 } from '../../infra/database/schema/participations';
-import { JobName, mediaExtractAudioJobId, mediaTranscodeJobId } from '../../infra/queue/queue.constants';
+import {
+  JobName,
+  mediaExtractAudioJobId,
+  mediaTranscodeJobId,
+} from '../../infra/queue/queue.constants';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { AppException } from '../../shared/errors/app.exception';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
@@ -198,7 +202,8 @@ export class MediaService {
       kind,
       storageKey: dto.storageKey,
       contentType: meta.contentType ?? null,
-      sizeBytes: dto.sizeBytes ?? meta.sizeBytes,
+      // Trust the object store, never the client-supplied size.
+      sizeBytes: meta.sizeBytes,
       durationMs: dto.durationMs,
       status: 'processing',
     });

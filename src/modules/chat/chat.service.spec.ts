@@ -77,7 +77,11 @@ describe('ChatService', () => {
     } as unknown as GamesService;
 
     realtime = new ChatRealtimeService();
-    redis = { incr: vi.fn().mockResolvedValue(1), expire: vi.fn() } as unknown as Redis;
+    redis = {
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn(),
+      ttl: vi.fn().mockResolvedValue(10),
+    } as unknown as Redis;
 
     const config = {
       get: (key: string) => (key === 'chat.messageThrottleTtl' ? 10 : 10),
@@ -102,9 +106,11 @@ describe('ChatService', () => {
       const duplicate = Object.assign(new Error('dup'), { cause: { code: '23505' } });
       vi.mocked(repo.createChannel).mockRejectedValueOnce(duplicate);
 
-      await expect(service.createChannel(GAME_ID, studio, { name: 'Geral' })).rejects.toMatchObject({
-        status: HttpStatus.CONFLICT,
-      });
+      await expect(service.createChannel(GAME_ID, studio, { name: 'Geral' })).rejects.toMatchObject(
+        {
+          status: HttpStatus.CONFLICT,
+        },
+      );
     });
 
     it('rejects a name that slugifies to nothing', async () => {
@@ -157,6 +163,14 @@ describe('ChatService', () => {
       await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'dois' });
       expect(redis.expire).not.toHaveBeenCalled();
     });
+
+    it('re-arms the window when a previous attempt left the key without a TTL', async () => {
+      vi.mocked(redis.incr).mockResolvedValueOnce(3);
+      vi.mocked(redis.ttl).mockResolvedValueOnce(-1);
+      vi.mocked(redis.expire).mockClear();
+      await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'tres' });
+      expect(redis.expire).toHaveBeenCalledWith('chat:rate:user-player', 10);
+    });
   });
 
   describe('moderateMessage', () => {
@@ -175,7 +189,7 @@ describe('ChatService', () => {
       expect(spy).toHaveBeenCalledWith(view);
     });
 
-    it('forbids moderating another studio\'s game — visible but not moderable', async () => {
+    it("forbids moderating another studio's game — visible but not moderable", async () => {
       vi.mocked(repo.findMessageRowById).mockResolvedValueOnce({
         id: 'msg-1',
         channelId: CHANNEL_ID,

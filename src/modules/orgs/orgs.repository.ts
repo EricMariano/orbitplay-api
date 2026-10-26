@@ -234,14 +234,17 @@ export class OrgsRepository {
     try {
       return await this.db.transaction(async (tx) => {
         const existing = await tx
-          .select({ id: users.id, displayName: users.displayName })
+          .select({ id: users.id })
           .from(users)
           .where(eq(sql`lower(${users.email})`, input.email))
           .limit(1);
 
         const found = existing[0];
         const userId = found?.id ?? newId();
-        const displayName = found?.displayName ?? input.displayName;
+        // Never echo the stored name of an account that already exists: the
+        // inviter is not entitled to it, and it would reveal which e-mails
+        // are registered.
+        const displayName = input.displayName;
 
         if (!found) {
           await tx.insert(users).values({

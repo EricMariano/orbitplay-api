@@ -106,7 +106,9 @@ describe('Org members — invite (e2e)', () => {
 
     expect(res.status).toBe(201);
     expect(res.body.userId).toBe(OUTSIDER.userId);
-    expect(res.body.displayName).toBe('Outsider');
+    // The stored name of an existing account is never echoed back to the inviter.
+    expect(res.body.displayName).not.toBe('Outsider');
+    expect(res.body.displayName).toBe(OUTSIDER.email);
 
     const rows = await sql<{ count: string }[]>`
       SELECT count(*)::text AS count FROM users WHERE lower(email) = ${OUTSIDER.email}`;
