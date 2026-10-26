@@ -20,6 +20,12 @@ export type DbExecutor = Database | Transaction;
  * by the telemetry adapter's raw SQL) and the Drizzle instance (DRIZZLE) used
  * by every repository. casing:'snake_case' maps camelCase schema keys to the
  * snake_case columns the migrations create.
+ *
+ * postgres-js connects lazily and reconnects on the next query after a dropped
+ * connection (queries in flight at that moment do fail). The explicit timeouts
+ * below keep an unreachable database from holding requests for the library
+ * default (30s connect timeout) and recycle idle connections so stale sockets
+ * after a DB restart don't linger in the pool.
  */
 @Global()
 @Module({
@@ -29,7 +35,11 @@ export type DbExecutor = Database | Transaction;
       inject: [ConfigService],
       useFactory: (config: ConfigService) => {
         const url = config.get<string>('database.url')!;
-        return postgres(url, { max: 10 });
+        return postgres(url, {
+          max: 10,
+          connect_timeout: 10, // seconds
+          idle_timeout: 30, // seconds
+        });
       },
     },
     {

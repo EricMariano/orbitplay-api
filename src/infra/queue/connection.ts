@@ -1,3 +1,5 @@
+import type { RedisOptions } from 'ioredis';
+
 /**
  * BullMQ/ioredis connection options from a full Redis URL (OPS-02).
  *
@@ -25,4 +27,19 @@ export function redisConnectionOptions(url: string): {
     // Required by BullMQ's blocking commands.
     maxRetriesPerRequest: null,
   };
+}
+
+/** Per-command ceiling for request-path ioredis clients. */
+export const REDIS_COMMAND_TIMEOUT_MS = 2_000;
+
+/**
+ * Options for request-path ioredis clients (the API's `REDIS_CLIENT`). With
+ * `maxRetriesPerRequest: null` a command issued while Redis is down is queued
+ * until Redis returns, i.e. the HTTP request hangs. `commandTimeout` bounds each
+ * command (it rejects with "Command timed out", which the global filter maps to
+ * 503). ioredis keeps reconnecting in the background, so the client recovers on
+ * its own when Redis comes back.
+ */
+export function redisFailFastOptions(): RedisOptions {
+  return { maxRetriesPerRequest: 2, commandTimeout: REDIS_COMMAND_TIMEOUT_MS };
 }

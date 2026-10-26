@@ -5,6 +5,10 @@ import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
+import { withTimeout } from '../../shared/util/with-timeout';
+
+/** A dependency that doesn't answer in this time is reported `down` (probes must never hang). */
+const HEALTH_CHECK_TIMEOUT_MS = 3_000;
 
 export type CheckStatus = 'up' | 'down';
 
@@ -60,7 +64,7 @@ export class HealthService {
 
   private async safe(fn: () => Promise<unknown>): Promise<CheckStatus> {
     try {
-      await fn();
+      await withTimeout(fn(), HEALTH_CHECK_TIMEOUT_MS, 'health check');
       return 'up';
     } catch {
       return 'down';

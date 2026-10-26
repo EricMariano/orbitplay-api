@@ -10,7 +10,11 @@ import { ThrottlerException } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { ZodValidationException } from 'nestjs-zod';
 import type { ZodError } from 'zod';
+import { isConnectivityError } from '../errors/connectivity-error';
 import { codeForStatus, ErrorCode, type ErrorEnvelope } from '../errors/error-envelope';
+
+/** Hint for clients/proxies when a dependency (Postgres/Redis) is temporarily unreachable. */
+const RETRY_AFTER_SECONDS = 5;
 
 /**
  * The ONLY place API errors are serialized. Every thrown exception — framework,
@@ -35,6 +39,10 @@ export class HttpExceptionFilter implements ExceptionFilter {
     const requestId = request.id ?? 'unknown';
 
     const envelope = this.toEnvelope(exception, requestId);
+
+    if (envelope.statusCode === HttpStatus.SERVICE_UNAVAILABLE) {
+      response.setHeader('Retry-After', String(RETRY_AFTER_SECONDS));
+    }
 
     if (envelope.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       // Log the real cause server-side; never leak internals to the client.
@@ -77,7 +85,18 @@ export class HttpExceptionFilter implements ExceptionFilter {
       return this.fromHttpException(status, res, requestId);
     }
 
-    // 4) Anything else → opaque 500.
+    // 4) A dependency (Postgres/Redis) is unreachable → 503, so clients and
+    //    probes can tell "retry shortly" apart from a genuine bug.
+    if (isConnectivityError(exception)) {
+      return {
+        statusCode: HttpStatus.SERVICE_UNAVAILABLE,
+        code: ErrorCode.SERVICE_UNAVAILABLE,
+        message: 'Serviço temporariamente indisponível. Tente novamente em instantes.',
+        requestId,
+      };
+    }
+
+    // 5) Anything else → opaque 500.
     return {
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       code: ErrorCode.INTERNAL_ERROR,

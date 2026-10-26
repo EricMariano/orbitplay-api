@@ -23,6 +23,7 @@ export const ErrorCode = {
   TOO_MANY_REQUESTS: 'TOO_MANY_REQUESTS',
   UNPROCESSABLE_ENTITY: 'UNPROCESSABLE_ENTITY',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
 } as const;
 
 export type ErrorCodeValue = (typeof ErrorCode)[keyof typeof ErrorCode];
@@ -44,6 +45,8 @@ export function codeForStatus(status: number): ErrorCodeValue {
       return ErrorCode.UNPROCESSABLE_ENTITY;
     case HttpStatus.TOO_MANY_REQUESTS:
       return ErrorCode.TOO_MANY_REQUESTS;
+    case HttpStatus.SERVICE_UNAVAILABLE:
+      return ErrorCode.SERVICE_UNAVAILABLE;
     default:
       return status >= 500 ? ErrorCode.INTERNAL_ERROR : ErrorCode.VALIDATION_ERROR;
   }

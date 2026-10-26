@@ -9,6 +9,7 @@ import type { Database } from '../infra/database/database.module';
 import * as schema from '../infra/database/schema';
 import { redisConnectionOptions } from '../infra/queue/connection';
 import { MAIN_QUEUE } from '../infra/queue/queue.constants';
+import { attachRedisErrorLogging } from '../infra/redis/redis-error-logging';
 import { MinioStorageAdapter } from '../infra/storage/minio-storage.adapter';
 import type { StoragePort } from '../shared/ports/storage.port';
 
@@ -26,13 +27,21 @@ export interface WorkerDeps {
 
 export async function createWorkerDeps(): Promise<WorkerDeps> {
   const config = buildConfig(validateEnv(process.env));
-  const sql = postgres(config.database.url, { max: 2, onnotice: () => {} });
+  const sql = postgres(config.database.url, {
+    max: 2,
+    connect_timeout: 10, // seconds
+    idle_timeout: 30, // seconds
+    onnotice: () => {},
+  });
   const db = drizzle(sql, { schema, casing: 'snake_case' });
   const storage = new MinioStorageAdapter(
     new ConfigService({ storage: config.storage }) as ConfigService,
   );
   const queue = new Queue(MAIN_QUEUE, { connection: redisConnectionOptions(config.redis.url) });
   const redis = new Redis(config.redis.url, { maxRetriesPerRequest: null });
+  const logRedis = (message: string) => console.error(`[worker] ${message}`);
+  attachRedisErrorLogging(queue, 'redis queue', logRedis);
+  attachRedisErrorLogging(redis, 'redis client', logRedis);
   return { db, storage, sql, queue, redis, malwareScanBypass: config.builds.malwareScanBypass };
 }
 
