@@ -44,7 +44,9 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    # minio/minio left Docker Hub in Sep 2026. Silo is the drop-in fork;
+    # this tag ships /bin/sh and mc (the distroless tags do not).
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -82,7 +84,7 @@ services:
   #   - A hard bucket quota: caps total storage this dev bucket can consume
   #     so a runaway/abusive upload loop can't fill the disk unbounded.
   minio-init:
-    image: minio/mc:latest
+    image: pgsty/silo:RELEASE.2026-10-18T00-00-00Z
     depends_on:
       minio:
         condition: service_healthy
