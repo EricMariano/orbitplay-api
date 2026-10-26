@@ -102,6 +102,20 @@ export async function processSessionValidate(deps: WorkerDeps, sessionId: string
   const userId = testRows[0]?.userId;
   if (!userId) return;
 
+  const rewarded = await deps.db
+    .select({ id: xpEvents.id })
+    .from(xpEvents)
+    .innerJoin(sessions, eq(sessions.id, xpEvents.sourceId))
+    .where(
+      and(
+        eq(xpEvents.userId, userId),
+        eq(xpEvents.sourceType, 'session'),
+        eq(sessions.testId, session.testId),
+      ),
+    )
+    .limit(1);
+  if (rewarded.length > 0) return;
+
   await deps.db
     .insert(xpEvents)
     .values({

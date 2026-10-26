@@ -67,6 +67,13 @@ export class SessionsService {
     const test = await this.repo.findTestById(participation.testId);
     if (!test) throw AppException.notFound();
 
+    if (test.status !== 'published' && test.status !== 'paused') {
+      throw AppException.conflict('Teste não está aberto para participação');
+    }
+    if (test.endsAt && test.endsAt.getTime() <= Date.now()) {
+      throw AppException.conflict('Teste expirado');
+    }
+
     const build = await this.builds.findLatestBuild(test.id);
     if (!build || build.build.status !== 'validated') {
       throw AppException.conflict('Build não validada');
@@ -128,10 +135,13 @@ export class SessionsService {
   ): Promise<SessionView> {
     const owned = await this.repo.getSessionForUserOrThrow(sessionId, userId);
 
+    const endedAt = new Date();
+    const elapsedMs = Math.max(0, endedAt.getTime() - owned.startedAt.getTime());
+
     const updated = await this.repo.finishSession(sessionId, owned.participationId, {
       status: 'processing',
-      endedAt: new Date(),
-      durationMs: dto.tMs,
+      endedAt,
+      durationMs: Math.min(dto.tMs, elapsedMs),
       finishIdempotencyKey: idempotencyKey ?? null,
     });
 
