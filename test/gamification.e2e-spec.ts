@@ -85,6 +85,45 @@ describe('Gamification (e2e)', () => {
     });
   });
 
+  it('sums play time past int4 (~24.8 days) without a 500', async () => {
+    const [test] = await sql<{ id: string }[]>`
+      INSERT INTO tests (id, organization_id, game_id, model_key, status, slots_total, slots_taken)
+      SELECT gen_random_uuid(), organization_id, id, 'free_exploration', 'finished', 1, 1
+      FROM games WHERE id = ${GAME_IDS.one}
+      RETURNING id`;
+    try {
+      await sql`
+        WITH p AS (
+          INSERT INTO participations (id, test_id, user_id, status)
+          VALUES (gen_random_uuid(), ${test.id}, ${playerId}, 'completed')
+          RETURNING id
+        ), s AS (
+          INSERT INTO sessions (id, participation_id, test_id, organization_id, status,
+                                started_at, ended_at, duration_ms)
+          SELECT gen_random_uuid(), p.id, ${test.id}, t.organization_id, 'completed',
+                 now(), now(), 1500000000
+          FROM p, tests t, generate_series(1, 2)
+          WHERE t.id = ${test.id}
+          RETURNING id
+        )
+        INSERT INTO session_validations (session_id, valid, validator_version, validated_at)
+        SELECT id, true, 'v1', now() FROM s`;
+
+      const res = await request(app.getHttpServer())
+        .get('/player/progress')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(res.status).toBe(200);
+      expect(res.body.hoursPlayed).toBeGreaterThan(800);
+    } finally {
+      await sql`
+        DELETE FROM session_validations
+        WHERE session_id IN (SELECT id FROM sessions WHERE test_id = ${test.id})`;
+      await sql`DELETE FROM sessions WHERE test_id = ${test.id}`;
+      await sql`DELETE FROM participations WHERE test_id = ${test.id}`;
+      await sql`DELETE FROM tests WHERE id = ${test.id}`;
+    }
+  });
+
   describe('GET /player/achievements', () => {
     it('lists the seeded catalog, all locked for a fresh player', async () => {
       const res = await request(app.getHttpServer())
@@ -151,7 +190,13 @@ describe('Gamification (e2e)', () => {
       await sql`
         INSERT INTO ranking_snapshots (id, scope, period, game_id, entries)
         VALUES (gen_random_uuid(), 'global', 'month', NULL, ${JSON.stringify([
-          { position: 1, userId: '01994000-0000-7000-8000-00000000fff1', displayName: 'Rival', level: 9, score: 999 },
+          {
+            position: 1,
+            userId: '01994000-0000-7000-8000-00000000fff1',
+            displayName: 'Rival',
+            level: 9,
+            score: 999,
+          },
           { position: 2, userId: playerId, displayName: 'Pedro Player', level: 2, score: 150 },
         ])}::jsonb)`;
 
