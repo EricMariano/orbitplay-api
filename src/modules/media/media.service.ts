@@ -155,6 +155,22 @@ export class MediaService {
       return toRecordingView(already);
     }
 
+    // Consent first, before the bytes become an object: if it was withdrawn
+    // while uploading, completing anyway left a recording in the bucket with
+    // no row in the database — kept without consent, out of reach of any
+    // database-driven purge. Discard what was sent instead.
+    const kind = kindFromStorageKey(dto.storageKey);
+    try {
+      await this.assertConsent(session.participationId, kind);
+    } catch (err) {
+      await (
+        dto.uploadId
+          ? this.storage.abortMultipartUpload(dto.storageKey, dto.uploadId)
+          : this.storage.remove(dto.storageKey)
+      ).catch(() => undefined);
+      throw err;
+    }
+
     if (dto.uploadId && dto.parts) {
       const pending = await this.loadUploadSession(dto.uploadId);
       if (!pending || pending.storageKey !== dto.storageKey) {
@@ -177,7 +193,6 @@ export class MediaService {
           parts: 'ETags ou partNumber inválidos',
         });
       }
-      await this.redis.del(uploadSessionKey(dto.uploadId));
     }
 
     const meta = await this.storage.stat(dto.storageKey);
@@ -194,9 +209,6 @@ export class MediaService {
       });
     }
 
-    const kind = kindFromStorageKey(dto.storageKey);
-    await this.assertConsent(session.participationId, kind);
-
     let row = await this.repo.insertRecording({
       sessionId,
       kind,
@@ -207,6 +219,9 @@ export class MediaService {
       durationMs: dto.durationMs,
       status: 'processing',
     });
+    // Only now that the row exists: dropping it before left a failed insert
+    // with no upload session for the client's retry to finish.
+    if (dto.uploadId) await this.redis.del(uploadSessionKey(dto.uploadId));
 
     // OPS-01: the insert and the enqueue are two separate operations with no
     // shared transaction — if this fails, don't leave the row silently

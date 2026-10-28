@@ -268,6 +268,35 @@ describe('MediaService', () => {
     expect(repo.insertRecording).not.toHaveBeenCalled();
   });
 
+  it('discards the upload when consent was withdrawn before completing it', async () => {
+    const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
+    repo.findSessionForPlayer.mockResolvedValue(makeSession());
+    repo.findConsent.mockResolvedValue({
+      participationId: PARTICIPATION,
+      screenRecording: false,
+      audio: false,
+      microphone: false,
+      webcam: false,
+      acceptedAt: new Date(),
+      ip: null,
+      userAgent: null,
+    });
+    repo.findRecordingByStorageKey.mockResolvedValue(null);
+    storage.abortMultipartUpload.mockResolvedValue(undefined);
+
+    await expect(
+      service.completeUpload(USER, SESSION, {
+        storageKey: key,
+        durationMs: 1000,
+        uploadId: 'mpu-1',
+        parts: [{ partNumber: 1, etag: 'e1' }],
+      }),
+    ).rejects.toBeInstanceOf(AppException);
+    expect(storage.completeMultipartUpload).not.toHaveBeenCalled();
+    expect(storage.abortMultipartUpload).toHaveBeenCalledWith(key, 'mpu-1');
+    expect(repo.insertRecording).not.toHaveBeenCalled();
+  });
+
   it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
     const key = buildRecordingStorageKey(ORG, SESSION, 'screen', OBJECT);
     repo.findSessionForPlayer.mockResolvedValue(makeSession());
