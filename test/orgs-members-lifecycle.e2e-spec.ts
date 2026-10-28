@@ -156,6 +156,12 @@ describe('Org members — change status (e2e)', () => {
 
     const res = await patchStatus(adminToken, invitee.id, { status: 'active', confirm: true });
     expect(res.status).toBe(409);
+    // Nor the long way round: disabled first, then "re-activated".
+    const disable = await patchStatus(adminToken, invitee.id, {
+      status: 'disabled',
+      confirm: true,
+    });
+    expect(disable.status).toBe(409);
 
     const [membership] = await sql<{ status: string }[]>`
       SELECT status FROM memberships

@@ -88,14 +88,18 @@ export class LastOwnerError extends Error {
 }
 
 /**
- * Thrown when an owner/admin tries to activate a pending invitation. The
- * invite reuses any existing account by e-mail, so activating it by hand would
- * drop someone from another tenant into this organization without their
- * consent — only the invitee accepts, by setting their password.
+ * Thrown when an owner/admin tries to change the status of a pending
+ * invitation. The invite reuses any existing account by e-mail, so activating
+ * it by hand — directly, or by disabling it first and then "re-activating" —
+ * would drop someone from another tenant into this organization without their
+ * consent. Only the invitee accepts, by setting their password; cancelling is
+ * removing the member (a removed membership can't come back).
  */
 export class PendingInviteError extends Error {
   constructor() {
-    super('O convite só é aceito pelo próprio convidado, ao definir a senha');
+    super(
+      'Convite pendente: só o convidado o aceita, ao definir a senha. Para cancelar, remova o membro',
+    );
     this.name = 'PendingInviteError';
   }
 }
@@ -364,9 +368,7 @@ export class OrgsRepository {
 
       const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
       if (!current) return null;
-      if (current.status === 'invited' && input.status === 'active') {
-        throw new PendingInviteError();
-      }
+      if (current.status === 'invited') throw new PendingInviteError();
 
       const losesAnActiveOwner =
         current.role === 'owner' && current.status === 'active' && input.status !== 'active';
