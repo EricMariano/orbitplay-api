@@ -125,6 +125,15 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
   return false;
 }
 
+/**
+ * The name a member shows to their organization. The invite reuses any
+ * existing account by e-mail, so an invited membership may point at someone
+ * else's account: its real name isn't the inviting org's to see (or to search
+ * for) until they accept. Until then it shows the e-mail the org itself typed —
+ * the same thing the invite response already echoes.
+ */
+const memberDisplayName = sql<string>`case when ${memberships.status} = 'invited' then ${users.email} else ${users.displayName} end`;
+
 @Injectable()
 export class OrgsRepository {
   constructor(@Inject(DRIZZLE) private readonly db: Database) {}
@@ -176,7 +185,7 @@ export class OrgsRepository {
     const term = query.q?.trim();
     if (term) {
       const pattern = `%${escapeIlike(term)}%`;
-      filters.push(or(ilike(users.displayName, pattern), ilike(users.email, pattern))!);
+      filters.push(or(ilike(memberDisplayName, pattern), ilike(users.email, pattern))!);
     }
 
     const rows = await this.db
@@ -184,7 +193,7 @@ export class OrgsRepository {
         id: memberships.id,
         userId: users.id,
         email: users.email,
-        displayName: users.displayName,
+        displayName: memberDisplayName,
         role: roles.key,
         status: memberships.status,
       })
@@ -207,7 +216,7 @@ export class OrgsRepository {
         id: memberships.id,
         userId: users.id,
         email: users.email,
-        displayName: users.displayName,
+        displayName: memberDisplayName,
         role: roles.key,
         status: memberships.status,
       })
@@ -483,7 +492,7 @@ async function findMembershipForUpdate(
       membershipId: memberships.id,
       userId: users.id,
       email: users.email,
-      displayName: users.displayName,
+      displayName: memberDisplayName,
       role: roles.key,
       status: memberships.status,
     })

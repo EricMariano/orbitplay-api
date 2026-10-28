@@ -115,6 +115,29 @@ describe('Org members — invite (e2e)', () => {
     expect(rows[0].count).toBe('1');
   });
 
+  it("doesn't reveal (or let you search for) an invited account's real name", async () => {
+    // A name that isn't part of the e-mail, so a match could only come from it.
+    await sql`UPDATE users SET display_name = 'Nome Secreto' WHERE id = ${OUTSIDER.userId}`;
+    try {
+      const list = await request(app.getHttpServer())
+        .get('/orgs/members')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      const outsider = (list.body.data as { userId: string; displayName: string }[]).find(
+        (m) => m.userId === OUTSIDER.userId,
+      );
+      expect(outsider?.displayName).toBe(OUTSIDER.email);
+
+      const byName = await request(app.getHttpServer())
+        .get('/orgs/members?q=Secreto')
+        .set('Authorization', `Bearer ${ownerToken}`);
+      expect(
+        (byName.body.data as { userId: string }[]).some((m) => m.userId === OUTSIDER.userId),
+      ).toBe(false);
+    } finally {
+      await sql`UPDATE users SET display_name = 'Outsider' WHERE id = ${OUTSIDER.userId}`;
+    }
+  });
+
   it('rejects a second invite for the same person with 409 (unique membership)', async () => {
     const first = await request(app.getHttpServer())
       .post('/orgs/members/invite')
