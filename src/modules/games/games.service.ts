@@ -137,15 +137,17 @@ export class GamesService {
       throw AppException.conflict(`Já existe um jogo com o slug "${slug}"`);
     }
 
-    const row = await this.repo.createInOrg(organizationId, {
-      title: dto.title,
-      slug,
-      description: dto.description ?? null,
-      genre: dto.genre ?? summarize(dto.genres),
-      platform: dto.platform ?? summarize(dto.supportedPlatforms),
-      ...catalogColumns(dto),
-      status: dto.status ?? 'draft',
-    });
+    const row = await this.repo
+      .createInOrg(organizationId, {
+        title: dto.title,
+        slug,
+        description: dto.description ?? null,
+        genre: dto.genre ?? summarize(dto.genres),
+        platform: dto.platform ?? summarize(dto.supportedPlatforms),
+        ...catalogColumns(dto),
+        status: dto.status ?? 'draft',
+      })
+      .catch(rethrowSlugTaken(slug));
     await this.dashboardKpis.invalidate(organizationId);
 
     const view = toView(
@@ -178,21 +180,23 @@ export class GamesService {
       }
     }
 
-    const updated = await this.repo.updateByIdInOrg(organizationId, id, {
-      ...(dto.title !== undefined ? { title: dto.title } : {}),
-      ...(dto.slug !== undefined ? { slug: dto.slug } : {}),
-      ...(dto.description !== undefined ? { description: dto.description } : {}),
-      ...(dto.genre !== undefined ? { genre: dto.genre } : {}),
-      ...(dto.platform !== undefined ? { platform: dto.platform } : {}),
-      ...(dto.genre === undefined && dto.genres !== undefined
-        ? { genre: summarize(dto.genres) }
-        : {}),
-      ...(dto.platform === undefined && dto.supportedPlatforms !== undefined
-        ? { platform: summarize(dto.supportedPlatforms) }
-        : {}),
-      ...catalogColumns(dto),
-      ...(dto.status !== undefined ? { status: dto.status } : {}),
-    });
+    const updated = await this.repo
+      .updateByIdInOrg(organizationId, id, {
+        ...(dto.title !== undefined ? { title: dto.title } : {}),
+        ...(dto.slug !== undefined ? { slug: dto.slug } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.genre !== undefined ? { genre: dto.genre } : {}),
+        ...(dto.platform !== undefined ? { platform: dto.platform } : {}),
+        ...(dto.genre === undefined && dto.genres !== undefined
+          ? { genre: summarize(dto.genres) }
+          : {}),
+        ...(dto.platform === undefined && dto.supportedPlatforms !== undefined
+          ? { platform: summarize(dto.supportedPlatforms) }
+          : {}),
+        ...catalogColumns(dto),
+        ...(dto.status !== undefined ? { status: dto.status } : {}),
+      })
+      .catch(rethrowSlugTaken(dto.slug ?? before.slug));
 
     const [beforeView, afterView] = await Promise.all([
       this.toViews(organizationId, [before]),
@@ -466,4 +470,20 @@ function contentTypeFromKey(storageKey: string): string | null {
   if (storageKey.endsWith('.jpg') || storageKey.endsWith('.jpeg')) return 'image/jpeg';
   if (storageKey.endsWith('.webp')) return 'image/webp';
   return null;
+}
+
+/**
+ * The lookups above skip deleted games, but `games_org_slug_unique` doesn't:
+ * the slug of a deleted game (or one taken by a concurrent create) reached
+ * the insert as a 23505 and came back as a 500 instead of a 409.
+ */
+function rethrowSlugTaken(slug: string) {
+  return (err: unknown): never => {
+    const code = (err as { code?: string } | null)?.code;
+    const causeCode = (err as { cause?: { code?: string } } | null)?.cause?.code;
+    if (code === '23505' || causeCode === '23505') {
+      throw AppException.conflict(`Já existe um jogo com o slug "${slug}"`);
+    }
+    throw err;
+  };
 }
