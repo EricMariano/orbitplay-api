@@ -346,4 +346,11 @@ describe('Test report — M10 (e2e)', () => {
       expect(player.status).toBe(403);
     });
   });
+
+  it('404s (not 500) for an export under a malformed test id', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/tests/abc/report/exports/01990000-0000-7000-8000-0000000000e1')
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(404);
+  });
 });

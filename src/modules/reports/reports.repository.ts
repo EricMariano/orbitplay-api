@@ -749,7 +749,9 @@ export class ReportsRepository {
     testId: string,
     exportId: string,
   ): Promise<TestReportExportRow | null> {
-    if (!isUuid(exportId)) return null;
+    // Both ids are path params: a malformed `testId` would reach Postgres
+    // raw (22P02 → 500) instead of the 404 RN-01 asks for.
+    if (!isUuid(exportId) || !isUuid(testId)) return null;
     const rows = await this.db
       .select()
       .from(testReportExports)
