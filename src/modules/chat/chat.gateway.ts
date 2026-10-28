@@ -93,6 +93,19 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       displayName,
     };
 
+    // The token is only checked here, so the socket must not outlive it: one
+    // opened before a logout, a password reset or a removal from the org would
+    // otherwise keep talking as that user for as long as it stayed connected.
+    // The web client reconnects with its refreshed token.
+    const { exp } = payload as AccessTokenPayload & { exp?: number };
+    if (exp) {
+      const expiry = setTimeout(
+        () => client.disconnect(true),
+        Math.max(0, exp * 1000 - Date.now()),
+      );
+      client.on('disconnect', () => clearTimeout(expiry));
+    }
+
     // `client.rooms` is already empty by the time handleDisconnect runs, so
     // remember which channels this socket is leaving while it still knows.
     client.on('disconnecting', () => {
