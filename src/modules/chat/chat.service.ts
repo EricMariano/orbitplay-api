@@ -161,10 +161,23 @@ export class ChatService {
     return this.repo.findUserDisplayName(userId);
   }
 
-  /** Used by the gateway before putting a socket into a channel room. */
+  /**
+   * Used by the gateway before putting a socket into a channel room. A
+   * channel lives as long as its game, like the mural: once the game is
+   * deleted, reading, writing and joining all 404 — before, the channel kept
+   * taking messages that nobody, not even the studio, could moderate anymore.
+   */
   async getChannelOrThrow(channelId: string): Promise<ChatChannelRow> {
     const channel = await this.repo.findChannelById(channelId);
     if (!channel) throw AppException.notFound('Canal não encontrado');
+    try {
+      await this.games.existsAnyOrg(channel.gameId);
+    } catch (err) {
+      if (err instanceof AppException && err.getStatus() === HttpStatus.NOT_FOUND) {
+        throw AppException.notFound('Canal não encontrado');
+      }
+      throw err;
+    }
     return channel;
   }
 

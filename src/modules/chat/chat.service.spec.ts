@@ -137,6 +137,15 @@ describe('ChatService', () => {
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
     });
 
+    it('404s a channel whose game was deleted, instead of taking the message', async () => {
+      vi.mocked(games.existsAnyOrg).mockRejectedValueOnce(AppException.notFound());
+
+      await expect(
+        service.sendMessage(CHANNEL_ID, 'player-1', { body: 'oi' }),
+      ).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+      expect(repo.createMessage).not.toHaveBeenCalled();
+    });
+
     it('404s an unknown channel', async () => {
       vi.mocked(repo.findChannelById).mockResolvedValueOnce(null);
 
