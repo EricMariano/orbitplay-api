@@ -5,6 +5,7 @@ import {
   sessionRecordings,
   sessions,
   sessionValidations,
+  type SessionRow,
 } from '../infra/database/schema/participations';
 import { xpEvents } from '../infra/database/schema/player';
 import { invalidateReportSnapshots } from '../infra/database/report-snapshot-cache';
@@ -72,29 +73,48 @@ export async function processSessionValidate(deps: WorkerDeps, sessionId: string
     }
   }
 
-  await deps.db
-    .insert(sessionValidations)
-    .values({ sessionId, valid, reason, validatorVersion: 'v1', validatedAt: new Date() })
-    .onConflictDoNothing();
+  // One transaction from the validation row to the XP: a crash between them
+  // used to leave the row in place, so the retry returned early above and the
+  // statuses or the XP were never written. The insert is the gate — a run that
+  // finds the row already there (a concurrent redelivery) changes nothing.
+  const applied = await deps.db.transaction(async (tx) => {
+    const inserted = await tx
+      .insert(sessionValidations)
+      .values({ sessionId, valid, reason, validatorVersion: 'v1', validatedAt: new Date() })
+      .onConflictDoNothing()
+      .returning({ sessionId: sessionValidations.sessionId });
+    if (inserted.length === 0) return false;
 
-  await deps.db
-    .update(sessions)
-    .set({ status: valid ? 'completed' : 'invalidated' })
-    .where(eq(sessions.id, sessionId));
+    await tx
+      .update(sessions)
+      .set({ status: valid ? 'completed' : 'invalidated' })
+      .where(eq(sessions.id, sessionId));
 
-  await deps.db
-    .update(participations)
-    .set({ status: valid ? 'completed' : 'rejected' })
-    .where(eq(participations.id, session.participationId));
+    await tx
+      .update(participations)
+      .set({ status: valid ? 'completed' : 'rejected' })
+      .where(eq(participations.id, session.participationId));
+
+    if (valid) await creditSessionXp(tx, session);
+    return true;
+  });
+  if (!applied) return;
 
   // M11: the studio dashboard's session/completion KPIs just changed.
   await invalidateDashboardKpis(deps.redis, session.organizationId);
   // M10: valid/completed sessions of the report just changed.
   await invalidateReportSnapshots(deps.db, session.testId);
 
-  if (!valid) return;
+  // `tests.reward_amount_cents` (a real, persisted amount) is what a future
+  // reward formula reads instead of a hardcoded XP constant — payment itself
+  // is deferred (DECISIONS.md §1.2), so it isn't touched here yet.
+}
 
-  const testRows = await deps.db
+type Tx = Parameters<Parameters<WorkerDeps['db']['transaction']>[0]>[0];
+
+/** Session XP, at most once per player and test (the same test can't be farmed by rejoining). */
+async function creditSessionXp(tx: Tx, session: SessionRow): Promise<void> {
+  const testRows = await tx
     .select({ userId: participations.userId })
     .from(participations)
     .where(eq(participations.id, session.participationId))
@@ -102,7 +122,7 @@ export async function processSessionValidate(deps: WorkerDeps, sessionId: string
   const userId = testRows[0]?.userId;
   if (!userId) return;
 
-  const rewarded = await deps.db
+  const rewarded = await tx
     .select({ id: xpEvents.id })
     .from(xpEvents)
     .innerJoin(sessions, eq(sessions.id, xpEvents.sourceId))
@@ -116,18 +136,14 @@ export async function processSessionValidate(deps: WorkerDeps, sessionId: string
     .limit(1);
   if (rewarded.length > 0) return;
 
-  await deps.db
+  await tx
     .insert(xpEvents)
     .values({
       id: newId(),
       userId,
       sourceType: 'session',
-      sourceId: sessionId,
+      sourceId: session.id,
       xp: SESSION_COMPLETION_XP,
     })
     .onConflictDoNothing();
-
-  // `tests.reward_amount_cents` (a real, persisted amount) is what a future
-  // reward formula reads instead of a hardcoded XP constant — payment itself
-  // is deferred (DECISIONS.md §1.2), so it isn't touched here yet.
 }
