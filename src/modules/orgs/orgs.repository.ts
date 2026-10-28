@@ -59,7 +59,7 @@ export interface RoleChangeResult {
 export interface ChangeMemberStatusInput {
   organizationId: string;
   userId: string;
-  status: 'active' | 'invited' | 'disabled';
+  status: 'active' | 'disabled';
 }
 
 export interface StatusChangeResult {
@@ -84,6 +84,19 @@ export class LastOwnerError extends Error {
   constructor() {
     super('A organização precisa de pelo menos um owner ativo');
     this.name = 'LastOwnerError';
+  }
+}
+
+/**
+ * Thrown when an owner/admin tries to activate a pending invitation. The
+ * invite reuses any existing account by e-mail, so activating it by hand would
+ * drop someone from another tenant into this organization without their
+ * consent — only the invitee accepts, by setting their password.
+ */
+export class PendingInviteError extends Error {
+  constructor() {
+    super('O convite só é aceito pelo próprio convidado, ao definir a senha');
+    this.name = 'PendingInviteError';
   }
 }
 
@@ -351,6 +364,9 @@ export class OrgsRepository {
 
       const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
       if (!current) return null;
+      if (current.status === 'invited' && input.status === 'active') {
+        throw new PendingInviteError();
+      }
 
       const losesAnActiveOwner =
         current.role === 'owner' && current.status === 'active' && input.status !== 'active';

@@ -19,7 +19,12 @@ import type {
   OrgView,
   UpdateOrgInput,
 } from './dto/org.dto';
-import { LastOwnerError, MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
+import {
+  LastOwnerError,
+  MemberAlreadyExistsError,
+  OrgsRepository,
+  PendingInviteError,
+} from './orgs.repository';
 
 /**
  * The route param is any case (`isUuid` and Postgres both accept upper-case
@@ -251,7 +256,7 @@ export class OrgsService {
         status: dto.status,
       });
     } catch (err) {
-      if (err instanceof LastOwnerError) {
+      if (err instanceof LastOwnerError || err instanceof PendingInviteError) {
         throw AppException.conflict(err.message);
       }
       throw err;

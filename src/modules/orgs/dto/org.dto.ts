@@ -71,8 +71,12 @@ export const changeRoleSchema = z.object({
  * changes — critical action, explicit `confirm: true`. RN-03/RN-06: disabling
  * the last active owner is refused (409); never a physical delete.
  */
+/**
+ * `invited` is not a status an owner/admin can set: a member only leaves it by
+ * accepting — setting a password through the reset link (see `PendingInviteError`).
+ */
 export const changeStatusSchema = z.object({
-  status: z.enum(['active', 'invited', 'disabled']),
+  status: z.enum(['active', 'disabled']),
   confirm: z.literal(true, 'Confirmação explícita obrigatória'),
 });
 

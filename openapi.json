@@ -4907,7 +4907,6 @@
             "type": "string",
             "enum": [
               "active",
-              "invited",
               "disabled"
             ]
           },
