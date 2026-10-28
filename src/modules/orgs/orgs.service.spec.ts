@@ -405,6 +405,19 @@ describe('OrgsService changeMemberStatus', () => {
     expect(repo.changeMemberStatus).not.toHaveBeenCalled();
   });
 
+  it('refuses it as well when the id comes in upper case', async () => {
+    await expect(
+      service.changeMemberStatus(
+        ORG,
+        TARGET,
+        TARGET.toUpperCase(),
+        { status: 'active', confirm: true },
+        req,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(repo.changeMemberStatus).not.toHaveBeenCalled();
+  });
+
   it('maps the last-owner rule to a 409 conflict (RN-03/RN-06)', async () => {
     repo.changeMemberStatus.mockRejectedValue(new LastOwnerError());
 
@@ -474,6 +487,13 @@ describe('OrgsService removeMember', () => {
     await expect(service.removeMember(ORG, TARGET, TARGET, req)).rejects.toMatchObject({
       status: 403,
     });
+    expect(repo.removeMember).not.toHaveBeenCalled();
+  });
+
+  it('refuses self-removal when the id comes in upper case', async () => {
+    await expect(
+      service.removeMember(ORG, TARGET, TARGET.toUpperCase(), req),
+    ).rejects.toMatchObject({ status: 403 });
     expect(repo.removeMember).not.toHaveBeenCalled();
   });
 
