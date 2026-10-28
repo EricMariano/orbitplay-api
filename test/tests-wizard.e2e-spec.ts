@@ -287,6 +287,30 @@ describe('Tests wizard — M5 (e2e)', () => {
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
+  // A paused test could drop its build and then be resumed with nothing for
+  // its players to download.
+  it('keeps the build of a paused test: DELETE is 409', async () => {
+    const testId = uuidv7();
+    const buildId = uuidv7();
+    await sql`
+      INSERT INTO tests (id, organization_id, game_id, model_key, status, slots_total, slots_taken)
+      VALUES (${testId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.one}),
+              ${GAME_IDS.one}, 'free_exploration', 'paused', 5, 0)`;
+    await sql`
+      INSERT INTO builds (id, organization_id, test_id, file_name, storage_key, status)
+      VALUES (${buildId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.one}),
+              ${testId}, 'game.zip', ${`orgs/x/tests/${testId}/builds/${buildId}/game.zip`},
+              'validated')`;
+
+    const res = await request(app.getHttpServer())
+      .delete(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(409);
+
+    const kept = await sql`SELECT id FROM builds WHERE id = ${buildId}`;
+    expect(kept).toHaveLength(1);
+  });
+
   it('requires Idempotency-Key and gates publish on pending steps', async () => {
     const create = await request(app.getHttpServer())
       .post(`/games/${GAME_IDS.one}/tests`)

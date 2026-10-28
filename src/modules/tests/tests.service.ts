@@ -313,17 +313,29 @@ export class TestsService {
     return toBuildView(build);
   }
 
+  /**
+   * Draft-only, under the row lock like every other wizard step: after the
+   * publish the build is frozen. Checking just `published` let a paused test
+   * lose its build and then be resumed with nothing for its players to
+   * download (and no way to upload another — that needs a draft).
+   */
   async deleteBuild(organizationId: string, id: string, req: Request): Promise<void> {
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    if (test.status === 'published') {
-      throw AppException.conflict('Teste já publicado — build não pode ser trocada');
-    }
-    const existing = await this.builds.findLatestBuild(id);
-    if (!existing) throw AppException.notFound('Este teste ainda não tem build enviada');
+    const existing = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (test, updateTest, tx) => {
+        if (test.status !== 'draft') {
+          throw AppException.conflict('Teste já publicado — build não pode ser trocada');
+        }
+        const latest = await this.builds.findLatestBuild(id);
+        if (!latest) throw AppException.notFound('Este teste ainda não tem build enviada');
 
-    await this.builds.deleteBuild(existing.build.id);
+        await this.builds.deleteBuild(latest.build.id, tx);
+        await updateTest({ currentStep: 'build' });
+        return latest;
+      },
+    );
     await this.storage.remove(existing.build.storageKey).catch(() => undefined);
-    await this.repo.updateByIdInOrg(organizationId, id, { currentStep: 'build' });
 
     recordAudit(req, {
       action: 'test.build.removed',
@@ -493,13 +505,22 @@ export class TestsService {
     dto: SetStatusRequest,
     req: Request,
   ): Promise<TestView> {
-    const test = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-    const allowed = STATUS_TRANSITIONS[test.status] ?? [];
-    if (!allowed.includes(dto.status)) {
-      throw AppException.conflict(`Não é possível mudar de "${test.status}" para "${dto.status}"`);
-    }
-
-    const updated = await this.repo.updateByIdInOrg(organizationId, id, { status: dto.status });
+    // Check and write under the row lock: two concurrent changes (pause and
+    // finish) could otherwise both pass the check and leave a finished test
+    // paused — that is, resumable.
+    const { test, updated } = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (row, updateTest) => {
+        const allowed = STATUS_TRANSITIONS[row.status] ?? [];
+        if (!allowed.includes(dto.status)) {
+          throw AppException.conflict(
+            `Não é possível mudar de "${row.status}" para "${dto.status}"`,
+          );
+        }
+        return { test: row, updated: await updateTest({ status: dto.status }) };
+      },
+    );
     await this.dashboardKpis.invalidate(organizationId);
     const view = await this.toView(updated);
     recordAudit(req, {
