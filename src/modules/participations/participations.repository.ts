@@ -476,14 +476,17 @@ export class ParticipationsRepository {
     await this.db.insert(sessionDeviceEvents).values({ id: newId(), sessionId, tMs, kind, value });
   }
 
-  async updateSession(sessionId: string, patch: Partial<NewSessionRow>): Promise<SessionRow> {
-    const rows = await this.db
+  /**
+   * First heartbeat: `starting` → `recording`, and only from `starting`. A
+   * heartbeat racing `finish` read `starting` before the finish committed and
+   * then wrote `recording` over its `processing` — reopening the session (a
+   * second finish, or the timeout sweep invalidating a session that ended fine).
+   */
+  async markRecording(sessionId: string): Promise<void> {
+    await this.db
       .update(sessions)
-      .set(patch)
-      .where(eq(sessions.id, sessionId))
-      .returning();
-    if (!rows[0]) throw AppException.notFound();
-    return rows[0];
+      .set({ status: 'recording' })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.status, 'starting')));
   }
 
   /**

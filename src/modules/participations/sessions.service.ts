@@ -118,9 +118,7 @@ export class SessionsService {
     const session = await this.repo.getSessionForUserOrThrow(sessionId, userId);
     if (isClosed(session)) throw AppException.notFound();
     await this.touchHeartbeat(sessionId);
-    if (session.status === 'starting') {
-      await this.repo.updateSession(sessionId, { status: 'recording' });
-    }
+    if (session.status === 'starting') await this.repo.markRecording(sessionId);
   }
 
   /**
@@ -303,8 +301,13 @@ export class SessionsService {
   }
 }
 
+/**
+ * Anything past `starting`/`recording`/`paused` is closed — `processing` too:
+ * a heartbeat landing after `finish` used to re-arm the heartbeat key (and
+ * accept device events) on a session that had already ended.
+ */
 function isClosed(session: { status: string }): boolean {
-  return session.status === 'completed' || session.status === 'invalidated';
+  return !['starting', 'recording', 'paused'].includes(session.status);
 }
 
 function toSessionStatus(
