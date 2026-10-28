@@ -78,12 +78,14 @@ export class CommunityService {
       MODERATE_ACTION_TO_STATUS[dto.action],
     );
 
+    // The post row has no column for it, so the moderator's reason lives in
+    // the audit trail (Tela 20) — before, it was accepted and dropped.
     recordAudit(req, {
       action: 'community.post_moderated',
       entity: 'community_posts',
       entityId: postId,
       before,
-      after: updated,
+      after: dto.reason ? { ...updated, moderationReason: dto.reason } : updated,
     });
     return toPostView(updated);
   }
@@ -113,7 +115,12 @@ export class CommunityService {
     }
 
     try {
-      const created = await this.repo.createReview(gameId, author.userId, dto.rating, dto.body ?? null);
+      const created = await this.repo.createReview(
+        gameId,
+        author.userId,
+        dto.rating,
+        dto.body ?? null,
+      );
       return toReviewView(created);
     } catch (err) {
       if (isUniqueViolation(err)) {

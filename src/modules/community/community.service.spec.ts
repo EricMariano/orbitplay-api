@@ -53,7 +53,13 @@ function makeReviewRecord(overrides: Partial<ReviewRecord> = {}): ReviewRecord {
 }
 
 function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
-  return { userId: 'user-1', organizationId: OWNER_ORG, role: 'player', email: 'a@b.dev', ...overrides };
+  return {
+    userId: 'user-1',
+    organizationId: OWNER_ORG,
+    role: 'player',
+    email: 'a@b.dev',
+    ...overrides,
+  };
 }
 
 describe('CommunityService', () => {
@@ -85,7 +91,9 @@ describe('CommunityService', () => {
       createReview: vi.fn(),
     };
     games = {
-      existsAnyOrg: vi.fn().mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status: 'active' }),
+      existsAnyOrg: vi
+        .fn()
+        .mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status: 'active' }),
     };
     service = new CommunityService(
       repo as unknown as CommunityRepository,
@@ -97,9 +105,9 @@ describe('CommunityService', () => {
   describe('createPost', () => {
     it('404s when the game does not exist (any org)', async () => {
       games.existsAnyOrg.mockRejectedValueOnce({ status: 404 });
-      await expect(
-        service.createPost(GAME_ID, makeUser(), { body: 'oi' }),
-      ).rejects.toMatchObject({ status: 404 });
+      await expect(service.createPost(GAME_ID, makeUser(), { body: 'oi' })).rejects.toMatchObject({
+        status: 404,
+      });
       expect(repo.createPost).not.toHaveBeenCalled();
     });
 
@@ -133,10 +141,19 @@ describe('CommunityService', () => {
   describe('moderatePost', () => {
     it('403s when the moderator is not from the owning studio', async () => {
       repo.findPostRowById.mockResolvedValue(makePostRow());
-      games.existsAnyOrg.mockResolvedValue({ id: GAME_ID, organizationId: OTHER_ORG, status: 'active' });
+      games.existsAnyOrg.mockResolvedValue({
+        id: GAME_ID,
+        organizationId: OTHER_ORG,
+        status: 'active',
+      });
 
       await expect(
-        service.moderatePost(POST_ID, makeUser({ organizationId: OWNER_ORG, role: 'owner' }), { action: 'hide' }, req),
+        service.moderatePost(
+          POST_ID,
+          makeUser({ organizationId: OWNER_ORG, role: 'owner' }),
+          { action: 'hide' },
+          req,
+        ),
       ).rejects.toMatchObject({ status: 403 });
       expect(repo.moderatePost).not.toHaveBeenCalled();
     });
@@ -152,16 +169,32 @@ describe('CommunityService', () => {
       expect(repo.moderatePost).toHaveBeenCalledWith(POST_ID, 'mod-1', 'hidden');
       expect(view.status).toBe('hidden');
       const [draft] = drainAuditDrafts(req);
-      expect(draft).toMatchObject({ action: 'community.post_moderated', entity: 'community_posts', entityId: POST_ID });
+      expect(draft).toMatchObject({
+        action: 'community.post_moderated',
+        entity: 'community_posts',
+        entityId: POST_ID,
+      });
+    });
+
+    it("keeps the moderator's reason in the audit trail instead of dropping it", async () => {
+      repo.findPostRowById.mockResolvedValue(makePostRow());
+      repo.findPostById.mockResolvedValue(makePostRecord());
+      repo.moderatePost.mockResolvedValue(makePostRecord({ status: 'removed' }));
+
+      const moderator = makeUser({ userId: 'mod-1', organizationId: OWNER_ORG, role: 'owner' });
+      await service.moderatePost(POST_ID, moderator, { action: 'remove', reason: 'Spam' }, req);
+
+      const [draft] = drainAuditDrafts(req);
+      expect(draft?.after).toMatchObject({ status: 'removed', moderationReason: 'Spam' });
     });
   });
 
   describe('createReview', () => {
     it('403s without a completed valid session for the game', async () => {
       repo.hasValidSessionForGame.mockResolvedValue(false);
-      await expect(
-        service.createReview(GAME_ID, makeUser(), { rating: 5 }),
-      ).rejects.toMatchObject({ status: 403 });
+      await expect(service.createReview(GAME_ID, makeUser(), { rating: 5 })).rejects.toMatchObject({
+        status: 403,
+      });
       expect(repo.createReview).not.toHaveBeenCalled();
     });
 
@@ -178,9 +211,9 @@ describe('CommunityService', () => {
       repo.hasValidSessionForGame.mockResolvedValue(true);
       repo.createReview.mockRejectedValue({ code: '23505' });
 
-      await expect(
-        service.createReview(GAME_ID, makeUser(), { rating: 4 }),
-      ).rejects.toMatchObject({ status: 409 });
+      await expect(service.createReview(GAME_ID, makeUser(), { rating: 4 })).rejects.toMatchObject({
+        status: 409,
+      });
     });
   });
 });
