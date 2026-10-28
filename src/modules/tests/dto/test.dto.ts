@@ -167,6 +167,19 @@ const formQuestionInputSchema = z
         });
       }
     }
+    // `test_form_options_order_unique (question_id, position)`: a repeated
+    // option position used to reach the insert and come back as a 500.
+    const positions = new Set<number>();
+    q.options?.forEach((option, index) => {
+      if (positions.has(option.position)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Posição ${option.position} duplicada entre as opções`,
+          path: ['options', index, 'position'],
+        });
+      }
+      positions.add(option.position);
+    });
     if (q.scaleMin !== undefined && q.scaleMax !== undefined && q.scaleMin >= q.scaleMax) {
       ctx.addIssue({
         code: 'custom',

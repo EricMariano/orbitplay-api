@@ -312,6 +312,32 @@ describe('Tests wizard — M5 (e2e)', () => {
     expect(audience.status).toBe(422);
   });
 
+  it('rejects two options at the same position with 422, not 500', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Opções repetidas' });
+
+    const res = await request(app.getHttpServer())
+      .put(`/tests/${create.body.id as string}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single_choice',
+            prompt: 'Qual fase?',
+            required: true,
+            position: 0,
+            options: [
+              { label: 'Fase 1', position: 0 },
+              { label: 'Fase 2', position: 0 },
+            ],
+          },
+        ],
+      });
+    expect(res.status).toBe(422);
+  });
+
   // A paused test could drop its build and then be resumed with nothing for
   // its players to download.
   it('keeps the build of a paused test: DELETE is 409', async () => {
