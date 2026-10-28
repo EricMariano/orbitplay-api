@@ -397,4 +397,21 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(result.status).toBe('rejected');
     expect(result.invalidReason).toContain('timeout');
   });
+
+  // `finish` commits the session as `processing` and only then enqueues
+  // `session.validate`: a lost enqueue used to leave it there for good.
+  it('validates a finished session whose validation job never got enqueued', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await sql`
+      UPDATE sessions
+      SET status = 'processing', duration_ms = 60000, ended_at = now() - interval '20 minutes'
+      WHERE id = ${sessionId}`;
+    await sql`UPDATE participations SET status = 'in_review' WHERE id = ${participationId}`;
+
+    await processReconcileStuckJobs(workerDeps);
+
+    const result = await waitForResult(participationId, (s) => s !== 'in_review');
+    expect(result.status).toBe('completed');
+  });
 });

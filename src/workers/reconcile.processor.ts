@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
 import {
   buildValidateJobId,
   JobName,
@@ -8,7 +8,11 @@ import {
 } from '../infra/queue/queue.constants';
 import { ensureJobEnqueued } from '../infra/queue/ensure-enqueued';
 import { builds } from '../infra/database/schema/tests';
-import { sessionRecordings, sessions } from '../infra/database/schema/participations';
+import {
+  sessionRecordings,
+  sessions,
+  sessionValidations,
+} from '../infra/database/schema/participations';
 import { heartbeatKey } from '../modules/participations/heartbeat.store';
 import { createdAtFromUuidV7 } from '../shared/util/uuid';
 import type { WorkerDeps } from './deps';
@@ -88,6 +92,34 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
   }
 
   await reconcileTimedOutSessions(deps);
+  await reconcileUnvalidatedSessions(deps, cutoff);
+}
+
+/**
+ * `finish` (and the timeout sweep below) close a session and then enqueue
+ * `session.validate` — two steps with no shared transaction. If the enqueue
+ * is lost (Redis down after the commit) or the job fails, the session sits
+ * closed with no validation: the player never gets a result, nor XP. Same
+ * backstop as builds and recordings: re-ensure the job by its deterministic id.
+ */
+async function reconcileUnvalidatedSessions(deps: WorkerDeps, cutoff: Date): Promise<void> {
+  const unvalidated = await deps.db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .leftJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
+    .where(
+      and(
+        inArray(sessions.status, ['processing', 'invalidated']),
+        lt(sessions.endedAt, cutoff),
+        isNull(sessionValidations.sessionId),
+      ),
+    );
+
+  for (const { id } of unvalidated) {
+    await ensureJobEnqueued(deps.queue, JobName.SESSION_VALIDATE, sessionValidateJobId(id), {
+      sessionId: id,
+    });
+  }
 }
 
 /**
