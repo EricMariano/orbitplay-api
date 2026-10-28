@@ -182,6 +182,7 @@ describe('AuthService login', () => {
 describe('AuthService password reset', () => {
   let repo: {
     findUserByEmail: ReturnType<typeof vi.fn>;
+    findUserById: ReturnType<typeof vi.fn>;
     invalidateUnusedTokens: ReturnType<typeof vi.fn>;
     insertPasswordResetToken: ReturnType<typeof vi.fn>;
     applyPasswordReset: ReturnType<typeof vi.fn>;
@@ -212,6 +213,7 @@ describe('AuthService password reset', () => {
   beforeEach(() => {
     repo = {
       findUserByEmail: vi.fn(),
+      findUserById: vi.fn(),
       invalidateUnusedTokens: vi.fn().mockResolvedValue(undefined),
       insertPasswordResetToken: vi.fn().mockResolvedValue(undefined),
       applyPasswordReset: vi.fn(),
@@ -263,6 +265,16 @@ describe('AuthService password reset', () => {
       mail as unknown as NotificationPort,
     );
     req = {} as Request;
+  });
+
+  it('admin-triggered reset shares the per-e-mail limit of "forgot"', async () => {
+    repo.findUserById.mockResolvedValue(makeUser());
+    redis.incr.mockResolvedValue(6);
+
+    await expect(service.triggerPasswordReset(USER_ID)).rejects.toMatchObject({ status: 429 });
+    expect(redis.incr).toHaveBeenCalledWith('forgot:id:studio@orbitplay.dev');
+    expect(repo.invalidateUnusedTokens).not.toHaveBeenCalled();
+    expect(mail.sendEmail).not.toHaveBeenCalled();
   });
 
   it('forgot: unknown email returns the generic message and sends no mail', async () => {
