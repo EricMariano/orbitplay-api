@@ -7475,7 +7475,7 @@
                 "position": {
                   "type": "integer",
                   "minimum": 0,
-                  "maximum": 9007199254740991
+                  "maximum": 1000
                 },
                 "options": {
                   "type": "array",
@@ -7493,7 +7493,7 @@
                       "position": {
                         "type": "integer",
                         "minimum": 0,
-                        "maximum": 9007199254740991
+                        "maximum": 1000
                       }
                     },
                     "required": [
@@ -7896,7 +7896,7 @@
           "quantity": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 9007199254740991
+            "maximum": 100000
           },
           "durationDays": {
             "type": "integer",

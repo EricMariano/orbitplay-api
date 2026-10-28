@@ -287,6 +287,31 @@ describe('Tests wizard — M5 (e2e)', () => {
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
+  // Past int4 these used to reach the `integer` columns and answer 500.
+  it('rejects wizard numbers past the column range with 422', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Números grandes' });
+    const testId = create.body.id as string;
+
+    const form = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          { type: 'open_text', prompt: 'E aí?', required: true, position: 3_000_000_000 },
+        ],
+      });
+    expect(form.status).toBe(422);
+
+    const audience = await request(app.getHttpServer())
+      .patch(`/tests/${testId}/audience`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ ageMin: 18, ageMax: 60, quantity: 3_000_000_000, durationDays: 7 });
+    expect(audience.status).toBe(422);
+  });
+
   // A paused test could drop its build and then be resumed with nothing for
   // its players to download.
   it('keeps the build of a paused test: DELETE is 409', async () => {

@@ -29,6 +29,13 @@ export const questionTypeValues = [
  * and the report's bound on how many buckets it lays out per question.
  */
 export const RATING_SCALE_BOUNDS = { min: 0, max: 10 } as const;
+/**
+ * Caps that keep wizard input inside the `integer` columns it lands in — past
+ * int4 the insert threw (22003) and the save answered 500. Both are far above
+ * what Tela 07/09 offer (a few questions; 1–1000 testers).
+ */
+const MAX_FORM_POSITION = 1000;
+const MAX_AUDIENCE_QUANTITY = 100_000;
 /** Tela 09 "Tipo de jogador" — mirrors `player_tier` in the schema. */
 export const playerTierValues = ['all', 'casual', 'experienced', 'trained', 'qa'] as const;
 export const buildStatusValues = [
@@ -131,7 +138,7 @@ export const testSchema = z.object({
 const formOptionInputSchema = z.object({
   id: z.string().optional(),
   label: z.string().min(1).max(300),
-  position: z.number().int().min(0),
+  position: z.number().int().min(0).max(MAX_FORM_POSITION),
 });
 
 const formQuestionInputSchema = z
@@ -141,7 +148,7 @@ const formQuestionInputSchema = z
     prompt: z.string().min(1).max(1000),
     helpText: z.string().max(1000).optional(),
     required: z.boolean(),
-    position: z.number().int().min(0),
+    position: z.number().int().min(0).max(MAX_FORM_POSITION),
     options: z.array(formOptionInputSchema).optional(),
     scaleMin: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
     scaleMax: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
@@ -245,7 +252,7 @@ export const audienceRequestSchema = z
     archetypes: z.array(z.string().max(100)).optional(),
     ageMin: z.number().int().min(18),
     ageMax: z.number().int().max(120),
-    quantity: z.number().int().min(1),
+    quantity: z.number().int().min(1).max(MAX_AUDIENCE_QUANTITY),
     durationDays: z.number().int().min(1).max(365),
     deviceRequirements: z.array(z.enum(platformValues)).optional(),
     keepActive: z.boolean().optional().default(false),
