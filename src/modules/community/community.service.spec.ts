@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { AuthUser } from '../../shared/auth/roles';
@@ -75,6 +76,11 @@ describe('CommunityService', () => {
     createReview: ReturnType<typeof vi.fn>;
   };
   let games: { existsAnyOrg: ReturnType<typeof vi.fn> };
+  let redis: {
+    incr: ReturnType<typeof vi.fn>;
+    expire: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
+  };
   let service: CommunityService;
   let req: Request;
 
@@ -95,9 +101,15 @@ describe('CommunityService', () => {
         .fn()
         .mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status: 'active' }),
     };
+    redis = {
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn(),
+      ttl: vi.fn().mockResolvedValue(60),
+    };
     service = new CommunityService(
       repo as unknown as CommunityRepository,
       games as unknown as GamesService,
+      redis as unknown as Redis,
     );
     req = {} as Request;
   });
@@ -135,6 +147,26 @@ describe('CommunityService', () => {
         details: 'ofensivo',
       });
       expect(repo.insertReport).toHaveBeenCalledWith(POST_ID, 'reporter-1', 'abuse', 'ofensivo');
+    });
+  });
+
+  describe('flood control', () => {
+    it('cuts posting past the per-user limit', async () => {
+      redis.incr.mockResolvedValueOnce(31);
+      await expect(service.createPost(GAME_ID, makeUser(), { body: 'oi' })).rejects.toMatchObject({
+        status: 429,
+      });
+      expect(redis.incr).toHaveBeenCalledWith('community:posts:user-1');
+      expect(repo.createPost).not.toHaveBeenCalled();
+    });
+
+    it('cuts reporting past the per-user limit', async () => {
+      repo.findPostRowById.mockResolvedValue(makePostRow());
+      redis.incr.mockResolvedValueOnce(61);
+      await expect(
+        service.reportPost(POST_ID, makeUser(), { reason: 'spam' }),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(repo.insertReport).not.toHaveBeenCalled();
     });
   });
 
