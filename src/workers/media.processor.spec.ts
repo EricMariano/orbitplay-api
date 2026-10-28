@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { mkdtemp, readFile, rm, stat as fsStat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecordingRow } from '../infra/database/schema/participations';
 import type { StoragePort } from '../shared/ports/storage.port';
 import { generateSampleWebm } from '../../test/helpers/sample-media';
@@ -131,6 +131,51 @@ describe('media.processor (real ffmpeg, GAP-04)', () => {
       await processMediaTranscode(deps, RECORDING_ID);
 
       expect(row.status).toBe('failed');
+    });
+
+    // An HLS playlist uploaded as a "recording" would have ffmpeg open its
+    // segments — other local files or URLs — and render them into outputs.
+    it('fails a playlist disguised as a recording instead of following it', async () => {
+      const filePath = join(dir, 'playlist');
+      await writeFile(
+        filePath,
+        '#EXTM3U\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:10.0,\nfile:///etc/passwd\n#EXT-X-ENDLIST\n',
+      );
+      const { size } = await fsStat(filePath);
+
+      const row = makeRecording();
+      const { db } = makeFakeDb(row);
+      const { storage, putObjectCalls } = makeFakeStorage(filePath, size);
+
+      await processMediaTranscode({ db, storage } as WorkerDeps, RECORDING_ID);
+
+      expect(row.status).toBe('failed');
+      expect(putObjectCalls).toHaveLength(0);
+    });
+
+    it('fails a recording longer than the maximum duration', async () => {
+      vi.resetModules();
+      vi.doMock('../modules/media/dto/media.dto', async (importOriginal) => ({
+        ...(await importOriginal<object>()),
+        MAX_RECORDING_DURATION_MS: 500,
+      }));
+      try {
+        const { processMediaTranscode: transcode } = await import('./media.processor');
+        const filePath = join(dir, 'source.webm');
+        await generateSampleWebm(filePath, { durationSeconds: 1, withAudio: false });
+        const { size } = await fsStat(filePath);
+
+        const row = makeRecording();
+        const { db } = makeFakeDb(row);
+        const { storage } = makeFakeStorage(filePath, size);
+
+        await transcode({ db, storage } as WorkerDeps, RECORDING_ID);
+
+        expect(row.status).toBe('failed');
+      } finally {
+        vi.doUnmock('../modules/media/dto/media.dto');
+        vi.resetModules();
+      }
     });
   });
 

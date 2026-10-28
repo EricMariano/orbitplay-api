@@ -15,6 +15,13 @@ export const recordingContentTypeValues = [
 /** 2 GiB — long screen recordings; the API never proxies the bytes. */
 export const MAX_RECORDING_BYTES = 2 * 1024 * 1024 * 1024;
 
+/**
+ * 4 h — longer than any playtest session is expected to run. The worker
+ * refuses (and never re-encodes past) this much media, and it keeps the
+ * `integer` duration column far from overflowing.
+ */
+export const MAX_RECORDING_DURATION_MS = 4 * 60 * 60 * 1000;
+
 export const RECORDING_UPLOAD_TTL_SECONDS = 3600;
 
 export const recordingUploadUrlRequestSchema = z.object({
@@ -37,7 +44,7 @@ export const recordingCompletePartSchema = z.object({
 export const recordingCompleteRequestSchema = z
   .object({
     storageKey: z.string().min(1).max(500),
-    durationMs: z.number().int().min(0),
+    durationMs: z.number().int().min(0).max(MAX_RECORDING_DURATION_MS),
     sizeBytes: z.number().int().min(1).optional(),
     uploadId: z.string().min(1).max(500).optional(),
     parts: z.array(recordingCompletePartSchema).optional(),

@@ -14,6 +14,31 @@ const execFileAsync = promisify(execFile);
 export const FFMPEG_PATH: string = ffmpegInstaller.path;
 export const FFPROBE_PATH: string = ffprobeInstaller.path;
 
+/**
+ * Every input is a file a player uploaded, so ffmpeg may only read it as a
+ * local file in the containers a `MediaRecorder` produces (Matroska/WebM,
+ * MP4/MOV, Ogg): a playlist or concat script disguised as a recording can't
+ * make it fetch URLs or pull other local files into a thumbnail or track.
+ */
+const INPUT_GUARD = ['-protocol_whitelist', 'file', '-format_whitelist', 'matroska,mov,ogg'];
+
+/**
+ * Wall-clock caps per call. The worker runs one job at a time, on the same
+ * queue that validates sessions and builds — a crafted file that keeps
+ * ffmpeg busy must not stall everything behind it (or hold its lock forever).
+ */
+const PROBE_TIMEOUT_MS = 60_000;
+const THUMBNAIL_TIMEOUT_MS = 60_000;
+const AUDIO_TIMEOUT_MS = 15 * 60_000;
+
+function run(binary: string, args: string[], timeoutMs: number) {
+  return execFileAsync(binary, args, {
+    timeout: timeoutMs,
+    killSignal: 'SIGKILL',
+    maxBuffer: 10 * 1024 * 1024,
+  });
+}
+
 export interface MediaProbe {
   durationMs: number | null;
   hasVideo: boolean;
@@ -44,10 +69,19 @@ interface FfprobeOutput {
 
 /** Reads codec/duration/stream-presence straight from the file's own bytes — never trusted from the client. */
 export async function probeMedia(filePath: string): Promise<MediaProbe> {
-  const { stdout } = await execFileAsync(
+  const { stdout } = await run(
     FFPROBE_PATH,
-    ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', filePath],
-    { maxBuffer: 10 * 1024 * 1024 },
+    [
+      '-v',
+      'error',
+      ...INPUT_GUARD,
+      '-print_format',
+      'json',
+      '-show_format',
+      '-show_streams',
+      filePath,
+    ],
+    PROBE_TIMEOUT_MS,
   );
 
   const parsed = JSON.parse(stdout) as FfprobeOutput;
@@ -81,33 +115,53 @@ export async function generateThumbnail(
   outputPath: string,
   atSeconds: number,
 ): Promise<void> {
-  await execFileAsync(FFMPEG_PATH, [
-    '-y',
-    '-ss',
-    String(Math.max(0, atSeconds)),
-    '-i',
-    inputPath,
-    '-frames:v',
-    '1',
-    '-vf',
-    'scale=480:-2',
-    '-q:v',
-    '4',
-    outputPath,
-  ]);
+  await run(
+    FFMPEG_PATH,
+    [
+      '-y',
+      ...INPUT_GUARD,
+      '-ss',
+      String(Math.max(0, atSeconds)),
+      '-i',
+      inputPath,
+      '-frames:v',
+      '1',
+      '-vf',
+      'scale=480:-2',
+      '-q:v',
+      '4',
+      outputPath,
+    ],
+    THUMBNAIL_TIMEOUT_MS,
+  );
 }
 
-/** Re-encodes just the audio track to AAC — a real extraction, not a copy of the source bytes. */
-export async function extractAudioTrack(inputPath: string, outputPath: string): Promise<void> {
-  await execFileAsync(FFMPEG_PATH, [
-    '-y',
-    '-i',
-    inputPath,
-    '-vn',
-    '-acodec',
-    'aac',
-    '-b:a',
-    '128k',
-    outputPath,
-  ]);
+/**
+ * Re-encodes just the audio track to AAC — a real extraction, not a copy of
+ * the source bytes. `-t` stops at `maxDurationMs` whatever the container
+ * claims: a small file can still decode to hours of audio.
+ */
+export async function extractAudioTrack(
+  inputPath: string,
+  outputPath: string,
+  maxDurationMs: number,
+): Promise<void> {
+  await run(
+    FFMPEG_PATH,
+    [
+      '-y',
+      ...INPUT_GUARD,
+      '-i',
+      inputPath,
+      '-t',
+      String(maxDurationMs / 1000),
+      '-vn',
+      '-acodec',
+      'aac',
+      '-b:a',
+      '128k',
+      outputPath,
+    ],
+    AUDIO_TIMEOUT_MS,
+  );
 }
