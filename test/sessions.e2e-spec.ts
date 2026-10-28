@@ -249,6 +249,33 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(result.rewardStatus).toBe('pending');
   });
 
+  // A rating past int4 used to break the studio's report for good, and a
+  // foreign question id landed in another test's answers.
+  it("422s answers that don't fit the form (wrong type, foreign question)", async () => {
+    const { testId, questionId } = await seedReadyTest();
+    const { sessionId } = await joinAndStart(testId);
+
+    const wrongType = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/form-response`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ answers: [{ questionId, value: 3_000_000_000 }] });
+    expect(wrongType.status).toBe(422);
+    expect(wrongType.body.fieldErrors[questionId]).toBeTruthy();
+
+    const foreignId = uuidv7();
+    const foreign = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/form-response`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({
+        answers: [
+          { questionId, value: 'ok' },
+          { questionId: foreignId, value: 'x' },
+        ],
+      });
+    expect(foreign.status).toBe(422);
+    expect(foreign.body.fieldErrors[foreignId]).toBeTruthy();
+  });
+
   it('409s starting a session without consents recorded', async () => {
     const { testId } = await seedReadyTest();
     const join = await request(app.getHttpServer())

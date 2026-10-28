@@ -20,6 +20,7 @@ import type {
   SessionView,
   StartSessionRequest,
 } from './dto/session.dto';
+import { checkFormAnswers } from './form-answers';
 import { HEARTBEAT_INTERVAL_MS, HEARTBEAT_TIMEOUT_SECONDS, heartbeatKey } from './heartbeat.store';
 import {
   ParticipationsRepository,
@@ -238,7 +239,8 @@ export class SessionsService {
   }
 
   /**
-   * RN-01 (Tela 18): unanswered required questions block the submit with
+   * RN-01 (Tela 18): unanswered required questions — and answers that don't
+   * fit their question (`checkFormAnswers`) — block the submit with
    * `422 fieldErrors` keyed by `questionId`. RN-03: a duplicate submit
    * without `Idempotency-Key` bounces on `form_responses_session_unique`
    * (409) instead of silently overwriting the first answer.
@@ -252,20 +254,18 @@ export class SessionsService {
     const session = await this.repo.getSessionForUserOrThrow(sessionId, userId);
     const questions = await this.repo.findFormQuestions(session.testId);
 
-    const answeredIds = new Set(dto.answers.map((a) => a.questionId));
-    const fieldErrors: Record<string, string> = {};
-    for (const q of questions) {
-      if (q.required && !answeredIds.has(q.id)) {
-        fieldErrors[q.id] = 'Resposta obrigatória';
-      }
-    }
+    const { answers, fieldErrors } = checkFormAnswers(questions, dto.answers);
     if (Object.keys(fieldErrors).length > 0) {
-      throw AppException.validation('Respostas obrigatórias pendentes', fieldErrors);
+      const onlyMissing = Object.values(fieldErrors).every((m) => m === 'Resposta obrigatória');
+      throw AppException.validation(
+        onlyMissing ? 'Respostas obrigatórias pendentes' : 'Respostas inválidas',
+        fieldErrors,
+      );
     }
 
     let response;
     try {
-      response = await this.repo.insertFormResponse(sessionId, idempotencyKey, dto.answers);
+      response = await this.repo.insertFormResponse(sessionId, idempotencyKey, answers);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw AppException.conflict('Avaliação já enviada para esta sessão');
