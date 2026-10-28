@@ -416,6 +416,8 @@ export class OrgsRepository {
 
   /** Read-only membership lookup — no row lock, used outside mutating flows. */
   async findMembership(organizationId: string, userId: string): Promise<MemberRoleRecord | null> {
+    // Same guard as role/status/remove: a malformed id is a 404, not a 22P02 → 500.
+    if (!isUuid(userId)) return null;
     const row = await findMembershipForUpdate(this.db, organizationId, userId);
     return row ?? null;
   }

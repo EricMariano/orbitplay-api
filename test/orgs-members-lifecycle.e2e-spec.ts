@@ -267,6 +267,14 @@ describe('Org members — trigger password reset (e2e)', () => {
     expect(res.status).toBe(404);
   });
 
+  it('404s (not 500) for a malformed user id', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/orgs/members/abc/password-reset')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send();
+    expect(res.status).toBe(404);
+  });
+
   it('records the trigger in audit_log (RN-05)', async () => {
     const rows = await sql<{ action: string }[]>`
       SELECT action FROM audit_log
