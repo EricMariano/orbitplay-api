@@ -254,6 +254,19 @@ describe('Tests wizard — M5 (e2e)', () => {
       .send();
     expect(publish.status).toBe(200);
     expect(publish.body.status).toBe('published');
+    expect(publish.body.spotsTotal).toBe(5);
+
+    // Regression: the wizard used to leave `slots_total` at 0, so a test
+    // published through it answered every join with 409 "Vagas esgotadas".
+    const join = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send();
+    expect(join.status).toBe(201);
+    expect(join.body.status).toBe('reserved');
+    // The seed player and games are shared by every e2e file (games.e2e asserts
+    // `playersTotal = 0` on this game), so don't leave the participation behind.
+    await sql`DELETE FROM participations WHERE id = ${join.body.id as string}`;
   });
 
   it('rejects an unavailable model at creation with 422', async () => {

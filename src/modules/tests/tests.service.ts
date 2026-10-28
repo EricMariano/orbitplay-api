@@ -409,6 +409,11 @@ export class TestsService {
 
         return updateTest({
           durationDays: dto.durationDays,
+          // The requested tester count is the test's capacity: joining reserves
+          // a slot with `slots_taken < slots_total`, so leaving the creation
+          // default (0) made every test published through the wizard "full".
+          // Only drafts get here, so no slot has been taken yet.
+          slotsTotal: dto.quantity,
           currentStep: this.advance(test.currentStep, 'review'),
         });
       },
