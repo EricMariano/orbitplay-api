@@ -32,6 +32,9 @@ const OPEN_SESSION_STATUSES = ['starting', 'recording', 'paused'] as const;
  */
 const STUCK_GRACE_MS = 15 * 60 * 1000;
 
+/** Left on a build whose job kept failing until `ensureJobEnqueued` gave up on it. */
+const EXHAUSTED_BUILD_REASON = 'Validação interrompida após falhas repetidas no processamento';
+
 export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void> {
   const cutoff = new Date(Date.now() - STUCK_GRACE_MS);
 
@@ -41,9 +44,20 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
     .where(and(eq(builds.status, 'processing'), lt(builds.createdAt, cutoff)));
 
   for (const { id } of stuckBuilds) {
-    await ensureJobEnqueued(deps.queue, JobName.BUILD_VALIDATE, buildValidateJobId(id), {
-      buildId: id,
-    });
+    const outcome = await ensureJobEnqueued(
+      deps.queue,
+      JobName.BUILD_VALIDATE,
+      buildValidateJobId(id),
+      { buildId: id },
+    );
+    // Its job failed every retry: settle the build as failed instead of
+    // leaving it `processing` (and re-checked by every sweep) forever.
+    if (outcome === 'exhausted') {
+      await deps.db
+        .update(builds)
+        .set({ status: 'failed', failureReason: EXHAUSTED_BUILD_REASON })
+        .where(and(eq(builds.id, id), eq(builds.status, 'processing')));
+    }
   }
 
   // No createdAt column on session_recordings — its id is a UUIDv7, so the
@@ -55,9 +69,19 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
 
   for (const { id } of stuckRecordings) {
     if (createdAtFromUuidV7(id).getTime() > cutoff.getTime()) continue;
-    await ensureJobEnqueued(deps.queue, JobName.MEDIA_TRANSCODE, mediaTranscodeJobId(id), {
-      recordingId: id,
-    });
+    const transcode = await ensureJobEnqueued(
+      deps.queue,
+      JobName.MEDIA_TRANSCODE,
+      mediaTranscodeJobId(id),
+      { recordingId: id },
+    );
+    if (transcode === 'exhausted') {
+      await deps.db
+        .update(sessionRecordings)
+        .set({ status: 'failed' })
+        .where(and(eq(sessionRecordings.id, id), eq(sessionRecordings.status, 'processing')));
+      continue;
+    }
     await ensureJobEnqueued(deps.queue, JobName.MEDIA_EXTRACT_AUDIO, mediaExtractAudioJobId(id), {
       recordingId: id,
     });
