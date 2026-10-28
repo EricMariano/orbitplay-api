@@ -18,10 +18,13 @@ export function parseBuildStorageKey(storageKey: string): {
 } | null {
   const match = storageKey.match(STORAGE_KEY_RE);
   if (!match) return null;
-  return {
-    organizationId: match[1],
-    testId: match[2],
-    buildId: match[3],
-    fileName: decodeURIComponent(match[4]),
-  };
+  let fileName: string;
+  try {
+    fileName = decodeURIComponent(match[4]);
+  } catch {
+    // A stray `%` (e.g. `.../builds/<id>/%`) is a key this API never issued:
+    // the same "not ours" as a key that doesn't match, not a URIError → 500.
+    return null;
+  }
+  return { organizationId: match[1], testId: match[2], buildId: match[3], fileName };
 }
