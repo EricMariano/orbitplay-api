@@ -26,7 +26,7 @@ export class CapturingMailAdapter implements NotificationPort {
   lastResetToken(): string | undefined {
     const last = this.sent.at(-1);
     if (!last) return undefined;
-    const fromLink = /redefinir-senha\?token=([A-Za-z0-9_-]+)/.exec(last.text);
+    const fromLink = /reset-password\?token=([A-Za-z0-9_-]+)/.exec(last.text);
     if (fromLink) return fromLink[1];
     const fromPlain = /token diretamente: ([A-Za-z0-9_-]+)/.exec(last.text);
     return fromPlain?.[1];
