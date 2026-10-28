@@ -308,6 +308,29 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(answer.option_ids).toEqual([optionId]);
   });
 
+  // Deleting a game used to 404 the player's Home and the gameplay/summary of
+  // a session still running on it — no way to finish it or answer the form.
+  it('keeps the session and the Home working after the studio deletes the game', async () => {
+    const { testId } = await seedReadyTest();
+    const { sessionId } = await joinAndStart(testId);
+
+    await sql`UPDATE games SET deleted_at = now() WHERE id = ${GAME_IDS.two}`;
+    try {
+      for (const path of [`/sessions/${sessionId}/gameplay`, `/sessions/${sessionId}/summary`]) {
+        const res = await request(app.getHttpServer())
+          .get(path)
+          .set('Authorization', `Bearer ${playerToken}`);
+        expect(res.status).toBe(200);
+      }
+      const home = await request(app.getHttpServer())
+        .get('/player/home')
+        .set('Authorization', `Bearer ${playerToken}`);
+      expect(home.status).toBe(200);
+    } finally {
+      await sql`UPDATE games SET deleted_at = NULL WHERE id = ${GAME_IDS.two}`;
+    }
+  });
+
   it('409s starting a session without consents recorded', async () => {
     const { testId } = await seedReadyTest();
     const join = await request(app.getHttpServer())

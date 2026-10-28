@@ -76,10 +76,12 @@ export class GamesService {
    * Cross-org read of the full `GameView`, for player-facing embeds (e.g.
    * `participations`' session summary) that have no organization scope of
    * their own — same reasoning as `existsAnyOrg`, but returning the whole
-   * view instead of the minimal existence tuple.
+   * view instead of the minimal existence tuple. `includeDeleted` is for a
+   * session the player already started: deleting the game must not lock them
+   * out of finishing it or answering its form.
    */
-  async getAnyOrg(id: string): Promise<GameView> {
-    const row = await this.repo.findByIdAnyOrg(id);
+  async getAnyOrg(id: string, options: { includeDeleted?: boolean } = {}): Promise<GameView> {
+    const row = await this.repo.findByIdAnyOrg(id, options);
     if (!row) throw AppException.notFound();
     const [view] = await this.toViews(row.organizationId, [row]);
     return view;

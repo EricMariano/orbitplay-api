@@ -162,7 +162,7 @@ export class SessionsService {
     if (!test) throw AppException.notFound();
 
     const [game, questions, recording, formResponse, validation] = await Promise.all([
-      this.games.getAnyOrg(test.gameId),
+      this.games.getAnyOrg(test.gameId, { includeDeleted: true }),
       this.repo.findFormQuestions(test.id),
       this.repo.findPrimaryRecording(sessionId),
       this.repo.findFormResponse(sessionId),
@@ -216,7 +216,7 @@ export class SessionsService {
     const test = await this.repo.findTestById(session.testId);
     if (!test) throw AppException.notFound();
     const [game, validation] = await Promise.all([
-      this.games.getAnyOrg(test.gameId),
+      this.games.getAnyOrg(test.gameId, { includeDeleted: true }),
       this.repo.findSessionValidation(sessionId),
     ]);
     const tutorial = tutorialForModel(test.modelKey);
