@@ -39,8 +39,17 @@ export class ChatRealtimeService {
     this.server?.to(channelRoom(message.channelId)).emit('message:new', message);
   }
 
+  /**
+   * A hidden or removed message goes out without its body: moderating it must
+   * not deliver the text again — to everyone in the room, including whoever
+   * joined after it was sent and never saw it. Restoring sends it whole.
+   */
   messageModerated(message: ChatMessageView): void {
-    this.server?.to(channelRoom(message.channelId)).emit('message:moderated', message);
+    const payload =
+      message.status === 'visible'
+        ? message
+        : { id: message.id, channelId: message.channelId, status: message.status };
+    this.server?.to(channelRoom(message.channelId)).emit('message:moderated', payload);
   }
 
   /** Channel renamed/archived — open clients update their sidebar without a refetch. */

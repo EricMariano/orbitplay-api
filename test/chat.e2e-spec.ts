@@ -350,7 +350,10 @@ describe('Chat em tempo real (e2e)', () => {
           .set('Authorization', `Bearer ${studioToken}`)
           .send({ action: 'remove' });
 
-        expect(await moderated).toMatchObject({ id: target, status: 'removed' });
+        const event = await moderated;
+        expect(event).toMatchObject({ id: target, status: 'removed' });
+        // Removed text is not re-delivered to the room.
+        expect(event).not.toHaveProperty('body');
       } finally {
         socket.close();
       }
