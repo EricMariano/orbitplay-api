@@ -509,7 +509,11 @@ describe('Tests wizard — M5 (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/games/${GAME_IDS.two}/tests?status=finished`)
         .set('Authorization', `Bearer ${studioToken}`);
-      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([finishedId]);
+      // Other spec files share GAME_IDS.two (sessions.e2e finishes a test of
+      // its own there): assert the filter, not the exact set of tests.
+      const tests = res.body.data as { id: string; status: string }[];
+      expect(tests.map((t) => t.id)).toContain(finishedId);
+      expect(tests.every((t) => t.status === 'finished')).toBe(true);
     });
 
     it("a rival org gets 404, not another studio's tests", async () => {
