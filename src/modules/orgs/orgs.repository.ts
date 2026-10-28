@@ -241,7 +241,7 @@ export class OrgsRepository {
   async createInvitedMember(input: InviteMemberInput): Promise<InvitedMemberRecord> {
     const roleId = await this.findRoleIdByKey(input.role);
     if (!roleId) {
-      throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
+      throw new Error(`Role "${input.role}" missing from catalogue — run db:migrate`);
     }
 
     try {
@@ -314,7 +314,7 @@ export class OrgsRepository {
 
     const nextRoleId = await this.findRoleIdByKey(input.role);
     if (!nextRoleId) {
-      throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
+      throw new Error(`Role "${input.role}" missing from catalogue — run db:migrate`);
     }
     const ownerRoleId = await this.requireOwnerRoleId();
 
@@ -425,7 +425,7 @@ export class OrgsRepository {
   private async requireOwnerRoleId(): Promise<string> {
     const ownerRoleId = await this.findRoleIdByKey('owner');
     if (!ownerRoleId) {
-      throw new Error('Role "owner" missing from catalogue — run db:seed');
+      throw new Error('Role "owner" missing from catalogue — run db:migrate');
     }
     return ownerRoleId;
   }
