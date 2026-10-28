@@ -401,6 +401,11 @@ export class ParticipationsRepository {
         testId,
         organizationId,
         status: 'starting',
+        // Same clock as `endedAt` in `SessionsService.finish`, which caps the
+        // duration at `endedAt - startedAt`: the column default (`now()`) is
+        // the database's clock, and any skew ahead of the API would eat into
+        // (or zero) a short session's duration and invalidate it.
+        startedAt: new Date(),
       };
       const rows = await tx.insert(sessions).values(values).returning();
 
