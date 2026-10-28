@@ -182,6 +182,17 @@ describe('ChatService', () => {
     });
   });
 
+  describe('enforceSocketEventLimit', () => {
+    it('cuts join/leave/typing/presence past the limit, on its own key', async () => {
+      vi.mocked(redis.incr).mockResolvedValueOnce(31);
+
+      await expect(service.enforceSocketEventLimit('player-1')).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+      });
+      expect(redis.incr).toHaveBeenCalledWith('chat:events:player-1');
+    });
+  });
+
   describe('moderateMessage', () => {
     const req = {} as never;
 
