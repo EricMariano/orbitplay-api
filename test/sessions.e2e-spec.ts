@@ -276,6 +276,37 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(foreign.body.fieldErrors[foreignId]).toBeTruthy();
   });
 
+  // The web sends a single choice as the option id; stored as text, the
+  // report never counted it and the session detail showed the raw id.
+  it('stores a single-choice answer in option_ids, where the report counts it', async () => {
+    const { testId, questionId } = await seedReadyTest();
+    const choiceId = uuidv7();
+    const optionId = uuidv7();
+    await sql`
+      INSERT INTO test_form_questions (id, test_id, type, label, required, position)
+      VALUES (${choiceId}, ${testId}, 'single_choice', 'Qual fase?', true, 1)`;
+    await sql`
+      INSERT INTO test_form_options (id, question_id, label, position)
+      VALUES (${optionId}, ${choiceId}, 'Fase 1', 0), (${uuidv7()}, ${choiceId}, 'Fase 2', 1)`;
+    const { sessionId } = await joinAndStart(testId);
+
+    const res = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/form-response`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({
+        answers: [
+          { questionId, value: 'ok' },
+          { questionId: choiceId, value: optionId },
+        ],
+      });
+    expect(res.status).toBe(201);
+
+    const [answer] = await sql`
+      SELECT value_text, option_ids FROM form_answers WHERE question_id = ${choiceId}`;
+    expect(answer.value_text).toBeNull();
+    expect(answer.option_ids).toEqual([optionId]);
+  });
+
   it('409s starting a session without consents recorded', async () => {
     const { testId } = await seedReadyTest();
     const join = await request(app.getHttpServer())

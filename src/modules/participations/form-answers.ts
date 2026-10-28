@@ -6,7 +6,11 @@ import type { FormQuestionWithOptions } from './participations.repository';
 export const OPEN_TEXT_ANSWER_MAX_LENGTH = 5000;
 
 export interface CheckedFormAnswers {
-  /** Answers that passed, one per question, blank ones dropped. */
+  /**
+   * Answers that passed, one per question, blank ones dropped. A single
+   * choice comes out as a one-item list: it's stored in `option_ids` like a
+   * multiple choice, which is what the report counts and labels.
+   */
   answers: AnswerInput[];
   /** `questionId → message`, the shape of the `422 fieldErrors` (Tela 18 RN-01). */
   fieldErrors: Record<string, string>;
@@ -44,7 +48,9 @@ export function checkFormAnswers(
 
     const error = answerError(question, answer.value);
     if (error) fieldErrors[question.id] = error;
-    else accepted.push(answer);
+    else if (question.type === 'single_choice' && typeof answer.value === 'string') {
+      accepted.push({ questionId: question.id, value: [answer.value] });
+    } else accepted.push(answer);
   }
 
   for (const question of questions) {

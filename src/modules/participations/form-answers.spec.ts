@@ -88,6 +88,12 @@ describe('checkFormAnswers', () => {
     ).toEqual({ 'q-choice': 'Opções inválidas para esta pergunta' });
   });
 
+  it('stores a single choice as a one-option list, like a multiple choice', () => {
+    expect(
+      checkFormAnswers([single], [{ questionId: 'q-choice', value: 'opt-b' }]).answers,
+    ).toEqual([{ questionId: 'q-choice', value: ['opt-b'] }]);
+  });
+
   it('rejects a value of the wrong type and an oversized text', () => {
     const result = checkFormAnswers(
       [text, yesNo],
