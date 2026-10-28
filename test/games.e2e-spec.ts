@@ -201,6 +201,15 @@ describe('Games (e2e)', () => {
     });
   });
 
+  it('treats a PATCH with an empty body as a no-op, not a 500', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/games/${GAME_IDS.one}`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(GAME_IDS.one);
+  });
+
   it('rejects invalid Tela 04 catalog values with 422', async () => {
     const res = await request(app.getHttpServer())
       .post('/games')

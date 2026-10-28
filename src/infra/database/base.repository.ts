@@ -80,6 +80,11 @@ export abstract class OrgScopedRepository<
     patch: Partial<TInsert>,
   ): Promise<TSelect> {
     if (!isUuid(id)) throw AppException.notFound();
+    // Drizzle's `.set({})` throws "No values to set": an empty patch (a PATCH
+    // with `{}`, or only with keys the DTO dropped) is a no-op, not a 500.
+    if (Object.values(patch).every((value) => value === undefined)) {
+      return this.getByIdInOrgOrThrow(organizationId, id);
+    }
     const rows = await this.db
       .update(this.table)
       .set(patch)
