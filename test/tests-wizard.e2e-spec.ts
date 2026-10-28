@@ -265,6 +265,28 @@ describe('Tests wizard — M5 (e2e)', () => {
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
 
+  // The report lays out one bucket per scale step: an unbounded range let any
+  // studio make `GET /tests/:id/report` allocate a giant array.
+  it.each([
+    ['beyond 0–10', { scaleMin: -1_000_000_000, scaleMax: 1_000_000_000 }],
+    ['an inverted range', { scaleMin: 5, scaleMax: 1 }],
+  ])('rejects a scale question with %s with 422', async (_label, scale) => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Escala inválida' });
+    expect(create.status).toBe(201);
+
+    const res = await request(app.getHttpServer())
+      .put(`/tests/${create.body.id as string}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [{ type: 'scale', prompt: 'Nota?', required: true, position: 0, ...scale }],
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+  });
+
   it('requires Idempotency-Key and gates publish on pending steps', async () => {
     const create = await request(app.getHttpServer())
       .post(`/games/${GAME_IDS.one}/tests`)

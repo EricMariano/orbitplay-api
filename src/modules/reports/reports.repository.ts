@@ -35,6 +35,7 @@ import { users } from '../../infra/database/schema/users';
 import { AppException } from '../../shared/errors/app.exception';
 import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
+import { RATING_SCALE_BOUNDS } from '../tests/dto/test.dto';
 import {
   playerArchetypeValues,
   playerProfileTierValues,
@@ -54,6 +55,13 @@ export const STUDIO_INVALID_REASON = 'Marcada como inválida pelo estúdio';
 
 /** Question types whose numeric answer counts as a "nota" (rating). */
 const RATING_QUESTION_TYPES = ['scale', 'nps'] as const;
+
+/**
+ * Only answers inside the widest valid scale are bucketed: anything else was
+ * stored before the submit validated answers, and a value past int4 would
+ * make the `::int` cast below fail the whole block on every read.
+ */
+const ratingInScale = sql`${formAnswers.valueNumber} between ${RATING_SCALE_BOUNDS.min} and ${RATING_SCALE_BOUNDS.max}`;
 
 /** Open-text answers shown per question in the `evaluations` block. */
 const EVALUATION_SAMPLE_SIZE = 3;
@@ -223,7 +231,7 @@ export class ReportsRepository {
         and(
           eq(sessions.testId, testId),
           inArray(testFormQuestions.type, RATING_QUESTION_TYPES),
-          sql`${formAnswers.valueNumber} is not null`,
+          ratingInScale,
         ),
       )
       .groupBy(bucket)
@@ -346,11 +354,7 @@ export class ReportsRepository {
       .innerJoin(sessions, eq(sessions.id, formResponses.sessionId))
       .innerJoin(testFormQuestions, eq(testFormQuestions.id, formAnswers.questionId))
       .where(
-        and(
-          answerScope,
-          inArray(testFormQuestions.type, RATING_QUESTION_TYPES),
-          isNotNull(formAnswers.valueNumber),
-        ),
+        and(answerScope, inArray(testFormQuestions.type, RATING_QUESTION_TYPES), ratingInScale),
       )
       .groupBy(formAnswers.questionId, value);
 
@@ -409,6 +413,12 @@ export class ReportsRepository {
       const values = distribution.filter((d) => d.questionId === q.id);
       const min = q.scaleMin ?? Math.min(...values.map((d) => d.value));
       const max = q.scaleMax ?? Math.max(...values.map((d) => d.value));
+      // A range stored before the form validated it may be huge: laying out
+      // every bucket would allocate an array that size and stall the process.
+      const fitsScale =
+        Number.isFinite(min) &&
+        Number.isFinite(max) &&
+        max - min <= RATING_SCALE_BOUNDS.max - RATING_SCALE_BOUNDS.min;
       return {
         questionId: q.id,
         position: q.position,
@@ -416,13 +426,16 @@ export class ReportsRepository {
         type: q.type,
         responsesCount: total?.count ?? 0,
         average: isRating ? (total?.average ?? null) : null,
-        distribution:
-          isRating && Number.isFinite(min) && Number.isFinite(max)
+        distribution: !isRating
+          ? []
+          : fitsScale
             ? Array.from({ length: max - min + 1 }, (_, i) => min + i).map((v) => ({
                 value: v,
                 count: values.find((d) => d.value === v)?.count ?? 0,
               }))
-            : [],
+            : values
+                .map((d) => ({ value: d.value, count: d.count }))
+                .sort((a, b) => a.value - b.value),
         options: optionCounts
           .filter((o) => o.questionId === q.id)
           .map((o) => ({ label: o.label, count: o.count })),

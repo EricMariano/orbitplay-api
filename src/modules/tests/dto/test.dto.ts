@@ -23,6 +23,12 @@ export const questionTypeValues = [
   'boolean',
   'nps',
 ] as const;
+/**
+ * Widest scale a `scale`/`nps` question may use (Tela 07 offers 0–1 up to
+ * 2–10; NPS is 0–10). Also the default range of an NPS question without one,
+ * and the report's bound on how many buckets it lays out per question.
+ */
+export const RATING_SCALE_BOUNDS = { min: 0, max: 10 } as const;
 /** Tela 09 "Tipo de jogador" — mirrors `player_tier` in the schema. */
 export const playerTierValues = ['all', 'casual', 'experienced', 'trained', 'qa'] as const;
 export const buildStatusValues = [
@@ -137,8 +143,8 @@ const formQuestionInputSchema = z
     required: z.boolean(),
     position: z.number().int().min(0),
     options: z.array(formOptionInputSchema).optional(),
-    scaleMin: z.number().int().optional(),
-    scaleMax: z.number().int().optional(),
+    scaleMin: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
+    scaleMax: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
     /** Markers shown at the scale ends (Tela 07, "Primeiro/Último marcador"). */
     scaleMinLabel: z.string().max(300).optional(),
     scaleMaxLabel: z.string().max(300).optional(),
@@ -153,6 +159,13 @@ const formQuestionInputSchema = z
           path: ['options'],
         });
       }
+    }
+    if (q.scaleMin !== undefined && q.scaleMax !== undefined && q.scaleMin >= q.scaleMax) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'O início da escala deve ser menor que o fim',
+        path: ['scaleMax'],
+      });
     }
   });
 
