@@ -293,7 +293,7 @@ describe('AuthService password reset', () => {
     expect(mail.sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         to: 'studio@orbitplay.dev',
-        text: expect.stringContaining('redefinir-senha?token='),
+        text: expect.stringContaining('/reset-password?token='),
       }),
     );
     const mailed = mail.sendEmail.mock.calls[0]![0] as { text: string };

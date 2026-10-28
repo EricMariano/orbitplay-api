@@ -266,7 +266,8 @@ export class AuthService {
     });
 
     const origin = this.config.get<string>('web.origin')!;
-    const link = `${origin}/redefinir-senha?token=${rawToken}`;
+    // Must match the web route (`orbitplay-web/src/routes/reset-password.tsx`).
+    const link = `${origin}/reset-password?token=${rawToken}`;
     await this.mail.sendEmail({
       to: user.email,
       subject: 'Recuperação de senha — OrbitPlay',
