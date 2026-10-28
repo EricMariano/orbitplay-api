@@ -10,6 +10,7 @@ import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
 import { handleJob } from '../src/workers/handle-job';
 import { processReconcileStuckJobs } from '../src/workers/reconcile.processor';
+import { processSessionValidate } from '../src/workers/session.processor';
 import { createE2EApp } from './helpers/e2e-app';
 import { TEST_DATABASE_URL } from './helpers/test-db';
 
@@ -353,13 +354,40 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(await sessionXpEventsForTest(testId)).toBe(1);
   });
 
-  it('credits session XP once per test even after joining the test again', async () => {
+  it('refuses to join again a test the player already completed', async () => {
     const { testId } = await seedReadyTest();
     const first = await joinAndStart(testId);
     await finishAndWaitCompleted(first.participationId, first.sessionId);
 
-    const second = await joinAndStart(testId);
-    await finishAndWaitCompleted(second.participationId, second.sessionId);
+    const again = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send();
+    expect(again.status).toBe(409);
+    const [test] = await sql`SELECT slots_taken FROM tests WHERE id = ${testId}`;
+    expect(test.slots_taken).toBe(1);
+  });
+
+  it('credits session XP once per test even for a second participation', async () => {
+    const { testId } = await seedReadyTest();
+    const first = await joinAndStart(testId);
+    await finishAndWaitCompleted(first.participationId, first.sessionId);
+
+    // Joining a completed test is refused now; a second participation can
+    // still exist from before that rule, and the worker must not pay twice.
+    const participationId = uuidv7();
+    const sessionId = uuidv7();
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      SELECT ${participationId}, test_id, user_id, 'in_review'
+      FROM participations WHERE id = ${first.participationId}`;
+    await sql`
+      INSERT INTO sessions (id, participation_id, test_id, organization_id, status,
+                            started_at, ended_at, duration_ms)
+      SELECT ${sessionId}, ${participationId}, id, organization_id, 'processing',
+             now() - interval '2 minutes', now(), 60000
+      FROM tests WHERE id = ${testId}`;
+    await processSessionValidate(workerDeps, sessionId);
 
     expect(await sessionXpEventsForTest(testId)).toBe(1);
   });
