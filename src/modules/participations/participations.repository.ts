@@ -72,6 +72,8 @@ export const ACTIVE_PARTICIPATION_STATUSES = [
   'in_review',
 ] as const;
 
+const STARTABLE_PARTICIPATION_STATUSES = ['reserved', 'tutorial', 'downloading', 'ready'] as const;
+
 /** Session statuses that count as "still running" for `currentSessionId`/the timeout sweep. */
 const OPEN_SESSION_STATUSES = [
   'starting',
@@ -379,6 +381,20 @@ export class ParticipationsRepository {
         throw AppException.conflict('Já existe uma sessão ativa para esta participação');
       }
 
+      const claimed = await tx
+        .update(participations)
+        .set({ status: 'playing' })
+        .where(
+          and(
+            eq(participations.id, participationId),
+            inArray(participations.status, STARTABLE_PARTICIPATION_STATUSES),
+          ),
+        )
+        .returning({ id: participations.id });
+      if (claimed.length === 0) {
+        throw AppException.conflict('Esta participação já foi jogada');
+      }
+
       const values: NewSessionRow = {
         id: newId(),
         participationId,
@@ -387,11 +403,6 @@ export class ParticipationsRepository {
         status: 'starting',
       };
       const rows = await tx.insert(sessions).values(values).returning();
-
-      await tx
-        .update(participations)
-        .set({ status: 'playing' })
-        .where(eq(participations.id, participationId));
 
       return rows[0];
     });
