@@ -1,4 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import postgres from 'postgres';
 import request from 'supertest';
 import { io, type Socket } from 'socket.io-client';
@@ -174,6 +176,29 @@ describe('Chat em tempo real (e2e)', () => {
     it('recusa um token inválido', async () => {
       await expect(connect(port, 'nao-e-um-jwt')).rejects.toThrow(/inválida|expirada/);
     });
+
+    // A autenticação só acontece no handshake: sem prazo, o socket aberto antes
+    // de um logout ou de um reset seguia falando como o usuário indefinidamente.
+    it('derruba o socket quando o token do handshake vence', async () => {
+      const { sub, org, role, email } = JSON.parse(
+        Buffer.from(playerToken.split('.')[1]!, 'base64url').toString(),
+      ) as Record<string, unknown>;
+      const shortLived = await app
+        .get(JwtService, { strict: false })
+        .signAsync(
+          { sub, org, role, email },
+          { secret: app.get(ConfigService).get<string>('jwt.accessSecret'), expiresIn: 2 },
+        );
+
+      const socket = await connect(port, shortLived);
+      try {
+        await expect(once<string>(socket, 'disconnect', 6000)).resolves.toBe(
+          'io server disconnect',
+        );
+      } finally {
+        socket.close();
+      }
+    });
   });
 
   describe('mensagens em tempo real', () => {
@@ -325,7 +350,10 @@ describe('Chat em tempo real (e2e)', () => {
           .set('Authorization', `Bearer ${studioToken}`)
           .send({ action: 'remove' });
 
-        expect(await moderated).toMatchObject({ id: target, status: 'removed' });
+        const event = await moderated;
+        expect(event).toMatchObject({ id: target, status: 'removed' });
+        // Removed text is not re-delivered to the room.
+        expect(event).not.toHaveProperty('body');
       } finally {
         socket.close();
       }

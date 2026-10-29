@@ -65,7 +65,9 @@ import { PlayerModule } from './modules/player/player.module';
             res.setHeader('x-request-id', id);
             return id;
           },
-          redact: ['req.headers.authorization', 'req.headers.cookie'],
+          // The response's Set-Cookie carries the raw refresh token (login,
+          // signup, refresh) — as sensitive as the request's Cookie header.
+          redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'],
           transport: config.get<boolean>('isProduction')
             ? undefined
             : { target: 'pino-pretty', options: { singleLine: true } },

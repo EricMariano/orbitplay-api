@@ -62,12 +62,15 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
    * globally-readable content tied to a game — any authenticated user, of any
    * org, can browse a game's community regardless of who owns it.
    */
-  async findByIdAnyOrg(id: string): Promise<GameRow | null> {
+  async findByIdAnyOrg(
+    id: string,
+    { includeDeleted = false }: { includeDeleted?: boolean } = {},
+  ): Promise<GameRow | null> {
     if (!isUuid(id)) return null;
     const rows = await this.db
       .select()
       .from(games)
-      .where(and(eq(games.id, id), isNull(games.deletedAt)))
+      .where(includeDeleted ? eq(games.id, id) : and(eq(games.id, id), isNull(games.deletedAt)))
       .limit(1);
     return rows[0] ?? null;
   }

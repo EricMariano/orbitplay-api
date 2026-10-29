@@ -136,6 +136,47 @@ describe('Org members — change status (e2e)', () => {
     expect(res.body).toMatchObject({ status: 'active' });
   });
 
+  // The invite reuses any account by e-mail: activating it by hand used to put
+  // a user of another tenant in this org without them ever accepting.
+  it("never activates a pending invitation on the invitee's behalf: 409", async () => {
+    const invitee = {
+      id: '01960000-0000-7000-8000-0000000000a4',
+      email: 'convidado@status-org.dev',
+    };
+    await sql`
+      INSERT INTO users (id, email, password_hash, display_name)
+      SELECT ${invitee.id}, ${invitee.email}, password_hash, 'Convidado'
+      FROM users WHERE email = ${SEED_EMAILS.studio}
+      ON CONFLICT DO NOTHING`;
+    await sql`
+      INSERT INTO memberships (id, organization_id, user_id, role_id, status)
+      VALUES (gen_random_uuid(), ${STATUS_ORG.orgId}, ${invitee.id},
+              (SELECT id FROM roles WHERE key = 'studio'), 'invited')
+      ON CONFLICT DO NOTHING`;
+
+    const res = await patchStatus(adminToken, invitee.id, { status: 'active', confirm: true });
+    expect(res.status).toBe(409);
+    // Nor the long way round: disabled first, then "re-activated".
+    const disable = await patchStatus(adminToken, invitee.id, {
+      status: 'disabled',
+      confirm: true,
+    });
+    expect(disable.status).toBe(409);
+
+    const [membership] = await sql<{ status: string }[]>`
+      SELECT status FROM memberships
+      WHERE organization_id = ${STATUS_ORG.orgId} AND user_id = ${invitee.id}`;
+    expect(membership.status).toBe('invited');
+  });
+
+  it('refuses to send a member back to "invited": 422', async () => {
+    const res = await patchStatus(ownerToken, STATUS_ORG.member.id, {
+      status: 'invited',
+      confirm: true,
+    });
+    expect(res.status).toBe(422);
+  });
+
   it('studio cannot change status: 403', async () => {
     const res = await patchStatus(seededStudioToken, STATUS_ORG.member.id, {
       status: 'disabled',
@@ -262,6 +303,14 @@ describe('Org members — trigger password reset (e2e)', () => {
   it('404s for a user who is not a member of the caller organization', async () => {
     const res = await request(app.getHttpServer())
       .post('/orgs/members/00000000-0000-7000-8000-000000000000/password-reset')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send();
+    expect(res.status).toBe(404);
+  });
+
+  it('404s (not 500) for a malformed user id', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/orgs/members/abc/password-reset')
       .set('Authorization', `Bearer ${ownerToken}`)
       .send();
     expect(res.status).toBe(404);

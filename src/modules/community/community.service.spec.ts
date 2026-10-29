@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { AuthUser } from '../../shared/auth/roles';
@@ -53,7 +54,13 @@ function makeReviewRecord(overrides: Partial<ReviewRecord> = {}): ReviewRecord {
 }
 
 function makeUser(overrides: Partial<AuthUser> = {}): AuthUser {
-  return { userId: 'user-1', organizationId: OWNER_ORG, role: 'player', email: 'a@b.dev', ...overrides };
+  return {
+    userId: 'user-1',
+    organizationId: OWNER_ORG,
+    role: 'player',
+    email: 'a@b.dev',
+    ...overrides,
+  };
 }
 
 describe('CommunityService', () => {
@@ -69,6 +76,11 @@ describe('CommunityService', () => {
     createReview: ReturnType<typeof vi.fn>;
   };
   let games: { existsAnyOrg: ReturnType<typeof vi.fn> };
+  let redis: {
+    incr: ReturnType<typeof vi.fn>;
+    expire: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
+  };
   let service: CommunityService;
   let req: Request;
 
@@ -85,11 +97,19 @@ describe('CommunityService', () => {
       createReview: vi.fn(),
     };
     games = {
-      existsAnyOrg: vi.fn().mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status: 'active' }),
+      existsAnyOrg: vi
+        .fn()
+        .mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status: 'active' }),
+    };
+    redis = {
+      incr: vi.fn().mockResolvedValue(1),
+      expire: vi.fn(),
+      ttl: vi.fn().mockResolvedValue(60),
     };
     service = new CommunityService(
       repo as unknown as CommunityRepository,
       games as unknown as GamesService,
+      redis as unknown as Redis,
     );
     req = {} as Request;
   });
@@ -97,9 +117,9 @@ describe('CommunityService', () => {
   describe('createPost', () => {
     it('404s when the game does not exist (any org)', async () => {
       games.existsAnyOrg.mockRejectedValueOnce({ status: 404 });
-      await expect(
-        service.createPost(GAME_ID, makeUser(), { body: 'oi' }),
-      ).rejects.toMatchObject({ status: 404 });
+      await expect(service.createPost(GAME_ID, makeUser(), { body: 'oi' })).rejects.toMatchObject({
+        status: 404,
+      });
       expect(repo.createPost).not.toHaveBeenCalled();
     });
 
@@ -130,13 +150,42 @@ describe('CommunityService', () => {
     });
   });
 
+  describe('flood control', () => {
+    it('cuts posting past the per-user limit', async () => {
+      redis.incr.mockResolvedValueOnce(31);
+      await expect(service.createPost(GAME_ID, makeUser(), { body: 'oi' })).rejects.toMatchObject({
+        status: 429,
+      });
+      expect(redis.incr).toHaveBeenCalledWith('community:posts:user-1');
+      expect(repo.createPost).not.toHaveBeenCalled();
+    });
+
+    it('cuts reporting past the per-user limit', async () => {
+      repo.findPostRowById.mockResolvedValue(makePostRow());
+      redis.incr.mockResolvedValueOnce(61);
+      await expect(
+        service.reportPost(POST_ID, makeUser(), { reason: 'spam' }),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(repo.insertReport).not.toHaveBeenCalled();
+    });
+  });
+
   describe('moderatePost', () => {
     it('403s when the moderator is not from the owning studio', async () => {
       repo.findPostRowById.mockResolvedValue(makePostRow());
-      games.existsAnyOrg.mockResolvedValue({ id: GAME_ID, organizationId: OTHER_ORG, status: 'active' });
+      games.existsAnyOrg.mockResolvedValue({
+        id: GAME_ID,
+        organizationId: OTHER_ORG,
+        status: 'active',
+      });
 
       await expect(
-        service.moderatePost(POST_ID, makeUser({ organizationId: OWNER_ORG, role: 'owner' }), { action: 'hide' }, req),
+        service.moderatePost(
+          POST_ID,
+          makeUser({ organizationId: OWNER_ORG, role: 'owner' }),
+          { action: 'hide' },
+          req,
+        ),
       ).rejects.toMatchObject({ status: 403 });
       expect(repo.moderatePost).not.toHaveBeenCalled();
     });
@@ -152,16 +201,32 @@ describe('CommunityService', () => {
       expect(repo.moderatePost).toHaveBeenCalledWith(POST_ID, 'mod-1', 'hidden');
       expect(view.status).toBe('hidden');
       const [draft] = drainAuditDrafts(req);
-      expect(draft).toMatchObject({ action: 'community.post_moderated', entity: 'community_posts', entityId: POST_ID });
+      expect(draft).toMatchObject({
+        action: 'community.post_moderated',
+        entity: 'community_posts',
+        entityId: POST_ID,
+      });
+    });
+
+    it("keeps the moderator's reason in the audit trail instead of dropping it", async () => {
+      repo.findPostRowById.mockResolvedValue(makePostRow());
+      repo.findPostById.mockResolvedValue(makePostRecord());
+      repo.moderatePost.mockResolvedValue(makePostRecord({ status: 'removed' }));
+
+      const moderator = makeUser({ userId: 'mod-1', organizationId: OWNER_ORG, role: 'owner' });
+      await service.moderatePost(POST_ID, moderator, { action: 'remove', reason: 'Spam' }, req);
+
+      const [draft] = drainAuditDrafts(req);
+      expect(draft?.after).toMatchObject({ status: 'removed', moderationReason: 'Spam' });
     });
   });
 
   describe('createReview', () => {
     it('403s without a completed valid session for the game', async () => {
       repo.hasValidSessionForGame.mockResolvedValue(false);
-      await expect(
-        service.createReview(GAME_ID, makeUser(), { rating: 5 }),
-      ).rejects.toMatchObject({ status: 403 });
+      await expect(service.createReview(GAME_ID, makeUser(), { rating: 5 })).rejects.toMatchObject({
+        status: 403,
+      });
       expect(repo.createReview).not.toHaveBeenCalled();
     });
 
@@ -178,9 +243,9 @@ describe('CommunityService', () => {
       repo.hasValidSessionForGame.mockResolvedValue(true);
       repo.createReview.mockRejectedValue({ code: '23505' });
 
-      await expect(
-        service.createReview(GAME_ID, makeUser(), { rating: 4 }),
-      ).rejects.toMatchObject({ status: 409 });
+      await expect(service.createReview(GAME_ID, makeUser(), { rating: 4 })).rejects.toMatchObject({
+        status: 409,
+      });
     });
   });
 });

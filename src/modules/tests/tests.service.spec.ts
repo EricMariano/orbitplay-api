@@ -398,6 +398,37 @@ describe('TestsService', () => {
       );
       expect(view.audience).toMatchObject({ playerTier: 'experienced', boosted: true });
     });
+
+    it('opens one slot per requested tester (slots_total = quantity)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ currentStep: 'audience' }));
+      repo.updateByIdInOrg.mockResolvedValue(
+        makeTestRow({ currentStep: 'review', slotsTotal: 25 }),
+      );
+      repo.countEligiblePlayers.mockResolvedValue(10);
+      repo.findAudience.mockResolvedValue(makeAudience({ testerCount: 25 }));
+
+      const view = await service.setAudience(
+        ORG,
+        TEST_ID,
+        {
+          ageMin: 18,
+          ageMax: 40,
+          quantity: 25,
+          durationDays: 14,
+          keepActive: false,
+          playerTier: 'all',
+          boosted: false,
+        },
+        req,
+      );
+
+      expect(repo.updateByIdInOrg).toHaveBeenCalledWith(
+        ORG,
+        TEST_ID,
+        expect.objectContaining({ slotsTotal: 25, durationDays: 14 }),
+      );
+      expect(view.spotsTotal).toBe(25);
+    });
   });
 
   describe('confirmBuild', () => {

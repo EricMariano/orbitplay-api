@@ -31,10 +31,14 @@ async function bootstrap(): Promise<void> {
   app.useWebSocketAdapter(wsAdapter);
 
   // Interactive API docs (Swagger UI) at /docs, contract JSON at /docs-json.
-  // Same document the offline generator writes to openapi.json.
-  SwaggerModule.setup('docs', app, buildOpenApiDocument(app), {
-    swaggerOptions: { persistAuthorization: true },
-  });
+  // Same document the offline generator writes to openapi.json. Dev only: in
+  // production it would hand anyone the full map of routes and payloads (the
+  // contract still ships as openapi.json, generated offline).
+  if (!config.get<boolean>('isProduction')) {
+    SwaggerModule.setup('docs', app, buildOpenApiDocument(app), {
+      swaggerOptions: { persistAuthorization: true },
+    });
+  }
 
   const port = config.get<number>('port') ?? 3000;
   await app.listen(port);

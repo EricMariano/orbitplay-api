@@ -254,6 +254,19 @@ describe('Tests wizard — M5 (e2e)', () => {
       .send();
     expect(publish.status).toBe(200);
     expect(publish.body.status).toBe('published');
+    expect(publish.body.spotsTotal).toBe(5);
+
+    // Regression: the wizard used to leave `slots_total` at 0, so a test
+    // published through it answered every join with 409 "Vagas esgotadas".
+    const join = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send();
+    expect(join.status).toBe(201);
+    expect(join.body.status).toBe('reserved');
+    // The seed player and games are shared by every e2e file (games.e2e asserts
+    // `playersTotal = 0` on this game), so don't leave the participation behind.
+    await sql`DELETE FROM participations WHERE id = ${join.body.id as string}`;
   });
 
   it('rejects an unavailable model at creation with 422', async () => {
@@ -263,6 +276,103 @@ describe('Tests wizard — M5 (e2e)', () => {
       .send({ testModelKey: 'free_exploration_telemetry' });
     expect(res.status).toBe(422);
     expect(res.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  // The report lays out one bucket per scale step: an unbounded range let any
+  // studio make `GET /tests/:id/report` allocate a giant array.
+  it.each([
+    ['beyond 0–10', { scaleMin: -1_000_000_000, scaleMax: 1_000_000_000 }],
+    ['an inverted range', { scaleMin: 5, scaleMax: 1 }],
+  ])('rejects a scale question with %s with 422', async (_label, scale) => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Escala inválida' });
+    expect(create.status).toBe(201);
+
+    const res = await request(app.getHttpServer())
+      .put(`/tests/${create.body.id as string}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [{ type: 'scale', prompt: 'Nota?', required: true, position: 0, ...scale }],
+      });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  // Past int4 these used to reach the `integer` columns and answer 500.
+  it('rejects wizard numbers past the column range with 422', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Números grandes' });
+    const testId = create.body.id as string;
+
+    const form = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          { type: 'open_text', prompt: 'E aí?', required: true, position: 3_000_000_000 },
+        ],
+      });
+    expect(form.status).toBe(422);
+
+    const audience = await request(app.getHttpServer())
+      .patch(`/tests/${testId}/audience`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ ageMin: 18, ageMax: 60, quantity: 3_000_000_000, durationDays: 7 });
+    expect(audience.status).toBe(422);
+  });
+
+  it('rejects two options at the same position with 422, not 500', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Opções repetidas' });
+
+    const res = await request(app.getHttpServer())
+      .put(`/tests/${create.body.id as string}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single_choice',
+            prompt: 'Qual fase?',
+            required: true,
+            position: 0,
+            options: [
+              { label: 'Fase 1', position: 0 },
+              { label: 'Fase 2', position: 0 },
+            ],
+          },
+        ],
+      });
+    expect(res.status).toBe(422);
+  });
+
+  // A paused test could drop its build and then be resumed with nothing for
+  // its players to download.
+  it('keeps the build of a paused test: DELETE is 409', async () => {
+    const testId = uuidv7();
+    const buildId = uuidv7();
+    await sql`
+      INSERT INTO tests (id, organization_id, game_id, model_key, status, slots_total, slots_taken)
+      VALUES (${testId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.one}),
+              ${GAME_IDS.one}, 'free_exploration', 'paused', 5, 0)`;
+    await sql`
+      INSERT INTO builds (id, organization_id, test_id, file_name, storage_key, status)
+      VALUES (${buildId}, (SELECT organization_id FROM games WHERE id = ${GAME_IDS.one}),
+              ${testId}, 'game.zip', ${`orgs/x/tests/${testId}/builds/${buildId}/game.zip`},
+              'validated')`;
+
+    const res = await request(app.getHttpServer())
+      .delete(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(res.status).toBe(409);
+
+    const kept = await sql`SELECT id FROM builds WHERE id = ${buildId}`;
+    expect(kept).toHaveLength(1);
   });
 
   it('requires Idempotency-Key and gates publish on pending steps', async () => {
@@ -412,7 +522,11 @@ describe('Tests wizard — M5 (e2e)', () => {
       const res = await request(app.getHttpServer())
         .get(`/games/${GAME_IDS.two}/tests?status=finished`)
         .set('Authorization', `Bearer ${studioToken}`);
-      expect(res.body.data.map((t: { id: string }) => t.id)).toEqual([finishedId]);
+      // Other spec files share GAME_IDS.two (sessions.e2e finishes a test of
+      // its own there): assert the filter, not the exact set of tests.
+      const tests = res.body.data as { id: string; status: string }[];
+      expect(tests.map((t) => t.id)).toContain(finishedId);
+      expect(tests.every((t) => t.status === 'finished')).toBe(true);
     });
 
     it("a rival org gets 404, not another studio's tests", async () => {

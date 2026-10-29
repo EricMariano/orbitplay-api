@@ -29,7 +29,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
     // Socket handlers answer through their own ack envelope (ChatGateway);
     // there is no response object here to serialize onto.
     if (host.getType() !== 'http') {
-      this.logger.error(`Unhandled ${host.getType()} error: ${this.describe(exception)}`);
+      this.logger.error(`Unhandled ${host.getType()} error: ${this.forLog(exception).message}`);
       return;
     }
 
@@ -46,10 +46,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (envelope.statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
       // Log the real cause server-side; never leak internals to the client.
-      this.logger.error(
-        `Unhandled error [${requestId}]: ${this.describe(exception)}`,
-        exception instanceof Error ? exception.stack : undefined,
-      );
+      const { message, stack } = this.forLog(exception);
+      this.logger.error(`Unhandled error [${requestId}]: ${message}`, stack);
     }
 
     response.status(envelope.statusCode).json(envelope);
@@ -146,4 +144,33 @@ export class HttpExceptionFilter implements ExceptionFilter {
     if (exception instanceof Error) return `${exception.name}: ${exception.message}`;
     return String(exception);
   }
+
+  /**
+   * What an unexpected error leaves in the log. A failed Drizzle query puts
+   * its bound parameters in the message — and so in the stack, which repeats
+   * it: e-mails, password hashes, birthdates of whoever was signing up when
+   * Postgres went down. Log the SQL text and the driver's own error instead.
+   */
+  private forLog(exception: unknown): { message: string; stack?: string } {
+    if (isFailedQuery(exception)) {
+      const cause = exception.cause instanceof Error ? exception.cause : undefined;
+      return {
+        message: `Failed query: ${exception.query}${cause ? ` — ${this.describe(cause)}` : ''}`,
+        stack: cause?.stack,
+      };
+    }
+    return {
+      message: this.describe(exception),
+      stack: exception instanceof Error ? exception.stack : undefined,
+    };
+  }
+}
+
+/** Drizzle's `DrizzleQueryError`, recognized by shape (`query` + bound `params`). */
+function isFailedQuery(exception: unknown): exception is Error & { query: string } {
+  return (
+    exception instanceof Error &&
+    typeof (exception as { query?: unknown }).query === 'string' &&
+    'params' in exception
+  );
 }

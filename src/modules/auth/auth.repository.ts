@@ -336,7 +336,7 @@ export class AuthRepository {
   async createStudioAccount(input: CreateStudioAccountInput): Promise<CreatedStudioAccount> {
     const ownerRoleId = await this.findRoleIdByKey('owner');
     if (!ownerRoleId) {
-      throw new Error('Role "owner" missing from catalogue — run db:seed');
+      throw new Error('Role "owner" missing from catalogue — run db:migrate');
     }
 
     try {
@@ -411,7 +411,7 @@ export class AuthRepository {
   async createPlayerAccount(input: CreatePlayerAccountInput): Promise<CreatedPlayerAccount> {
     const playerRoleId = await this.findRoleIdByKey('player');
     if (!playerRoleId) {
-      throw new Error('Role "player" missing from catalogue — run db:seed');
+      throw new Error('Role "player" missing from catalogue — run db:migrate');
     }
 
     try {

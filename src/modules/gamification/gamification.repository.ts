@@ -14,7 +14,11 @@ import {
   type PlayerMissionRow,
   type RankingSnapshotRow,
 } from '../../infra/database/schema/player';
-import { participations, sessions, sessionValidations } from '../../infra/database/schema/participations';
+import {
+  participations,
+  sessions,
+  sessionValidations,
+} from '../../infra/database/schema/participations';
 import { tests } from '../../infra/database/schema/tests';
 import type { PaginationQuery } from '../../shared/pagination/pagination';
 
@@ -44,7 +48,12 @@ export class GamificationRepository {
     const rows = await this.db
       .select({ total: sql<number>`count(*)::int` })
       .from(playerAchievements)
-      .where(and(eq(playerAchievements.userId, userId), sql`${playerAchievements.unlockedAt} is not null`));
+      .where(
+        and(
+          eq(playerAchievements.userId, userId),
+          sql`${playerAchievements.unlockedAt} is not null`,
+        ),
+      );
     return rows[0]?.total ?? 0;
   }
 
@@ -58,7 +67,9 @@ export class GamificationRepository {
     const rows = await this.db
       .select({
         testsCompleted: sql<number>`count(distinct ${tests.id})::int`,
-        totalDurationMs: sql<number>`coalesce(sum(${sessions.durationMs}), 0)::int`,
+        // float8, not int: the sum of a player's sessions passes int4's
+        // ~24.8 days long before a single session could, and the cast threw.
+        totalDurationMs: sql<number>`coalesce(sum(${sessions.durationMs}), 0)::float8`,
       })
       .from(sessions)
       .innerJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
@@ -84,7 +95,10 @@ export class GamificationRepository {
       .from(achievements)
       .leftJoin(
         playerAchievements,
-        and(eq(playerAchievements.achievementKey, achievements.key), eq(playerAchievements.userId, userId)),
+        and(
+          eq(playerAchievements.achievementKey, achievements.key),
+          eq(playerAchievements.userId, userId),
+        ),
       )
       .where(and(...filters))
       .orderBy(achievements.key)

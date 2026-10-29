@@ -29,6 +29,10 @@ const MODERATE_ACTION_TO_STATUS: Record<ModerateChatMessageDto['action'], PostSt
   remove: 'removed',
 };
 
+/** Socket events (join, leave, typing, presence) per user, per window — see `enforceSocketEventLimit`. */
+const SOCKET_EVENT_LIMIT = 30;
+const SOCKET_EVENT_WINDOW_SECONDS = 60;
+
 @Injectable()
 export class ChatService {
   constructor(
@@ -161,10 +165,23 @@ export class ChatService {
     return this.repo.findUserDisplayName(userId);
   }
 
-  /** Used by the gateway before putting a socket into a channel room. */
+  /**
+   * Used by the gateway before putting a socket into a channel room. A
+   * channel lives as long as its game, like the mural: once the game is
+   * deleted, reading, writing and joining all 404 — before, the channel kept
+   * taking messages that nobody, not even the studio, could moderate anymore.
+   */
   async getChannelOrThrow(channelId: string): Promise<ChatChannelRow> {
     const channel = await this.repo.findChannelById(channelId);
     if (!channel) throw AppException.notFound('Canal não encontrado');
+    try {
+      await this.games.existsAnyOrg(channel.gameId);
+    } catch (err) {
+      if (err instanceof AppException && err.getStatus() === HttpStatus.NOT_FOUND) {
+        throw AppException.notFound('Canal não encontrado');
+      }
+      throw err;
+    }
     return channel;
   }
 
@@ -181,18 +198,34 @@ export class ChatService {
    * it holds across replicas and across the REST and socket entry points.
    */
   private async enforceMessageLimit(userId: string): Promise<void> {
-    const ttl = this.config.get<number>('chat.messageThrottleTtl')!;
-    const limit = this.config.get<number>('chat.messageThrottleLimit')!;
+    await this.enforceLimit(
+      `chat:rate:${userId}`,
+      this.config.get<number>('chat.messageThrottleLimit')!,
+      this.config.get<number>('chat.messageThrottleTtl')!,
+      'Muitas mensagens seguidas. Aguarde alguns instantes.',
+    );
+  }
 
-    const key = `chat:rate:${userId}`;
+  /**
+   * Join/leave/typing/presence write nothing, but each one asks every replica
+   * who is in the room (`fetchSockets` over the Redis adapter) and broadcasts
+   * to all of it — unthrottled, one client could flood a channel and the
+   * pub/sub. A real client joins once per channel, so the budget is generous.
+   */
+  async enforceSocketEventLimit(userId: string): Promise<void> {
+    await this.enforceLimit(
+      `chat:events:${userId}`,
+      SOCKET_EVENT_LIMIT,
+      SOCKET_EVENT_WINDOW_SECONDS,
+      'Muitas ações seguidas no chat. Aguarde alguns instantes.',
+    );
+  }
+
+  private async enforceLimit(key: string, limit: number, ttl: number, message: string) {
     const count = await this.redis.incr(key);
     if (count === 1 || (await this.redis.ttl(key)) === -1) await this.redis.expire(key, ttl);
     if (count > limit) {
-      throw new AppException(
-        HttpStatus.TOO_MANY_REQUESTS,
-        ErrorCode.TOO_MANY_REQUESTS,
-        'Muitas mensagens seguidas. Aguarde alguns instantes.',
-      );
+      throw new AppException(HttpStatus.TOO_MANY_REQUESTS, ErrorCode.TOO_MANY_REQUESTS, message);
     }
   }
 }

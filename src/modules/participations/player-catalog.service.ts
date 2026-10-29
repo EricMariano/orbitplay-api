@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable } from '@nestjs/common';
 import type { ParticipationRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
 import { AppException } from '../../shared/errors/app.exception';
@@ -70,10 +70,7 @@ export class PlayerCatalogService {
     const gameIds = [...new Set(participations.data.map((participation) => participation.gameId))];
     const gamesById = new Map(
       await Promise.all(
-        gameIds.map(async (gameId) => {
-          const game = await this.games.getAnyOrg(gameId);
-          return [gameId, game] as const;
-        }),
+        gameIds.map(async (gameId) => [gameId, await this.getGameOrNull(gameId)] as const),
       ),
     );
 
@@ -177,6 +174,19 @@ export class PlayerCatalogService {
         };
       }),
     );
+  }
+
+  /**
+   * A game the studio deleted is skipped (like the feed does), not a 404 for
+   * the whole Home of everyone who played one of its tests.
+   */
+  private async getGameOrNull(id: string): Promise<GameView | null> {
+    try {
+      return await this.games.getAnyOrg(id);
+    } catch (err) {
+      if (err instanceof AppException && err.getStatus() === HttpStatus.NOT_FOUND) return null;
+      throw err;
+    }
   }
 }
 

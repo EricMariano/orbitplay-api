@@ -137,6 +137,15 @@ describe('ChatService', () => {
       ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
     });
 
+    it('404s a channel whose game was deleted, instead of taking the message', async () => {
+      vi.mocked(games.existsAnyOrg).mockRejectedValueOnce(AppException.notFound());
+
+      await expect(
+        service.sendMessage(CHANNEL_ID, 'player-1', { body: 'oi' }),
+      ).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+      expect(repo.createMessage).not.toHaveBeenCalled();
+    });
+
     it('404s an unknown channel', async () => {
       vi.mocked(repo.findChannelById).mockResolvedValueOnce(null);
 
@@ -170,6 +179,17 @@ describe('ChatService', () => {
       vi.mocked(redis.expire).mockClear();
       await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'tres' });
       expect(redis.expire).toHaveBeenCalledWith('chat:rate:user-player', 10);
+    });
+  });
+
+  describe('enforceSocketEventLimit', () => {
+    it('cuts join/leave/typing/presence past the limit, on its own key', async () => {
+      vi.mocked(redis.incr).mockResolvedValueOnce(31);
+
+      await expect(service.enforceSocketEventLimit('player-1')).rejects.toMatchObject({
+        status: HttpStatus.TOO_MANY_REQUESTS,
+      });
+      expect(redis.incr).toHaveBeenCalledWith('chat:events:player-1');
     });
   });
 

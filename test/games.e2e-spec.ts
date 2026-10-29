@@ -201,6 +201,33 @@ describe('Games (e2e)', () => {
     });
   });
 
+  it('answers 409, not 500, for the slug of a deleted game', async () => {
+    const created = await request(app.getHttpServer())
+      .post('/games')
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ title: 'Jogo Descartado' });
+    expect(created.status).toBe(201);
+    await request(app.getHttpServer())
+      .delete(`/games/${created.body.id as string}`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .expect(204);
+
+    const again = await request(app.getHttpServer())
+      .post('/games')
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ title: 'Jogo Descartado' });
+    expect(again.status).toBe(409);
+  });
+
+  it('treats a PATCH with an empty body as a no-op, not a 500', async () => {
+    const res = await request(app.getHttpServer())
+      .patch(`/games/${GAME_IDS.one}`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({});
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe(GAME_IDS.one);
+  });
+
   it('rejects invalid Tela 04 catalog values with 422', async () => {
     const res = await request(app.getHttpServer())
       .post('/games')

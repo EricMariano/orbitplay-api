@@ -79,7 +79,7 @@ describe('SessionsService', () => {
       startSession: vi.fn(),
       getSessionForUserOrThrow: vi.fn(),
       insertDeviceEvent: vi.fn(),
-      updateSession: vi.fn(),
+      markRecording: vi.fn(),
       finishSession: vi.fn(),
       findFormQuestions: vi.fn().mockResolvedValue([]),
       findPrimaryRecording: vi.fn().mockResolvedValue(null),
@@ -102,6 +102,27 @@ describe('SessionsService', () => {
       redis as never,
       reportSnapshots as unknown as ReportSnapshotCache,
     );
+  });
+
+  describe('heartbeat', () => {
+    it('moves a starting session to recording, only from starting', async () => {
+      repo.getSessionForUserOrThrow.mockResolvedValue(makeSession({ status: 'starting' }));
+
+      await service.heartbeat(SESSION_ID, USER_ID, { tMs: 1000 });
+
+      expect(redis.set).toHaveBeenCalled();
+      expect(repo.markRecording).toHaveBeenCalledWith(SESSION_ID);
+    });
+
+    it('404s after finish, without re-arming the heartbeat', async () => {
+      repo.getSessionForUserOrThrow.mockResolvedValue(makeSession({ status: 'processing' }));
+
+      await expect(service.heartbeat(SESSION_ID, USER_ID, { tMs: 1000 })).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(redis.set).not.toHaveBeenCalled();
+      expect(repo.markRecording).not.toHaveBeenCalled();
+    });
   });
 
   describe('start', () => {

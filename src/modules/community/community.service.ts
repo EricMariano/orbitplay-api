@@ -1,7 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Inject, Injectable } from '@nestjs/common';
 import type { Request } from 'express';
+import { Redis } from 'ioredis';
+import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
+import { ErrorCode } from '../../shared/errors/error-envelope';
 import type { AuthUser } from '../../shared/auth/roles';
 import type { Page, PaginationQuery } from '../../shared/pagination/pagination';
 import { GamesService } from '../games/games.service';
@@ -16,6 +19,14 @@ import type {
   ReviewView,
 } from './dto/community.dto';
 
+/**
+ * Flood control per user, counted in Redis like the chat's: the mural took
+ * any number of 5000-character posts — and of reports — from a single
+ * account. Generous for a person, tight for a script.
+ */
+const POST_LIMIT = { limit: 30, windowSeconds: 10 * 60 };
+const REPORT_LIMIT = { limit: 60, windowSeconds: 60 * 60 };
+
 const MODERATE_ACTION_TO_STATUS: Record<ModeratePostDto['action'], PostStatus> = {
   hide: 'hidden',
   restore: 'visible',
@@ -27,6 +38,7 @@ export class CommunityService {
   constructor(
     private readonly repo: CommunityRepository,
     private readonly games: GamesService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   async listPosts(gameId: string, query: PaginationQuery): Promise<Page<CommunityPostView>> {
@@ -41,6 +53,7 @@ export class CommunityService {
     dto: CreateCommunityPostDto,
   ): Promise<CommunityPostView> {
     await this.games.existsAnyOrg(gameId);
+    await this.enforceLimit(`community:posts:${author.userId}`, POST_LIMIT);
     const created = await this.repo.createPost(gameId, author.userId, dto.body);
     return toPostView(created);
   }
@@ -48,6 +61,7 @@ export class CommunityService {
   async reportPost(postId: string, reporter: AuthUser, dto: ReportPostDto): Promise<void> {
     const post = await this.repo.findPostRowById(postId);
     if (!post) throw AppException.notFound();
+    await this.enforceLimit(`community:reports:${reporter.userId}`, REPORT_LIMIT);
     await this.repo.insertReport(postId, reporter.userId, dto.reason, dto.details ?? null);
   }
 
@@ -78,12 +92,14 @@ export class CommunityService {
       MODERATE_ACTION_TO_STATUS[dto.action],
     );
 
+    // The post row has no column for it, so the moderator's reason lives in
+    // the audit trail (Tela 20) — before, it was accepted and dropped.
     recordAudit(req, {
       action: 'community.post_moderated',
       entity: 'community_posts',
       entityId: postId,
       before,
-      after: updated,
+      after: dto.reason ? { ...updated, moderationReason: dto.reason } : updated,
     });
     return toPostView(updated);
   }
@@ -113,13 +129,34 @@ export class CommunityService {
     }
 
     try {
-      const created = await this.repo.createReview(gameId, author.userId, dto.rating, dto.body ?? null);
+      const created = await this.repo.createReview(
+        gameId,
+        author.userId,
+        dto.rating,
+        dto.body ?? null,
+      );
       return toReviewView(created);
     } catch (err) {
       if (isUniqueViolation(err)) {
         throw AppException.conflict('Jogador já avaliou este jogo');
       }
       throw err;
+    }
+  }
+
+  private async enforceLimit(
+    key: string,
+    { limit, windowSeconds }: { limit: number; windowSeconds: number },
+  ): Promise<void> {
+    const count = await this.redis.incr(key);
+    if (count === 1 || (await this.redis.ttl(key)) === -1)
+      await this.redis.expire(key, windowSeconds);
+    if (count > limit) {
+      throw new AppException(
+        HttpStatus.TOO_MANY_REQUESTS,
+        ErrorCode.TOO_MANY_REQUESTS,
+        'Muitas publicações seguidas. Aguarde alguns instantes.',
+      );
     }
   }
 }

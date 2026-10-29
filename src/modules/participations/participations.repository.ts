@@ -137,14 +137,35 @@ export class ParticipationsRepository {
    */
   async reserveParticipation(testId: string, userId: string): Promise<ParticipationRow> {
     return this.db.transaction(async (tx) => {
+      // The service already checked the test is open; checking it again in
+      // the CAS closes the gap where it gets paused or finished in between.
       const reserved = await tx
         .update(tests)
         .set({ slotsTaken: sql`${tests.slotsTaken} + 1` })
-        .where(and(eq(tests.id, testId), sql`${tests.slotsTaken} < ${tests.slotsTotal}`))
+        .where(
+          and(
+            eq(tests.id, testId),
+            eq(tests.status, 'published'),
+            sql`(${tests.endsAt} is null or ${tests.endsAt} > now())`,
+            sql`${tests.slotsTaken} < ${tests.slotsTotal}`,
+          ),
+        )
         .returning({ id: tests.id });
 
       if (reserved.length === 0) {
-        throw AppException.conflict('Vagas esgotadas');
+        const [test] = await tx
+          .select({
+            status: tests.status,
+            slotsTaken: tests.slotsTaken,
+            slotsTotal: tests.slotsTotal,
+          })
+          .from(tests)
+          .where(eq(tests.id, testId));
+        throw AppException.conflict(
+          test && test.status === 'published' && test.slotsTaken >= test.slotsTotal
+            ? 'Vagas esgotadas'
+            : 'Teste não está aberto para participação',
+        );
       }
 
       const rows = await tx
@@ -153,6 +174,22 @@ export class ParticipationsRepository {
         .returning();
       return rows[0];
     });
+  }
+
+  /** Whether the player already finished this test with a valid session. */
+  async hasCompletedParticipation(testId: string, userId: string): Promise<boolean> {
+    const rows = await this.db
+      .select({ id: participations.id })
+      .from(participations)
+      .where(
+        and(
+          eq(participations.testId, testId),
+          eq(participations.userId, userId),
+          eq(participations.status, 'completed'),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
   }
 
   async findById(id: string): Promise<ParticipationRow | null> {
@@ -401,6 +438,11 @@ export class ParticipationsRepository {
         testId,
         organizationId,
         status: 'starting',
+        // Same clock as `endedAt` in `SessionsService.finish`, which caps the
+        // duration at `endedAt - startedAt`: the column default (`now()`) is
+        // the database's clock, and any skew ahead of the API would eat into
+        // (or zero) a short session's duration and invalidate it.
+        startedAt: new Date(),
       };
       const rows = await tx.insert(sessions).values(values).returning();
 
@@ -434,14 +476,17 @@ export class ParticipationsRepository {
     await this.db.insert(sessionDeviceEvents).values({ id: newId(), sessionId, tMs, kind, value });
   }
 
-  async updateSession(sessionId: string, patch: Partial<NewSessionRow>): Promise<SessionRow> {
-    const rows = await this.db
+  /**
+   * First heartbeat: `starting` → `recording`, and only from `starting`. A
+   * heartbeat racing `finish` read `starting` before the finish committed and
+   * then wrote `recording` over its `processing` — reopening the session (a
+   * second finish, or the timeout sweep invalidating a session that ended fine).
+   */
+  async markRecording(sessionId: string): Promise<void> {
+    await this.db
       .update(sessions)
-      .set(patch)
-      .where(eq(sessions.id, sessionId))
-      .returning();
-    if (!rows[0]) throw AppException.notFound();
-    return rows[0];
+      .set({ status: 'recording' })
+      .where(and(eq(sessions.id, sessionId), eq(sessions.status, 'starting')));
   }
 
   /**

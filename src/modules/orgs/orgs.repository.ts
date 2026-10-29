@@ -59,7 +59,7 @@ export interface RoleChangeResult {
 export interface ChangeMemberStatusInput {
   organizationId: string;
   userId: string;
-  status: 'active' | 'invited' | 'disabled';
+  status: 'active' | 'disabled';
 }
 
 export interface StatusChangeResult {
@@ -87,6 +87,23 @@ export class LastOwnerError extends Error {
   }
 }
 
+/**
+ * Thrown when an owner/admin tries to change the status of a pending
+ * invitation. The invite reuses any existing account by e-mail, so activating
+ * it by hand — directly, or by disabling it first and then "re-activating" —
+ * would drop someone from another tenant into this organization without their
+ * consent. Only the invitee accepts, by setting their password; cancelling is
+ * removing the member (a removed membership can't come back).
+ */
+export class PendingInviteError extends Error {
+  constructor() {
+    super(
+      'Convite pendente: só o convidado o aceita, ao definir a senha. Para cancelar, remova o membro',
+    );
+    this.name = 'PendingInviteError';
+  }
+}
+
 function isUniqueViolation(err: unknown, constraint: string): boolean {
   const candidates: unknown[] = [err];
   if (err && typeof err === 'object' && 'cause' in err) {
@@ -107,6 +124,15 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
   }
   return false;
 }
+
+/**
+ * The name a member shows to their organization. The invite reuses any
+ * existing account by e-mail, so an invited membership may point at someone
+ * else's account: its real name isn't the inviting org's to see (or to search
+ * for) until they accept. Until then it shows the e-mail the org itself typed —
+ * the same thing the invite response already echoes.
+ */
+const memberDisplayName = sql<string>`case when ${memberships.status} = 'invited' then ${users.email} else ${users.displayName} end`;
 
 @Injectable()
 export class OrgsRepository {
@@ -159,7 +185,7 @@ export class OrgsRepository {
     const term = query.q?.trim();
     if (term) {
       const pattern = `%${escapeIlike(term)}%`;
-      filters.push(or(ilike(users.displayName, pattern), ilike(users.email, pattern))!);
+      filters.push(or(ilike(memberDisplayName, pattern), ilike(users.email, pattern))!);
     }
 
     const rows = await this.db
@@ -167,7 +193,7 @@ export class OrgsRepository {
         id: memberships.id,
         userId: users.id,
         email: users.email,
-        displayName: users.displayName,
+        displayName: memberDisplayName,
         role: roles.key,
         status: memberships.status,
       })
@@ -190,7 +216,7 @@ export class OrgsRepository {
         id: memberships.id,
         userId: users.id,
         email: users.email,
-        displayName: users.displayName,
+        displayName: memberDisplayName,
         role: roles.key,
         status: memberships.status,
       })
@@ -228,7 +254,7 @@ export class OrgsRepository {
   async createInvitedMember(input: InviteMemberInput): Promise<InvitedMemberRecord> {
     const roleId = await this.findRoleIdByKey(input.role);
     if (!roleId) {
-      throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
+      throw new Error(`Role "${input.role}" missing from catalogue — run db:migrate`);
     }
 
     try {
@@ -301,7 +327,7 @@ export class OrgsRepository {
 
     const nextRoleId = await this.findRoleIdByKey(input.role);
     if (!nextRoleId) {
-      throw new Error(`Role "${input.role}" missing from catalogue — run db:seed`);
+      throw new Error(`Role "${input.role}" missing from catalogue — run db:migrate`);
     }
     const ownerRoleId = await this.requireOwnerRoleId();
 
@@ -351,6 +377,7 @@ export class OrgsRepository {
 
       const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
       if (!current) return null;
+      if (current.status === 'invited') throw new PendingInviteError();
 
       const losesAnActiveOwner =
         current.role === 'owner' && current.status === 'active' && input.status !== 'active';
@@ -409,13 +436,15 @@ export class OrgsRepository {
   private async requireOwnerRoleId(): Promise<string> {
     const ownerRoleId = await this.findRoleIdByKey('owner');
     if (!ownerRoleId) {
-      throw new Error('Role "owner" missing from catalogue — run db:seed');
+      throw new Error('Role "owner" missing from catalogue — run db:migrate');
     }
     return ownerRoleId;
   }
 
   /** Read-only membership lookup — no row lock, used outside mutating flows. */
   async findMembership(organizationId: string, userId: string): Promise<MemberRoleRecord | null> {
+    // Same guard as role/status/remove: a malformed id is a 404, not a 22P02 → 500.
+    if (!isUuid(userId)) return null;
     const row = await findMembershipForUpdate(this.db, organizationId, userId);
     return row ?? null;
   }
@@ -463,7 +492,7 @@ async function findMembershipForUpdate(
       membershipId: memberships.id,
       userId: users.id,
       email: users.email,
-      displayName: users.displayName,
+      displayName: memberDisplayName,
       role: roles.key,
       status: memberships.status,
     })

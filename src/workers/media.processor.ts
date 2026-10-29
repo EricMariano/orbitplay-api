@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { eq } from 'drizzle-orm';
 import { sessionRecordings } from '../infra/database/schema/participations';
+import { MAX_RECORDING_DURATION_MS } from '../modules/media/dto/media.dto';
 import { extractedAudioKey, thumbnailKey } from '../modules/media/storage-key';
 import type { WorkerDeps } from './deps';
 import { extractAudioTrack, generateThumbnail, isSupportedVideoCodec, probeMedia } from './ffmpeg';
@@ -71,7 +72,11 @@ export async function processMediaTranscode(deps: WorkerDeps, recordingId: strin
       return;
     }
 
-    if (!probe.hasVideo || !isSupportedVideoCodec(probe.videoCodec)) {
+    // The duration is the container's own claim: past the cap it's either not
+    // a session recording or a forged header (one past ~24.8 days would also
+    // overflow the `integer` column and fail the job on every retry).
+    const tooLong = probe.durationMs !== null && probe.durationMs > MAX_RECORDING_DURATION_MS;
+    if (!probe.hasVideo || !isSupportedVideoCodec(probe.videoCodec) || tooLong) {
       await markFailed(deps, recordingId);
       return;
     }
@@ -122,6 +127,9 @@ export async function processMediaExtractAudio(
     .limit(1);
   const recording = rows[0];
   if (!recording) throw new Error(`recording ${recordingId} not found`);
+  // Transcode already refused it (not media, unsupported, too long): there's
+  // nothing to extract, and failing here would only get the job retried.
+  if (recording.status === 'failed') return;
 
   const exists = await deps.storage.exists(recording.storageKey);
   if (!exists) throw new Error(`source object missing for ${recordingId}`);
@@ -134,7 +142,7 @@ export async function processMediaExtractAudio(
     if (!probe.hasAudio) return;
 
     const outputPath = join(dir, 'audio.m4a');
-    await extractAudioTrack(inputPath, outputPath);
+    await extractAudioTrack(inputPath, outputPath, MAX_RECORDING_DURATION_MS);
     const audioBuffer = await readFile(outputPath);
     await deps.storage.putObject(extractedAudioKey(recording.storageKey), audioBuffer, 'audio/mp4');
   });

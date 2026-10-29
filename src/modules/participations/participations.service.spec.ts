@@ -61,6 +61,7 @@ describe('ParticipationsService', () => {
     findAudienceAgeRange: ReturnType<typeof vi.fn>;
     findUserBirthdate: ReturnType<typeof vi.fn>;
     reserveParticipation: ReturnType<typeof vi.fn>;
+    hasCompletedParticipation: ReturnType<typeof vi.fn>;
     findById: ReturnType<typeof vi.fn>;
     getByIdForUserOrThrow: ReturnType<typeof vi.fn>;
     findConsent: ReturnType<typeof vi.fn>;
@@ -90,6 +91,7 @@ describe('ParticipationsService', () => {
       findAudienceAgeRange: vi.fn().mockResolvedValue(null),
       findUserBirthdate: vi.fn().mockResolvedValue(null),
       reserveParticipation: vi.fn(),
+      hasCompletedParticipation: vi.fn().mockResolvedValue(false),
       findById: vi.fn(),
       getByIdForUserOrThrow: vi.fn(),
       findConsent: vi.fn().mockResolvedValue(null),
@@ -159,6 +161,13 @@ describe('ParticipationsService', () => {
       expect(view.status).toBe('reserved');
       expect(view.gameId).toBe(GAME_ID);
       expect(reportSnapshots.invalidate).toHaveBeenCalledWith(TEST_ID);
+    });
+
+    it('409s when the player already completed this test, without taking a slot', async () => {
+      repo.findTestById.mockResolvedValue(makeTestRow());
+      repo.hasCompletedParticipation.mockResolvedValue(true);
+      await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({ status: 409 });
+      expect(repo.reserveParticipation).not.toHaveBeenCalled();
     });
 
     it('409s when reserveParticipation reports a unique violation (already active)', async () => {

@@ -93,6 +93,19 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       displayName,
     };
 
+    // The token is only checked here, so the socket must not outlive it: one
+    // opened before a logout, a password reset or a removal from the org would
+    // otherwise keep talking as that user for as long as it stayed connected.
+    // The web client reconnects with its refreshed token.
+    const { exp } = payload as AccessTokenPayload & { exp?: number };
+    if (exp) {
+      const expiry = setTimeout(
+        () => client.disconnect(true),
+        Math.max(0, exp * 1000 - Date.now()),
+      );
+      client.on('disconnect', () => clearTimeout(expiry));
+    }
+
     // `client.rooms` is already empty by the time handleDisconnect runs, so
     // remember which channels this socket is leaving while it still knows.
     client.on('disconnecting', () => {
@@ -117,12 +130,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   ): Promise<Ack<ChatPresenceView>> {
     return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
+      await this.chat.enforceSocketEventLimit(requireUser(client).userId);
       await this.chat.getChannelOrThrow(channelId);
 
+      const alreadyIn = client.rooms.has(channelRoom(channelId));
       await client.join(channelRoom(channelId));
       const presence = await this.realtime.presence(channelId);
-      // Everyone already in the room sees the arrival; the joiner gets the ack.
-      client.to(channelRoom(channelId)).emit('channel:presence', presence);
+      // Everyone already in the room sees the arrival (once); the joiner gets the ack.
+      if (!alreadyIn) client.to(channelRoom(channelId)).emit('channel:presence', presence);
       return presence;
     });
   }
@@ -134,8 +149,12 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   ): Promise<Ack<{ channelId: string }>> {
     return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
-      await client.leave(channelRoom(channelId));
-      await this.realtime.broadcastPresence(channelId);
+      await this.chat.enforceSocketEventLimit(requireUser(client).userId);
+      // Leaving a room the socket never joined changes nobody's presence.
+      if (client.rooms.has(channelRoom(channelId))) {
+        await client.leave(channelRoom(channelId));
+        await this.realtime.broadcastPresence(channelId);
+      }
       return { channelId };
     });
   }
@@ -156,10 +175,14 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   }
 
   @SubscribeMessage('typing:start')
-  typing(@ConnectedSocket() client: ChatSocket, @MessageBody() body: unknown): Ack<null> {
-    try {
+  async typing(
+    @ConnectedSocket() client: ChatSocket,
+    @MessageBody() body: unknown,
+  ): Promise<Ack<null>> {
+    return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
       const user = requireUser(client);
+      await this.chat.enforceSocketEventLimit(user.userId);
       // Ignore typing for a channel this socket never joined — it would leak
       // presence into a room the user isn't in.
       if (client.rooms.has(channelRoom(channelId))) {
@@ -169,10 +192,8 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
           displayName: user.displayName,
         });
       }
-      return { ok: true, data: null };
-    } catch (err) {
-      return { ok: false, error: this.toWsError(err) };
-    }
+      return null;
+    });
   }
 
   @SubscribeMessage('channel:presence')
@@ -182,7 +203,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   ): Promise<Ack<ChatPresenceView>> {
     return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
-      requireUser(client);
+      await this.chat.enforceSocketEventLimit(requireUser(client).userId);
       // Presence is only visible to sockets that joined the channel.
       if (!client.rooms.has(channelRoom(channelId))) {
         throw AppException.forbidden('Entre no canal para ver quem está nele');

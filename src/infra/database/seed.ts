@@ -200,6 +200,12 @@ export async function seedDatabase(databaseUrl: string, quiet = false): Promise<
 }
 
 async function seed(): Promise<void> {
+  // Demo accounts with a published password: never in production. The role
+  // catalog a production database needs comes from the migrations
+  // (drizzle/manual/0002_roles_catalog.sql).
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('db:seed is disabled in production');
+  }
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is required to seed');
   await seedDatabase(url);

@@ -19,7 +19,21 @@ import type {
   OrgView,
   UpdateOrgInput,
 } from './dto/org.dto';
-import { LastOwnerError, MemberAlreadyExistsError, OrgsRepository } from './orgs.repository';
+import {
+  LastOwnerError,
+  MemberAlreadyExistsError,
+  OrgsRepository,
+  PendingInviteError,
+} from './orgs.repository';
+
+/**
+ * The route param is any case (`isUuid` and Postgres both accept upper-case
+ * UUIDs) while the token's id is lower-case: a plain `===` let a caller act
+ * on their own membership just by upper-casing it.
+ */
+function isSameUser(a: string, b: string): boolean {
+  return a.toLowerCase() === b.toLowerCase();
+}
 
 @Injectable()
 export class OrgsService {
@@ -230,7 +244,7 @@ export class OrgsService {
     dto: ChangeStatusInput,
     req: Request,
   ): Promise<MemberView> {
-    if (targetUserId === callerUserId) {
+    if (isSameUser(targetUserId, callerUserId)) {
       throw AppException.forbidden('Você não pode alterar o status da sua própria membership');
     }
 
@@ -242,7 +256,7 @@ export class OrgsService {
         status: dto.status,
       });
     } catch (err) {
-      if (err instanceof LastOwnerError) {
+      if (err instanceof LastOwnerError || err instanceof PendingInviteError) {
         throw AppException.conflict(err.message);
       }
       throw err;
@@ -289,7 +303,7 @@ export class OrgsService {
     targetUserId: string,
     req: Request,
   ): Promise<void> {
-    if (targetUserId === callerUserId) {
+    if (isSameUser(targetUserId, callerUserId)) {
       throw AppException.forbidden('Você não pode remover sua própria membership');
     }
 

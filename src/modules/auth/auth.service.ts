@@ -243,11 +243,15 @@ export class AuthService {
    * Admin-triggered reset (ORB-M2-07, Tela 20 RN-04): same token/e-mail flow
    * as `forgotPassword`, for a member an owner/admin already identified via
    * the members list — no need to hide whether the account exists, unlike the
-   * anonymous `forgotPassword` entry point.
+   * anonymous `forgotPassword` entry point. It shares that path's per-e-mail
+   * limit: each call mails the user and voids their previous link, so an
+   * unthrottled loop would flood any invited address and keep its owner from
+   * ever finishing a recovery.
    */
   async triggerPasswordReset(userId: string): Promise<void> {
     const user = await this.repo.findUserById(userId);
     if (!user || !user.isActive) return;
+    await this.enforceIdentifierLimit('forgot', user.email.toLowerCase().trim());
     await this.issuePasswordResetToken(user);
   }
 
@@ -266,7 +270,8 @@ export class AuthService {
     });
 
     const origin = this.config.get<string>('web.origin')!;
-    const link = `${origin}/redefinir-senha?token=${rawToken}`;
+    // Must match the web route (`orbitplay-web/src/routes/reset-password.tsx`).
+    const link = `${origin}/reset-password?token=${rawToken}`;
     await this.mail.sendEmail({
       to: user.email,
       subject: 'Recuperação de senha — OrbitPlay',

@@ -56,6 +56,13 @@ export class ParticipationsService {
 
     await this.assertAgeEligible(testId, userId);
 
+    // Tela 15 RN-01: a completed participation shows "concluído", never
+    // "começar" (`testCta`). Joining again anyway took one more slot per round
+    // — `slots_taken` is never given back — so one player could drain the test.
+    if (await this.repo.hasCompletedParticipation(testId, userId)) {
+      throw AppException.conflict('Você já concluiu este teste');
+    }
+
     let row: ParticipationRow;
     try {
       row = await this.repo.reserveParticipation(testId, userId);

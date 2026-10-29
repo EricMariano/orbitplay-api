@@ -1,4 +1,4 @@
-import { and, eq, inArray, lt } from 'drizzle-orm';
+import { and, eq, inArray, isNull, lt } from 'drizzle-orm';
 import {
   buildValidateJobId,
   JobName,
@@ -8,7 +8,11 @@ import {
 } from '../infra/queue/queue.constants';
 import { ensureJobEnqueued } from '../infra/queue/ensure-enqueued';
 import { builds } from '../infra/database/schema/tests';
-import { sessionRecordings, sessions } from '../infra/database/schema/participations';
+import {
+  sessionRecordings,
+  sessions,
+  sessionValidations,
+} from '../infra/database/schema/participations';
 import { heartbeatKey } from '../modules/participations/heartbeat.store';
 import { createdAtFromUuidV7 } from '../shared/util/uuid';
 import type { WorkerDeps } from './deps';
@@ -32,6 +36,9 @@ const OPEN_SESSION_STATUSES = ['starting', 'recording', 'paused'] as const;
  */
 const STUCK_GRACE_MS = 15 * 60 * 1000;
 
+/** Left on a build whose job kept failing until `ensureJobEnqueued` gave up on it. */
+const EXHAUSTED_BUILD_REASON = 'Validação interrompida após falhas repetidas no processamento';
+
 export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void> {
   const cutoff = new Date(Date.now() - STUCK_GRACE_MS);
 
@@ -41,9 +48,20 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
     .where(and(eq(builds.status, 'processing'), lt(builds.createdAt, cutoff)));
 
   for (const { id } of stuckBuilds) {
-    await ensureJobEnqueued(deps.queue, JobName.BUILD_VALIDATE, buildValidateJobId(id), {
-      buildId: id,
-    });
+    const outcome = await ensureJobEnqueued(
+      deps.queue,
+      JobName.BUILD_VALIDATE,
+      buildValidateJobId(id),
+      { buildId: id },
+    );
+    // Its job failed every retry: settle the build as failed instead of
+    // leaving it `processing` (and re-checked by every sweep) forever.
+    if (outcome === 'exhausted') {
+      await deps.db
+        .update(builds)
+        .set({ status: 'failed', failureReason: EXHAUSTED_BUILD_REASON })
+        .where(and(eq(builds.id, id), eq(builds.status, 'processing')));
+    }
   }
 
   // No createdAt column on session_recordings — its id is a UUIDv7, so the
@@ -55,15 +73,53 @@ export async function processReconcileStuckJobs(deps: WorkerDeps): Promise<void>
 
   for (const { id } of stuckRecordings) {
     if (createdAtFromUuidV7(id).getTime() > cutoff.getTime()) continue;
-    await ensureJobEnqueued(deps.queue, JobName.MEDIA_TRANSCODE, mediaTranscodeJobId(id), {
-      recordingId: id,
-    });
+    const transcode = await ensureJobEnqueued(
+      deps.queue,
+      JobName.MEDIA_TRANSCODE,
+      mediaTranscodeJobId(id),
+      { recordingId: id },
+    );
+    if (transcode === 'exhausted') {
+      await deps.db
+        .update(sessionRecordings)
+        .set({ status: 'failed' })
+        .where(and(eq(sessionRecordings.id, id), eq(sessionRecordings.status, 'processing')));
+      continue;
+    }
     await ensureJobEnqueued(deps.queue, JobName.MEDIA_EXTRACT_AUDIO, mediaExtractAudioJobId(id), {
       recordingId: id,
     });
   }
 
   await reconcileTimedOutSessions(deps);
+  await reconcileUnvalidatedSessions(deps, cutoff);
+}
+
+/**
+ * `finish` (and the timeout sweep below) close a session and then enqueue
+ * `session.validate` — two steps with no shared transaction. If the enqueue
+ * is lost (Redis down after the commit) or the job fails, the session sits
+ * closed with no validation: the player never gets a result, nor XP. Same
+ * backstop as builds and recordings: re-ensure the job by its deterministic id.
+ */
+async function reconcileUnvalidatedSessions(deps: WorkerDeps, cutoff: Date): Promise<void> {
+  const unvalidated = await deps.db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .leftJoin(sessionValidations, eq(sessionValidations.sessionId, sessions.id))
+    .where(
+      and(
+        inArray(sessions.status, ['processing', 'invalidated']),
+        lt(sessions.endedAt, cutoff),
+        isNull(sessionValidations.sessionId),
+      ),
+    );
+
+  for (const { id } of unvalidated) {
+    await ensureJobEnqueued(deps.queue, JobName.SESSION_VALIDATE, sessionValidateJobId(id), {
+      sessionId: id,
+    });
+  }
 }
 
 /**

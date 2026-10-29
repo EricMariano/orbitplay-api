@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, desc, eq, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
+import { and, countDistinct, desc, eq, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
 import {
   DRIZZLE,
   type Database,
@@ -237,8 +237,10 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
    * no such columns in this phase (same stub pattern as `GameSpecs`).
    */
   async countEligiblePlayers(minBirthdate: string, maxBirthdate: string): Promise<number> {
-    const rows = await this.db
-      .select({ id: users.id })
+    // Counted in SQL: pulling one row per eligible player into the API on
+    // every audience save grew with the size of the platform's player base.
+    const [row] = await this.db
+      .select({ total: countDistinct(users.id) })
       .from(users)
       .innerJoin(memberships, eq(memberships.userId, users.id))
       .innerJoin(roles, eq(roles.id, memberships.roleId))
@@ -252,8 +254,7 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
           gte(users.birthdate, minBirthdate),
           lte(users.birthdate, maxBirthdate),
         ),
-      )
-      .groupBy(users.id);
-    return rows.length;
+      );
+    return row?.total ?? 0;
   }
 }
