@@ -64,6 +64,8 @@ export interface StoragePort {
   getObjectStream(key: string): Promise<Readable>;
   /** Delete an object (no-op if absent). */
   remove(key: string): Promise<void>;
+  /** Delete every object under a key prefix (no-op if none) — e.g. an unpacked web build. */
+  removePrefix(prefix: string): Promise<void>;
   /** Liveness check for /health (e.g. HEAD the bucket). */
   healthCheck(): Promise<void>;
 }

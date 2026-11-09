@@ -1,5 +1,6 @@
 import { createZodDto } from 'nestjs-zod';
 import { z } from 'zod';
+import { playLinkSchema } from '../../builds/dto/build.dto';
 import { gameSchema, platformValues } from '../../games/dto/game.dto';
 import { playbackUrlResponseSchema } from '../../media/dto/media.dto';
 import { testModelKeyValues } from '../../test-models/dto/test-model.dto';
@@ -102,6 +103,8 @@ export const sessionGameplaySchema = z.object({
   game: gameSchema,
   heartbeatIntervalMs: z.number().int(),
   recordingRequired: z.boolean(),
+  /** Web build the player runs right on the page; `null` = downloaded build (or session over). */
+  play: playLinkSchema.nullable(),
 });
 
 export const answerInputSchema = z.object({

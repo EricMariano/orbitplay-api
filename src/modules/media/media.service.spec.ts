@@ -107,6 +107,7 @@ describe('MediaService', () => {
       stat: vi.fn(),
       getObjectStream: vi.fn(),
       remove: vi.fn().mockResolvedValue(undefined),
+      removePrefix: vi.fn().mockResolvedValue(undefined),
       healthCheck: vi.fn(),
     };
     pendingUploads = 1;

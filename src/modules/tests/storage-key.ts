@@ -33,6 +33,14 @@ export function validatedBuildStorageKey(
 }
 
 /**
+ * Folder the worker unpacks a validated web build into, served to the player's
+ * sandboxed iframe. Like the validated copy, only the worker ever writes here.
+ */
+export function webBuildPrefix(organizationId: string, testId: string, buildId: string): string {
+  return `orgs/${organizationId}/tests/${testId}/builds/${buildId}/web/`;
+}
+
+/**
  * Every object a build may own: whatever its row points at, the client's
  * upload (it can be re-PUT while its URL lives, even after the worker removed
  * it) and the validated copy. Removing an absent key is a no-op.

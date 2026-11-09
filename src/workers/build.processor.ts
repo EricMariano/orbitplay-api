@@ -1,7 +1,13 @@
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { buildValidationSteps, builds, type BuildRow } from '../infra/database/schema/tests';
-import { validatedBuildStorageKey } from '../modules/tests/storage-key';
+import {
+  contentTypeFor,
+  extractWebBuild,
+  inspectWebBuild,
+  WEB_BUILD_MAX_ZIP_BYTES,
+} from '../modules/builds/web-build';
+import { validatedBuildStorageKey, webBuildPrefix } from '../modules/tests/storage-key';
 import type { ScanResult } from '../shared/ports/malware-scanner.port';
 import type { StorageObjectMeta } from '../shared/ports/storage.port';
 import type { WorkerDeps } from './deps';
@@ -114,12 +120,25 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
     );
     return;
   }
+  // A web zip also has to be playable in the browser: checked here, on the
+  // validated copy, but only unpacked after the malware scan approves it.
+  let web: WebBuildPlan | null = null;
+  if (build.platform === 'web' && ext === 'zip') {
+    const planned = await planWebBuild(deps, validatedKey, meta.sizeBytes);
+    if (!planned.ok) {
+      await fail(deps, buildId, 'metadata', planned.reason);
+      return;
+    }
+    web = planned;
+  }
   await setStep(
     deps,
     buildId,
     'metadata',
     'ready',
-    `Formato .${ext} confirmado por assinatura binária`,
+    web
+      ? `Formato .${ext} confirmado por assinatura binária; build web com ${web.fileCount} ${web.fileCount === 1 ? 'arquivo' : 'arquivos'}`
+      : `Formato .${ext} confirmado por assinatura binária`,
   );
 
   let scan: ScanResult;
@@ -142,6 +161,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
         'ready',
         `Nenhuma ameaça encontrada (${scan.engine}, assinaturas ${scan.signatures})`,
       );
+      if (web) await publishWebBuild(deps, build, web);
       await approve(deps, build, validatedKey, meta.sizeBytes);
       return;
     case 'skipped':
@@ -152,6 +172,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
         'ready',
         'Verificação de malware PULADA (BUILD_MALWARE_SCAN_BYPASS, só em desenvolvimento)',
       );
+      if (web) await publishWebBuild(deps, build, web);
       await approve(deps, build, validatedKey, meta.sizeBytes);
       return;
     case 'infected':
@@ -221,6 +242,61 @@ async function approve(
   }
   if (updated.length === 0) {
     await deps.storage.remove(validatedKey).catch(() => undefined);
+    await deps.storage
+      .removePrefix(webBuildPrefix(build.organizationId, build.testId, build.id))
+      .catch(() => undefined);
+  }
+}
+
+type WebBuildPlan = { zip: Uint8Array; root: string; fileCount: number };
+
+/** Reads the validated copy (bounded) and checks it can run in the browser. */
+async function planWebBuild(
+  deps: WorkerDeps,
+  validatedKey: string,
+  sizeBytes: number,
+): Promise<({ ok: true } & WebBuildPlan) | { ok: false; reason: string }> {
+  if (sizeBytes > WEB_BUILD_MAX_ZIP_BYTES) {
+    return { ok: false, reason: 'Build web grande demais para rodar no navegador (máx. 200 MB)' };
+  }
+  const chunks: Buffer[] = [];
+  for await (const chunk of await deps.storage.getObjectStream(validatedKey)) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+  const zip = new Uint8Array(Buffer.concat(chunks));
+  const inspection = inspectWebBuild(zip);
+  if (!inspection.ok) return inspection;
+  return { ok: true, zip, root: inspection.root, fileCount: inspection.fileCount };
+}
+
+const WEB_UPLOAD_CONCURRENCY = 8;
+
+/**
+ * Unpacks the scanned zip under `webBuildPrefix`, before the build is
+ * approved — so a `validated` web build always has its files in place. Any
+ * leftovers from an earlier run go first; a storage error throws so the job
+ * is retried, like a scanner outage.
+ */
+async function publishWebBuild(
+  deps: WorkerDeps,
+  build: BuildRow,
+  web: WebBuildPlan,
+): Promise<void> {
+  const prefix = webBuildPrefix(build.organizationId, build.testId, build.id);
+  const files = extractWebBuild(web.zip, web.root);
+  await deps.storage.removePrefix(prefix);
+  for (let i = 0; i < files.length; i += WEB_UPLOAD_CONCURRENCY) {
+    await Promise.all(
+      files
+        .slice(i, i + WEB_UPLOAD_CONCURRENCY)
+        .map((file) =>
+          deps.storage.putObject(
+            prefix + file.path,
+            Buffer.from(file.bytes),
+            contentTypeFor(file.path),
+          ),
+        ),
+    );
   }
 }
 

@@ -6,6 +6,7 @@ import { AppException } from '../../shared/errors/app.exception';
 import { QUEUE_PORT, type QueuePort } from '../../shared/ports/queue.port';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
 import { BuildsRepository } from '../builds/builds.repository';
+import { BuildsService } from '../builds/builds.service';
 import { GamesService } from '../games/games.service';
 import type { ConsentKind } from './dto/consent.dto';
 import type {
@@ -47,6 +48,7 @@ export class SessionsService {
   constructor(
     private readonly repo: ParticipationsRepository,
     private readonly builds: BuildsRepository,
+    private readonly buildsService: BuildsService,
     private readonly games: GamesService,
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
@@ -218,9 +220,10 @@ export class SessionsService {
       this.repo.findSessionValidation(sessionId),
     ]);
     const tutorial = tutorialForModel(test.modelKey);
+    const view = this.toSessionView(session, validation);
 
     return {
-      session: this.toSessionView(session, validation),
+      session: view,
       test: {
         id: test.id,
         gameId: test.gameId,
@@ -233,6 +236,8 @@ export class SessionsService {
       game,
       heartbeatIntervalMs: HEARTBEAT_INTERVAL_MS,
       recordingRequired: tutorial.requiredConsents.includes('screen_recording'),
+      // Only while the session runs: a finished session has nothing left to play.
+      play: view.status === 'active' ? await this.buildsService.playLinkForTest(test.id) : null,
     };
   }
 

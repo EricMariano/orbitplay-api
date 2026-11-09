@@ -1,7 +1,12 @@
 import { Readable } from 'node:stream';
+import { strToU8, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { builds, buildValidationSteps, type BuildRow } from '../infra/database/schema/tests';
-import { buildBuildStorageKey, validatedBuildStorageKey } from '../modules/tests/storage-key';
+import {
+  buildBuildStorageKey,
+  validatedBuildStorageKey,
+  webBuildPrefix,
+} from '../modules/tests/storage-key';
 import type { MalwareScannerPort, ScanResult } from '../shared/ports/malware-scanner.port';
 import type { StoragePort } from '../shared/ports/storage.port';
 import { processBuildValidate } from './build.processor';
@@ -63,6 +68,7 @@ function makeMemoryStorage(initial: Record<string, Buffer>) {
   const copies: [string, string][] = [];
   const reads: string[] = [];
   const removed: string[] = [];
+  const contentTypes = new Map<string, string>();
   const storage: Partial<StoragePort> = {
     stat: async (key) => {
       const body = objects.get(key);
@@ -84,8 +90,16 @@ function makeMemoryStorage(initial: Record<string, Buffer>) {
       objects.delete(key);
       removed.push(key);
     },
+    removePrefix: async (prefix) => {
+      for (const key of [...objects.keys()]) if (key.startsWith(prefix)) objects.delete(key);
+      removed.push(`${prefix}*`);
+    },
+    putObject: async (key, body, contentType) => {
+      objects.set(key, Buffer.from(body));
+      contentTypes.set(key, contentType);
+    },
   };
-  return { storage, objects, copies, reads, removed };
+  return { storage, objects, copies, reads, removed, contentTypes };
 }
 
 async function readAll(stream: Readable): Promise<Buffer> {
@@ -281,5 +295,97 @@ describe('processBuildValidate', () => {
     await processBuildValidate(deps, BUILD_ID);
 
     expect(buildUpdates.at(-1)).toMatchObject({ status: 'failed' });
+  });
+
+  describe('web builds', () => {
+    const ZIP_UPLOAD_KEY = buildBuildStorageKey(ORG_ID, TEST_ID, BUILD_ID, 'game.zip');
+    const ZIP_VALIDATED_KEY = validatedBuildStorageKey(ORG_ID, TEST_ID, BUILD_ID, 'game.zip');
+    const WEB_PREFIX = webBuildPrefix(ORG_ID, TEST_ID, BUILD_ID);
+    const webRow: Partial<BuildRow> = {
+      fileName: 'game.zip',
+      storageKey: ZIP_UPLOAD_KEY,
+      platform: 'web',
+    };
+    const zip = (files: Record<string, string>) =>
+      Buffer.from(
+        zipSync(Object.fromEntries(Object.entries(files).map(([k, v]) => [k, strToU8(v)]))),
+      );
+
+    it('unpacks the build under its web folder before approving it', async () => {
+      const { deps, objects, contentTypes, buildUpdates, stepUpdates } = makeDeps(CLEAN, {
+        row: webRow,
+        objects: {
+          [ZIP_UPLOAD_KEY]: zip({
+            'index.html': '<html></html>',
+            'js/game.js': 'run()',
+            '__MACOSX/._index.html': 'junk',
+          }),
+        },
+      });
+
+      await processBuildValidate(deps, BUILD_ID);
+
+      expect(objects.get(`${WEB_PREFIX}index.html`)?.toString()).toBe('<html></html>');
+      expect(objects.get(`${WEB_PREFIX}js/game.js`)?.toString()).toBe('run()');
+      expect(contentTypes.get(`${WEB_PREFIX}js/game.js`)).toBe('text/javascript; charset=utf-8');
+      expect([...objects.keys()].some((k) => k.includes('__MACOSX'))).toBe(false);
+      expect(stepUpdates).toContainEqual(
+        expect.objectContaining({ message: expect.stringContaining('build web com 2 arquivos') }),
+      );
+      expect(buildUpdates.at(-1)).toMatchObject({
+        status: 'validated',
+        storageKey: ZIP_VALIDATED_KEY,
+      });
+    });
+
+    it('re-roots a zip whose files sit inside one top-level folder', async () => {
+      const { deps, objects } = makeDeps(CLEAN, {
+        row: webRow,
+        objects: { [ZIP_UPLOAD_KEY]: zip({ 'meu-jogo/index.html': 'ok', 'meu-jogo/a.css': '' }) },
+      });
+
+      await processBuildValidate(deps, BUILD_ID);
+
+      expect(objects.has(`${WEB_PREFIX}index.html`)).toBe(true);
+      expect(objects.has(`${WEB_PREFIX}a.css`)).toBe(true);
+    });
+
+    it('fails the build when the zip has no index.html to open', async () => {
+      const { deps, objects, buildUpdates } = makeDeps(CLEAN, {
+        row: webRow,
+        objects: { [ZIP_UPLOAD_KEY]: zip({ 'game.exe': 'MZ' }) },
+      });
+
+      await processBuildValidate(deps, BUILD_ID);
+
+      expect(buildUpdates.at(-1)).toMatchObject({
+        status: 'failed',
+        failureReason: expect.stringContaining('index.html'),
+      });
+      expect([...objects.keys()].some((k) => k.startsWith(WEB_PREFIX))).toBe(false);
+    });
+
+    it('unpacks nothing when the scan finds a threat', async () => {
+      const { deps, objects } = makeDeps(
+        { verdict: 'infected', engine: 'ClamAV', signatures: '1', threat: 'Js.Test' },
+        { row: webRow, objects: { [ZIP_UPLOAD_KEY]: zip({ 'index.html': 'x' }) } },
+      );
+
+      await processBuildValidate(deps, BUILD_ID);
+
+      expect([...objects.keys()].some((k) => k.startsWith(WEB_PREFIX))).toBe(false);
+    });
+
+    it('leaves non-web zips alone', async () => {
+      const { deps, objects, buildUpdates } = makeDeps(CLEAN, {
+        row: { ...webRow, platform: 'windows' },
+        objects: { [ZIP_UPLOAD_KEY]: zip({ 'game.exe': 'MZ' }) },
+      });
+
+      await processBuildValidate(deps, BUILD_ID);
+
+      expect(buildUpdates.at(-1)).toMatchObject({ status: 'validated' });
+      expect([...objects.keys()].some((k) => k.startsWith(WEB_PREFIX))).toBe(false);
+    });
   });
 });

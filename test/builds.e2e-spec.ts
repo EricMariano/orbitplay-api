@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Worker } from 'bullmq';
+import { strToU8, zipSync } from 'fflate';
 import postgres from 'postgres';
 import request from 'supertest';
 import { v7 as uuidv7 } from 'uuid';
@@ -59,6 +60,7 @@ async function uploadAndConfirmBuild(
   testId: string,
   platform: string,
   version: string,
+  bytes: Buffer = BUILD_BYTES,
 ): Promise<{ uploadUrl: string; storageKey: string }> {
   const uploadUrl = await request(app.getHttpServer())
     .post(`/tests/${testId}/build/upload-url`)
@@ -66,13 +68,13 @@ async function uploadAndConfirmBuild(
     .send({
       fileName: 'game.zip',
       contentType: 'application/zip',
-      sizeBytes: BUILD_BYTES.length,
+      sizeBytes: bytes.length,
       platform,
     });
   await fetch(uploadUrl.body.uploadUrl as string, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/zip' },
-    body: BUILD_BYTES,
+    body: bytes,
   });
   const confirm = await request(app.getHttpServer())
     .post(`/tests/${testId}/build`)
@@ -393,5 +395,84 @@ describe('Builds — M6 (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`);
     expect(sameOrgDownload.status).toBe(409);
     expect(sameOrgDownload.body.message).toBe(threat);
+  });
+
+  it('runs a validated web build in the browser: gameplay hands out a signed play link', async () => {
+    const testId = await createDraftTest(app, studioToken);
+    const webZip = Buffer.from(
+      zipSync({
+        'jogo/index.html': strToU8('<!doctype html><script src="js/game.js"></script>'),
+        'jogo/js/game.js': strToU8('console.log("oi")'),
+      }),
+    );
+    await uploadAndConfirmBuild(app, studioToken, testId, 'web', '1.0.0', webZip);
+    const buildId = await waitForBuildId(app, studioToken, testId);
+    const build = await request(app.getHttpServer())
+      .get(`/builds/${buildId}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(build.body.status).toBe('validated');
+
+    const participationId = uuidv7();
+    const sessionId = uuidv7();
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${participationId}, ${testId}, ${playerId}, 'ready')`;
+    await sql`
+      INSERT INTO sessions (id, participation_id, test_id, organization_id, status)
+      SELECT ${sessionId}, ${participationId}, id, organization_id, 'recording'
+      FROM tests WHERE id = ${testId}`;
+
+    const gameplay = await request(app.getHttpServer())
+      .get(`/sessions/${sessionId}/gameplay`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(gameplay.status).toBe(200);
+    const path = gameplay.body.play?.path as string;
+    expect(path).toMatch(new RegExp(`^/builds/${buildId}/play/[^/]+/index\\.html$`));
+
+    // No bearer: the iframe can't send one — the token in the path is the gate.
+    const page = await request(app.getHttpServer()).get(path);
+    expect(page.status).toBe(200);
+    expect(page.headers['content-type']).toBe('text/html; charset=utf-8');
+    expect(page.text).toContain('js/game.js');
+    expect(page.headers['content-security-policy']).toMatch(/^sandbox allow-scripts/);
+    expect(page.headers['content-security-policy']).toContain('frame-ancestors');
+    expect(page.headers['cross-origin-resource-policy']).toBe('cross-origin');
+    expect(page.headers['x-frame-options']).toBeUndefined();
+
+    const asset = await request(app.getHttpServer()).get(path.replace('index.html', 'js/game.js'));
+    expect(asset.status).toBe(200);
+    expect(asset.text).toBe('console.log("oi")');
+
+    const base = path.replace(/\/index\.html$/, '');
+    const forged = base.replace(/\.[^./]+$/, '.forged');
+    for (const url of [
+      `${forged}/index.html`,
+      `${base}/missing.js`,
+      `${base}/..%2F..%2Fvalidated%2Fgame.zip`,
+      `/builds/${uuidv7()}${base.slice(base.indexOf('/play/'))}/index.html`,
+    ]) {
+      const res = await request(app.getHttpServer()).get(url);
+      expect(res.status, url).toBe(404);
+    }
+
+    // Once the session is over there is nothing left to play.
+    await sql`UPDATE sessions SET status = 'completed' WHERE id = ${sessionId}`;
+    const over = await request(app.getHttpServer())
+      .get(`/sessions/${sessionId}/gameplay`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(over.body.play).toBeNull();
+  });
+
+  it('fails a web build whose zip has no index.html', async () => {
+    const testId = await createDraftTest(app, studioToken);
+    const zip = Buffer.from(zipSync({ 'game.exe': strToU8('MZ') }));
+    await uploadAndConfirmBuild(app, studioToken, testId, 'web', '1.0.0', zip);
+    await waitForBuildId(app, studioToken, testId);
+
+    const build = await request(app.getHttpServer())
+      .get(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(build.body.status).toBe('failed');
+    expect(build.body.failureReason).toContain('index.html');
   });
 });

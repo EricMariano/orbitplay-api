@@ -3,6 +3,7 @@ import type { ReportSnapshotCache } from '../../infra/database/report-snapshot-c
 import type { SessionRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
 import type { BuildsRepository } from '../builds/builds.repository';
+import type { BuildsService } from '../builds/builds.service';
 import type { GamesService } from '../games/games.service';
 import { SessionsService } from './sessions.service';
 import type { ParticipationsRepository } from './participations.repository';
@@ -64,6 +65,7 @@ function makeBuildWithSteps(status: 'validated' | 'processing' | 'failed' = 'val
 describe('SessionsService', () => {
   let repo: Record<string, ReturnType<typeof vi.fn>>;
   let builds: { findLatestBuild: ReturnType<typeof vi.fn> };
+  let buildsService: { playLinkForTest: ReturnType<typeof vi.fn> };
   let games: { getAnyOrg: ReturnType<typeof vi.fn> };
   let queue: { ensureEnqueued: ReturnType<typeof vi.fn> };
   let storage: { createDownloadUrl: ReturnType<typeof vi.fn> };
@@ -88,6 +90,7 @@ describe('SessionsService', () => {
       insertFormResponse: vi.fn(),
     };
     builds = { findLatestBuild: vi.fn() };
+    buildsService = { playLinkForTest: vi.fn().mockResolvedValue(null) };
     games = { getAnyOrg: vi.fn() };
     queue = { ensureEnqueued: vi.fn().mockResolvedValue(undefined) };
     storage = { createDownloadUrl: vi.fn().mockResolvedValue('https://signed') };
@@ -96,6 +99,7 @@ describe('SessionsService', () => {
     service = new SessionsService(
       repo as unknown as ParticipationsRepository,
       builds as unknown as BuildsRepository,
+      buildsService as unknown as BuildsService,
       games as unknown as GamesService,
       queue as never,
       storage as never,

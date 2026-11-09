@@ -1,14 +1,20 @@
+import type { ConfigService } from '@nestjs/config';
+import { Readable } from 'node:stream';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BuildRow } from '../../infra/database/schema/tests';
 import type { StoragePort } from '../../shared/ports/storage.port';
 import type { BuildsRepository } from './builds.repository';
 import { BuildsService } from './builds.service';
+import { signPlayToken } from './web-build';
 
 const STUDIO_ORG = '01990000-0000-7000-8000-0000000000a1';
 const OTHER_ORG = '01990000-0000-7000-8000-0000000000a2';
 const TEST_ID = '01990000-0000-7000-8000-0000000000c1';
 const BUILD_ID = '01990000-0000-7000-8000-0000000000d1';
+const OTHER_BUILD_ID = '01990000-0000-7000-8000-0000000000d2';
 const USER_ID = '01990000-0000-7000-8000-0000000000e1';
+const SECRET = 'test-access-secret';
+const WEB_PREFIX = `orgs/${STUDIO_ORG}/tests/${TEST_ID}/builds/${BUILD_ID}/web/`;
 const THREAT = 'Ameaça detectada: Win.Test.EICAR_HDB-1';
 
 function makeBuild(overrides: Partial<BuildRow> = {}): BuildRow {
@@ -35,20 +41,34 @@ function makeBuild(overrides: Partial<BuildRow> = {}): BuildRow {
 describe('BuildsService', () => {
   let repo: {
     findByIdAnyOrg: ReturnType<typeof vi.fn>;
+    findLatestBuild: ReturnType<typeof vi.fn>;
     hasActiveParticipation: ReturnType<typeof vi.fn>;
   };
-  let storage: { createDownloadUrl: ReturnType<typeof vi.fn> };
+  let storage: {
+    createDownloadUrl: ReturnType<typeof vi.fn>;
+    exists: ReturnType<typeof vi.fn>;
+    stat: ReturnType<typeof vi.fn>;
+    getObjectStream: ReturnType<typeof vi.fn>;
+  };
+  const config = { get: (key: string) => (key === 'jwt.accessSecret' ? SECRET : undefined) };
   let service: BuildsService;
 
   beforeEach(() => {
     repo = {
       findByIdAnyOrg: vi.fn().mockResolvedValue(makeBuild()),
+      findLatestBuild: vi.fn().mockResolvedValue({ build: makeBuild(), steps: [] }),
       hasActiveParticipation: vi.fn().mockResolvedValue(true),
     };
-    storage = { createDownloadUrl: vi.fn().mockResolvedValue('https://minio.local/get') };
+    storage = {
+      createDownloadUrl: vi.fn().mockResolvedValue('https://minio.local/get'),
+      exists: vi.fn().mockResolvedValue(true),
+      stat: vi.fn().mockResolvedValue({ sizeBytes: 12 }),
+      getObjectStream: vi.fn().mockResolvedValue(Readable.from([Buffer.from('<html></html>')])),
+    };
     service = new BuildsService(
       repo as unknown as BuildsRepository,
       storage as unknown as StoragePort,
+      config as unknown as ConfigService,
     );
   });
 
@@ -110,6 +130,96 @@ describe('BuildsService', () => {
 
       expect(result).toMatchObject({ needsDownload: true, downloadUrl: 'https://minio.local/get' });
       expect(storage.createDownloadUrl).toHaveBeenCalledWith(makeBuild().storageKey, 900);
+    });
+  });
+  describe('playLinkForTest', () => {
+    it('signs a link to index.html for a validated, unpacked web build', async () => {
+      repo.findLatestBuild.mockResolvedValue({ build: makeBuild({ platform: 'web' }), steps: [] });
+
+      const link = await service.playLinkForTest(TEST_ID);
+
+      expect(storage.exists).toHaveBeenCalledWith(`${WEB_PREFIX}index.html`);
+      expect(link?.path).toMatch(
+        new RegExp(`^/builds/${BUILD_ID}/play/\\d+\\.[\\w-]+/index\\.html$`),
+      );
+      expect(new Date(link!.expiresAt).getTime()).toBeGreaterThan(Date.now());
+    });
+
+    it('is null for builds the player downloads instead', async () => {
+      expect(await service.playLinkForTest(TEST_ID)).toBeNull(); // windows
+
+      repo.findLatestBuild.mockResolvedValue({
+        build: makeBuild({ platform: 'web', status: 'processing' }),
+        steps: [],
+      });
+      expect(await service.playLinkForTest(TEST_ID)).toBeNull();
+
+      repo.findLatestBuild.mockResolvedValue({ build: makeBuild({ platform: 'web' }), steps: [] });
+      storage.exists.mockResolvedValue(false); // validated before web builds were unpacked
+      expect(await service.playLinkForTest(TEST_ID)).toBeNull();
+    });
+  });
+
+  describe('openPlayFile', () => {
+    beforeEach(() => {
+      repo.findByIdAnyOrg.mockResolvedValue(makeBuild({ platform: 'web' }));
+    });
+
+    it('streams the file under the build folder with its content type', async () => {
+      const { token } = signPlayToken(SECRET, BUILD_ID);
+
+      const file = await service.openPlayFile(BUILD_ID, token, 'assets/app.js');
+
+      expect(storage.stat).toHaveBeenCalledWith(`${WEB_PREFIX}assets/app.js`);
+      expect(file.contentType).toBe('text/javascript; charset=utf-8');
+      expect(file.sizeBytes).toBe(12);
+    });
+
+    it('serves index.html for a folder path', async () => {
+      const { token } = signPlayToken(SECRET, BUILD_ID);
+
+      await service.openPlayFile(BUILD_ID, token, 'levels/');
+
+      expect(storage.stat).toHaveBeenCalledWith(`${WEB_PREFIX}levels/index.html`);
+    });
+
+    it.each([
+      ['a token signed for another build', () => signPlayToken(SECRET, OTHER_BUILD_ID).token],
+      ['an expired token', () => signPlayToken(SECRET, BUILD_ID, Date.now() - 5 * 3600_000).token],
+      ['a token signed with another secret', () => signPlayToken('other', BUILD_ID).token],
+      ['garbage', () => 'not-a-token'],
+    ])('is a 404 for %s, without touching storage', async (_label, token) => {
+      await expect(service.openPlayFile(BUILD_ID, token(), 'index.html')).rejects.toMatchObject({
+        status: 404,
+      });
+      expect(storage.stat).not.toHaveBeenCalled();
+    });
+
+    it('is a 404 for a path that climbs out of the build folder', async () => {
+      const { token } = signPlayToken(SECRET, BUILD_ID);
+
+      await expect(
+        service.openPlayFile(BUILD_ID, token, '../validated/game.zip'),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(storage.stat).not.toHaveBeenCalled();
+    });
+
+    it('is a 404 once the build is no longer a validated web build', async () => {
+      const { token } = signPlayToken(SECRET, BUILD_ID);
+      repo.findByIdAnyOrg.mockResolvedValue(makeBuild({ platform: 'web', status: 'failed' }));
+
+      await expect(service.openPlayFile(BUILD_ID, token, 'index.html')).rejects.toMatchObject({
+        status: 404,
+      });
+    });
+
+    it('is a 404 for a file the build does not have', async () => {
+      const { token } = signPlayToken(SECRET, BUILD_ID);
+      storage.stat.mockResolvedValue(null);
+
+      await expect(service.openPlayFile(BUILD_ID, token, 'missing.js')).rejects.toMatchObject({
+        status: 404,
+      });
     });
   });
 });

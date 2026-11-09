@@ -13,7 +13,7 @@ import type { BuildWithSteps, BuildsRepository } from '../builds/builds.reposito
 import { GamesService } from '../games/games.service';
 import { TestModelsService } from '../test-models/test-models.service';
 import { MAX_BUILD_BYTES } from './dto/test.dto';
-import { buildBuildStorageKey, validatedBuildStorageKey } from './storage-key';
+import { buildBuildStorageKey, validatedBuildStorageKey, webBuildPrefix } from './storage-key';
 import { TestsService } from './tests.service';
 import type { TestsRepository } from './tests.repository';
 import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
@@ -143,6 +143,7 @@ describe('TestsService', () => {
     exists: ReturnType<typeof vi.fn>;
     stat: ReturnType<typeof vi.fn>;
     remove: ReturnType<typeof vi.fn>;
+    removePrefix: ReturnType<typeof vi.fn>;
     healthCheck: ReturnType<typeof vi.fn>;
   };
   let queue: { ensureEnqueued: ReturnType<typeof vi.fn>; healthCheck: ReturnType<typeof vi.fn> };
@@ -192,6 +193,7 @@ describe('TestsService', () => {
       exists: vi.fn(),
       stat: vi.fn(),
       remove: vi.fn().mockResolvedValue(undefined),
+      removePrefix: vi.fn().mockResolvedValue(undefined),
       healthCheck: vi.fn(),
     };
     queue = {
@@ -737,12 +739,15 @@ describe('TestsService', () => {
       expect(removed.sort()).toEqual(
         [copyKey, buildBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip')].sort(),
       );
+      // …and the unpacked web build, if it had one.
+      expect(storage.removePrefix).toHaveBeenCalledWith(webBuildPrefix(ORG, TEST_ID, BUILD_ID));
     });
 
     it('still succeeds when storage cleanup fails (best-effort)', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
       buildsRepo.findLatestBuild.mockResolvedValue({ build: makeBuild(), steps: makeSteps() });
       storage.remove.mockRejectedValue(new Error('minio down'));
+      storage.removePrefix.mockRejectedValue(new Error('minio down'));
 
       await expect(service.deleteBuild(ORG, TEST_ID, req)).resolves.toBeUndefined();
       expect(buildsRepo.deleteBuild).toHaveBeenCalledWith(BUILD_ID, undefined);

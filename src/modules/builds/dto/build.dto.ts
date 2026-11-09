@@ -38,6 +38,15 @@ export const downloadUrlResponseSchema = z.object({
   supportsRange: z.boolean(),
 });
 
+/**
+ * Where the player's sandboxed iframe loads a web build from. `path` is
+ * relative to the API base URL and already carries the short-lived token.
+ */
+export const playLinkSchema = z.object({
+  path: z.string(),
+  expiresAt: z.string(),
+});
+
 export class CompatibilityQueryDto extends createZodDto(compatibilityQuerySchema) {}
 export class CompatibilityReportDto extends createZodDto(compatibilityReportSchema) {}
 export class DownloadUrlQueryDto extends createZodDto(downloadUrlQuerySchema) {}
@@ -47,3 +56,4 @@ export type CompatibilityQuery = z.infer<typeof compatibilityQuerySchema>;
 export type CompatibilityReport = z.infer<typeof compatibilityReportSchema>;
 export type DownloadUrlQuery = z.infer<typeof downloadUrlQuerySchema>;
 export type DownloadUrlResponse = z.infer<typeof downloadUrlResponseSchema>;
+export type PlayLink = z.infer<typeof playLinkSchema>;

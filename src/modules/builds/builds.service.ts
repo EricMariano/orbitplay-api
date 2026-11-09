@@ -1,7 +1,10 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import type { Readable } from 'node:stream';
 import type { BuildRow } from '../../infra/database/schema/tests';
 import { AppException } from '../../shared/errors/app.exception';
 import { STORAGE_PORT, type StoragePort } from '../../shared/ports/storage.port';
+import { webBuildPrefix } from '../tests/storage-key';
 import type { BuildView } from '../tests/dto/test.dto';
 import { toBuildView } from './build-view.mapper';
 import { BuildsRepository } from './builds.repository';
@@ -11,13 +14,28 @@ import {
   type CompatibilityReport,
   type DownloadUrlQuery,
   type DownloadUrlResponse,
+  type PlayLink,
 } from './dto/build.dto';
+import {
+  contentTypeFor,
+  normalizeWebPath,
+  signPlayToken,
+  verifyPlayToken,
+  WEB_BUILD_ENTRY_FILE,
+} from './web-build';
+
+export interface PlayFile {
+  stream: Readable;
+  contentType: string;
+  sizeBytes: number;
+}
 
 @Injectable()
 export class BuildsService {
   constructor(
     private readonly repo: BuildsRepository,
     @Inject(STORAGE_PORT) private readonly storage: StoragePort,
+    private readonly config: ConfigService,
   ) {}
 
   async get(organizationId: string, id: string): Promise<BuildView> {
@@ -103,6 +121,52 @@ export class BuildsService {
       sizeBytes: build.sizeBytes,
       supportsRange: true,
     };
+  }
+
+  /**
+   * Play link for the test's current build when it runs in the browser:
+   * a validated `web` build whose files the worker unpacked. `null` for every
+   * other build (the player downloads those). The caller already checked the
+   * player may play this test (an active session of theirs).
+   */
+  async playLinkForTest(testId: string): Promise<PlayLink | null> {
+    const latest = await this.repo.findLatestBuild(testId);
+    const build = latest?.build;
+    if (!build || build.status !== 'validated' || build.platform !== 'web') return null;
+    const prefix = webBuildPrefix(build.organizationId, build.testId, build.id);
+    if (!(await this.storage.exists(prefix + WEB_BUILD_ENTRY_FILE))) return null;
+    const { token, expiresAt } = signPlayToken(this.playSecret(), build.id);
+    return {
+      path: `/builds/${build.id}/play/${token}/${WEB_BUILD_ENTRY_FILE}`,
+      expiresAt: expiresAt.toISOString(),
+    };
+  }
+
+  /**
+   * One file of an unpacked web build, for the sandboxed iframe. Anything off
+   * — bad/expired token, unknown or no-longer-valid build, path outside the
+   * build — is the same `404`, so the route reveals nothing.
+   */
+  async openPlayFile(id: string, token: string, rawPath: string): Promise<PlayFile> {
+    if (!verifyPlayToken(this.playSecret(), id, token)) throw AppException.notFound();
+    const path = normalizeWebPath(rawPath.endsWith('/') ? rawPath + WEB_BUILD_ENTRY_FILE : rawPath);
+    if (!path) throw AppException.notFound();
+    const build = await this.repo.findByIdAnyOrg(id);
+    if (!build || build.status !== 'validated' || build.platform !== 'web') {
+      throw AppException.notFound();
+    }
+    const key = webBuildPrefix(build.organizationId, build.testId, build.id) + path;
+    const meta = await this.storage.stat(key);
+    if (!meta) throw AppException.notFound();
+    return {
+      stream: await this.storage.getObjectStream(key),
+      contentType: contentTypeFor(path),
+      sizeBytes: meta.sizeBytes,
+    };
+  }
+
+  private playSecret(): string {
+    return this.config.get<string>('jwt.accessSecret')!;
   }
 
   private async findAnyOrgOrThrow(id: string): Promise<BuildRow> {

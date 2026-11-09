@@ -36,7 +36,12 @@ import {
   type BuildUploadUrlResponse,
   type WizardStepValue,
 } from './dto/test.dto';
-import { buildBuildStorageKey, buildObjectKeys, parseBuildStorageKey } from './storage-key';
+import {
+  buildBuildStorageKey,
+  buildObjectKeys,
+  parseBuildStorageKey,
+  webBuildPrefix,
+} from './storage-key';
 import { type FormQuestionWithOptions, TestsRepository } from './tests.repository';
 
 const BUILD_STEP_KEYS = ['checksum', 'malware_scan', 'metadata'] as const;
@@ -609,7 +614,12 @@ export class TestsService {
    */
   private async removeBuildObjects(build: BuildRow, keep?: string): Promise<void> {
     const keys = buildObjectKeys(build).filter((key) => key !== keep);
-    await Promise.all(keys.map((key) => this.storage.remove(key).catch(() => undefined)));
+    await Promise.all([
+      ...keys.map((key) => this.storage.remove(key).catch(() => undefined)),
+      this.storage
+        .removePrefix(webBuildPrefix(build.organizationId, build.testId, build.id))
+        .catch(() => undefined),
+    ]);
   }
 
   private pendingValidationsFor(test: TestRow, deps: TestViewDeps): PendingValidationView[] {
