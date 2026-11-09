@@ -60,13 +60,18 @@ export async function createE2EApp(options: E2EAppOptions = {}): Promise<INestAp
     app.useWebSocketAdapter(adapter);
   }
 
-  await app.init();
+  // Listen once on an IPv4 loopback port instead of letting supertest call
+  // `listen(0)` per request: that binds `::`, and on macOS the kernel may hand
+  // out a port another process already holds on 127.0.0.1 — supertest then
+  // dials 127.0.0.1:<port>, reaches that process and gets "socket hang up".
+  // Binding 127.0.0.1 itself only yields ports free on that address, and
+  // supertest reuses an already-listening server as is.
+  await app.listen(0, '127.0.0.1');
   return app;
 }
 
-/** Starts listening on a free port and returns it — sockets need a real port. */
+/** Returns the app's TCP port — sockets need a real port. */
 export async function listenOnRandomPort(app: INestApplication): Promise<number> {
-  await app.listen(0);
   const address = (app.getHttpServer() as Server).address();
   if (!address || typeof address === 'string') throw new Error('Servidor sem porta TCP');
   return address.port;

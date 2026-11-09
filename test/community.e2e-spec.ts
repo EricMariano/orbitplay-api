@@ -1,8 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
 import postgres from 'postgres';
 import request from 'supertest';
+import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GAME_IDS, ORG_ID, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
+import { GAME_IDS, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
 import { createE2EApp } from './helpers/e2e-app';
 import { TEST_DATABASE_URL } from './helpers/test-db';
 
@@ -186,9 +187,40 @@ describe('Community & reviews (e2e)', () => {
   });
 
   describe('game reviews', () => {
+    // A dedicated, freshly-signed-up player (not `SEED_EMAILS.player`): review
+    // eligibility is "any valid session of any test of the game", and other
+    // specs (e.g. participations' GET /player/home) leave a valid session of
+    // the seeded player on a seeded game in the shared test database — which
+    // made the 403 below pass or fail depending on file order.
+    let reviewerToken: string;
+    // Its own `active` game, in the rival org: the seeded GAME_IDS.two is a
+    // draft (its community answers 404 outside the owning org), and a review on
+    // a seed-org game would leak into other specs' GameMetrics.
+    let reviewGameId: string;
+
+    beforeAll(async () => {
+      const game = await request(app.getHttpServer())
+        .post('/games')
+        .set('Authorization', `Bearer ${rivalOwnerToken}`)
+        .send({ title: `Community Reviews ${uuidv7()}`, status: 'active' });
+      expect(game.status).toBe(201);
+      reviewGameId = game.body.id as string;
+
+      const res = await request(app.getHttpServer())
+        .post('/auth/signup/player')
+        .send({
+          displayName: 'Community E2E Reviewer',
+          email: `community-e2e-${uuidv7()}@orbitplay.test`,
+          password: 'Community@Test123',
+          birthdate: '1995-06-15',
+        });
+      expect(res.status).toBe(201);
+      reviewerToken = res.body.accessToken as string;
+    });
+
     it('starts with no reviews and a null average', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/games/${GAME_IDS.two}/reviews`)
+        .get(`/games/${reviewGameId}/reviews`)
         .set('Authorization', `Bearer ${studioToken}`);
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ data: [], averageRating: null });
@@ -196,8 +228,8 @@ describe('Community & reviews (e2e)', () => {
 
     it('a player without a completed valid session cannot review — 403', async () => {
       const res = await request(app.getHttpServer())
-        .post(`/games/${GAME_IDS.two}/reviews`)
-        .set('Authorization', `Bearer ${playerToken}`)
+        .post(`/games/${reviewGameId}/reviews`)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({ rating: 5 });
       expect(res.status).toBe(403);
     });
@@ -205,7 +237,7 @@ describe('Community & reviews (e2e)', () => {
     it('404s reviewing a non-existent game', async () => {
       const res = await request(app.getHttpServer())
         .post('/games/01994000-0000-7000-8000-00000000ffff/reviews')
-        .set('Authorization', `Bearer ${playerToken}`)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({ rating: 5 });
       expect(res.status).toBe(404);
     });
@@ -214,17 +246,17 @@ describe('Community & reviews (e2e)', () => {
       // Directly seed M8's tables (sessions/participations/session_validations)
       // since M8's HTTP layer doesn't exist yet — the eligibility check reads
       // these tables straight, so a real row makes it pass regardless.
-      const testId = '01994000-0000-7000-8000-000000001001';
-      const participationId = '01994000-0000-7000-8000-000000002001';
-      const sessionId = '01994000-0000-7000-8000-000000003001';
+      const testId = uuidv7();
+      const participationId = uuidv7();
+      const sessionId = uuidv7();
       const playerRes = await request(app.getHttpServer())
         .get('/auth/me')
-        .set('Authorization', `Bearer ${playerToken}`);
+        .set('Authorization', `Bearer ${reviewerToken}`);
       const playerId = playerRes.body.id as string;
 
       await sql`
         INSERT INTO tests (id, organization_id, game_id, model_key, status)
-        VALUES (${testId}, ${ORG_ID}, ${GAME_IDS.two}, 'free_exploration', 'published')
+        VALUES (${testId}, ${RIVAL.orgId}, ${reviewGameId}, 'free_exploration', 'published')
         ON CONFLICT DO NOTHING`;
       await sql`
         INSERT INTO participations (id, test_id, user_id, status)
@@ -232,7 +264,7 @@ describe('Community & reviews (e2e)', () => {
         ON CONFLICT DO NOTHING`;
       await sql`
         INSERT INTO sessions (id, participation_id, test_id, organization_id, status)
-        VALUES (${sessionId}, ${participationId}, ${testId}, ${ORG_ID}, 'completed')
+        VALUES (${sessionId}, ${participationId}, ${testId}, ${RIVAL.orgId}, 'completed')
         ON CONFLICT DO NOTHING`;
       await sql`
         INSERT INTO session_validations (session_id, valid, validated_at)
@@ -240,20 +272,20 @@ describe('Community & reviews (e2e)', () => {
         ON CONFLICT DO NOTHING`;
 
       const created = await request(app.getHttpServer())
-        .post(`/games/${GAME_IDS.two}/reviews`)
-        .set('Authorization', `Bearer ${playerToken}`)
+        .post(`/games/${reviewGameId}/reviews`)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({ rating: 5, body: 'Muito bom!' });
       expect(created.status).toBe(201);
-      expect(created.body).toMatchObject({ gameId: GAME_IDS.two, rating: 5, body: 'Muito bom!' });
+      expect(created.body).toMatchObject({ gameId: reviewGameId, rating: 5, body: 'Muito bom!' });
 
       const again = await request(app.getHttpServer())
-        .post(`/games/${GAME_IDS.two}/reviews`)
-        .set('Authorization', `Bearer ${playerToken}`)
+        .post(`/games/${reviewGameId}/reviews`)
+        .set('Authorization', `Bearer ${reviewerToken}`)
         .send({ rating: 3 });
       expect(again.status).toBe(409);
 
       const list = await request(app.getHttpServer())
-        .get(`/games/${GAME_IDS.two}/reviews`)
+        .get(`/games/${reviewGameId}/reviews`)
         .set('Authorization', `Bearer ${studioToken}`);
       expect(list.body.averageRating).toBe(5);
       expect(list.body.data.some((r: { rating: number }) => r.rating === 5)).toBe(true);
