@@ -69,6 +69,40 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...validEnv, NODE_ENV: 'development' })).not.toThrow();
   });
 
+  it('rejects the dev MinIO and Postgres credentials in production only', () => {
+    const prod = {
+      ...validEnv,
+      NODE_ENV: 'production',
+      JWT_ACCESS_SECRET: 'x'.repeat(40),
+      JWT_REFRESH_SECRET: 'y'.repeat(40),
+    };
+    expect(() => validateEnv({ ...prod, STORAGE_ACCESS_KEY: 'minioadmin' })).toThrowError(
+      /STORAGE_ACCESS_KEY/,
+    );
+    expect(() => validateEnv({ ...prod, STORAGE_SECRET_KEY: 'minioadmin' })).toThrowError(
+      /STORAGE_SECRET_KEY/,
+    );
+    expect(() =>
+      validateEnv({ ...prod, DATABASE_URL: 'postgres://orbitplay:orbitplay@db:5432/orbitplay' }),
+    ).toThrowError(/DATABASE_URL/);
+    expect(() =>
+      validateEnv({ ...prod, DATABASE_URL: 'postgres://orbitplay@db:5432/orbitplay' }),
+    ).toThrowError(/DATABASE_URL/);
+    expect(() =>
+      validateEnv({ ...prod, DATABASE_URL: 'postgres://orbitplay:s3cr3t-Pw@db:5432/orbitplay' }),
+    ).not.toThrow();
+
+    // Same values stay valid outside production (they are the documented dev setup).
+    expect(() =>
+      validateEnv({
+        ...validEnv,
+        STORAGE_ACCESS_KEY: 'minioadmin',
+        STORAGE_SECRET_KEY: 'minioadmin',
+        DATABASE_URL: 'postgres://orbitplay:orbitplay@localhost:5432/orbitplay',
+      }),
+    ).not.toThrow();
+  });
+
   it('accepts a comma-separated WEB_ORIGIN list', () => {
     const env = validateEnv({
       ...validEnv,

@@ -36,6 +36,7 @@ import { JwtAuthGuard } from './shared/guards/jwt-auth.guard';
 import { OrgScopeGuard } from './shared/guards/org-scope.guard';
 import { RolesGuard } from './shared/guards/roles.guard';
 import { IdempotencyInterceptor } from './shared/interceptors/idempotency.interceptor';
+import { resolveRequestId } from './shared/util/request-id';
 import { PlayerModule } from './modules/player/player.module';
 
 @Module({
@@ -58,10 +59,10 @@ import { PlayerModule } from './modules/player/player.module';
                 ? 'info'
                 : 'debug',
           // Propagate/gen a requestId, echo it back, and surface it as req.id so
-          // it lands in the error envelope and every log line.
+          // it lands in the error envelope and every log line. A client-sent id is
+          // only reused when it is well-formed (see resolveRequestId).
           genReqId: (req: IncomingMessage, res: ServerResponse) => {
-            const existing = req.headers['x-request-id'];
-            const id = (Array.isArray(existing) ? existing[0] : existing) ?? uuidv7();
+            const id = resolveRequestId(req.headers['x-request-id'], uuidv7);
             res.setHeader('x-request-id', id);
             return id;
           },

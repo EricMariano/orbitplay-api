@@ -1,5 +1,12 @@
 import type { RoleValue } from './roles';
 
+/**
+ * The only algorithm this API signs and accepts. Pinned on every sign/verify so
+ * a token can never choose its own (`alg: none`, or an HS/RS confusion if a
+ * key type ever changes).
+ */
+export const JWT_ALGORITHM = 'HS256' as const;
+
 /** Claims carried by the short-lived access token. */
 export interface AccessTokenPayload {
   sub: string; // user id

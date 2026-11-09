@@ -23,6 +23,23 @@ const durationString = z
 
 const MIN_PRODUCTION_SECRET_LENGTH = 32;
 
+/** Default root credential of the local MinIO (docker/compose.yml) — never valid in production. */
+const DEV_STORAGE_CREDENTIAL = 'minioadmin';
+
+/**
+ * True when the connection string carries the throwaway dev credential shape
+ * (see .env.example): no password, or a password equal to the user name.
+ * A string that does not parse as a URL is left to the driver to reject.
+ */
+function hasWeakDatabaseCredentials(databaseUrl: string): boolean {
+  try {
+    const { username, password } = new URL(databaseUrl);
+    return password === '' || password === username;
+  } catch {
+    return false;
+  }
+}
+
 export const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'test', 'production']),
@@ -114,6 +131,27 @@ export const envSchema = z
           message: `${name} must be a random secret of at least ${MIN_PRODUCTION_SECRET_LENGTH} characters in production`,
         });
       }
+    }
+
+    // The JWT secrets are not the only dev throwaways in .env.example: booting
+    // production with the MinIO / Postgres defaults would expose the bucket and
+    // the database to anyone who knows the (public) example values.
+    for (const name of ['STORAGE_ACCESS_KEY', 'STORAGE_SECRET_KEY'] as const) {
+      if (env[name] === DEV_STORAGE_CREDENTIAL) {
+        ctx.addIssue({
+          code: 'custom',
+          path: [name],
+          message: `${name} must not be the dev default "${DEV_STORAGE_CREDENTIAL}" in production`,
+        });
+      }
+    }
+    if (hasWeakDatabaseCredentials(env.DATABASE_URL)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['DATABASE_URL'],
+        message:
+          'DATABASE_URL must carry a real password (not empty and not equal to the user name) in production',
+      });
     }
   });
 

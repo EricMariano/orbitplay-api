@@ -13,7 +13,7 @@ import {
 import type { Server, Socket } from 'socket.io';
 import type { DefaultEventsMap } from 'socket.io/dist/typed-events';
 import type { ZodType } from 'zod';
-import type { AccessTokenPayload } from '../../shared/auth/jwt-payload';
+import { JWT_ALGORITHM, type AccessTokenPayload } from '../../shared/auth/jwt-payload';
 import { AppException } from '../../shared/errors/app.exception';
 import { codeForStatus, ErrorCode } from '../../shared/errors/error-envelope';
 import {
@@ -78,6 +78,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     try {
       payload = await this.jwt.verifyAsync<AccessTokenPayload>(token, {
         secret: this.config.get<string>('jwt.accessSecret'),
+        algorithms: [JWT_ALGORITHM],
       });
     } catch {
       return this.reject(client, 'Sessão inválida ou expirada');
