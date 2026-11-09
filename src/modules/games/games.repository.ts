@@ -285,6 +285,28 @@ export class GamesRepository extends OrgScopedRepository<GameRow, NewGameRow> {
     return rows[0] ?? null;
   }
 
+  /** Most recent non-deleted asset of a kind (the "current" cover/banner/logo/icon). */
+  async findCurrentAssetInOrg(
+    organizationId: string,
+    gameId: string,
+    kind: AssetKind,
+  ): Promise<GameAssetRow | null> {
+    const rows = await this.db
+      .select()
+      .from(gameAssets)
+      .where(
+        and(
+          eq(gameAssets.organizationId, organizationId),
+          eq(gameAssets.gameId, gameId),
+          eq(gameAssets.kind, kind),
+          isNull(gameAssets.deletedAt),
+        ),
+      )
+      .orderBy(desc(gameAssets.id))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
   async createAssetInOrg(
     organizationId: string,
     values: Omit<NewGameAssetRow, 'organizationId'>,

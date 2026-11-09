@@ -13,11 +13,14 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
+import { z } from 'zod';
 import type { Request } from 'express';
 import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Roles } from '../../shared/decorators/roles.decorator';
 import { STUDIO_ROLES, type RoleValue } from '../../shared/auth/roles';
+import { AppException } from '../../shared/errors/app.exception';
 import {
+  assetKindValues,
   AssetUploadUrlRequestDto,
   AssetUploadUrlResponseDto,
   ConfirmAssetRequestDto,
@@ -129,6 +132,19 @@ export class GamesController {
     @Body() dto: ConfirmAssetRequestDto,
   ) {
     return this.games.confirmAsset(organizationId, id, dto);
+  }
+
+  @Delete(':id/assets/current/:kind')
+  @Roles(...STUDIO_ROLES)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async removeCurrentAsset(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Param('kind') kind: string,
+  ) {
+    const parsed = z.enum(assetKindValues).safeParse(kind);
+    if (!parsed.success) throw AppException.notFound();
+    await this.games.removeCurrentAsset(organizationId, id, parsed.data);
   }
 
   @Delete(':id/assets/:assetId')

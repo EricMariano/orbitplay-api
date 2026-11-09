@@ -2,6 +2,7 @@ import type { Request } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GameAssetRow } from '../../infra/database/schema/game-assets';
 import type { GameRow } from '../../infra/database/schema/games';
+import { AppException } from '../../shared/errors/app.exception';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { StoragePort } from '../../shared/ports/storage.port';
 import { EMPTY_GAME_METRICS, EMPTY_GAME_SPECS, MAX_GAME_ASSET_BYTES } from './dto/game.dto';
@@ -71,6 +72,7 @@ describe('GamesService', () => {
     findDisplayAssetsByGameIds: ReturnType<typeof vi.fn>;
     findAssetByStorageKeyInOrg: ReturnType<typeof vi.fn>;
     findAssetByIdInOrg: ReturnType<typeof vi.fn>;
+    findCurrentAssetInOrg: ReturnType<typeof vi.fn>;
     createAssetInOrg: ReturnType<typeof vi.fn>;
     retirePreviousUniqueAssets: ReturnType<typeof vi.fn>;
     softDeleteAssetInOrg: ReturnType<typeof vi.fn>;
@@ -104,6 +106,7 @@ describe('GamesService', () => {
         ),
       findAssetByStorageKeyInOrg: vi.fn().mockResolvedValue(null),
       findAssetByIdInOrg: vi.fn(),
+      findCurrentAssetInOrg: vi.fn(),
       createAssetInOrg: vi.fn(),
       retirePreviousUniqueAssets: vi.fn().mockResolvedValue([]),
       softDeleteAssetInOrg: vi.fn(),
@@ -307,6 +310,28 @@ describe('GamesService', () => {
 
     expect(view.id).toBe(asset.id);
     expect(repo.createAssetInOrg).not.toHaveBeenCalled();
+  });
+
+  describe('removeCurrentAsset', () => {
+    it('soft-deletes the current cover and removes it from storage', async () => {
+      repo.findCurrentAssetInOrg.mockResolvedValue({ id: 'a1', storageKey: 'k1' });
+      repo.softDeleteAssetInOrg.mockResolvedValue({ id: 'a1', storageKey: 'k1' });
+
+      await service.removeCurrentAsset(ORG, GAME_ID, 'cover');
+
+      expect(repo.softDeleteAssetInOrg).toHaveBeenCalledWith(ORG, GAME_ID, 'a1');
+      expect(storage.remove).toHaveBeenCalledWith('k1');
+    });
+
+    it('404s when there is no current asset or the kind is screenshot', async () => {
+      repo.findCurrentAssetInOrg.mockResolvedValue(null);
+      await expect(service.removeCurrentAsset(ORG, GAME_ID, 'cover')).rejects.toBeInstanceOf(
+        AppException,
+      );
+      await expect(service.removeCurrentAsset(ORG, GAME_ID, 'screenshot')).rejects.toBeInstanceOf(
+        AppException,
+      );
+    });
   });
 
   describe('summary', () => {

@@ -328,6 +328,17 @@ export class GamesService {
     await this.storage.remove(deleted.storageKey).catch(() => undefined);
   }
 
+  /** Removes the current cover/banner/logo/icon (screenshots are removed by id). */
+  async removeCurrentAsset(organizationId: string, gameId: string, kind: AssetKind): Promise<void> {
+    await this.repo.getByIdInOrgOrThrow(organizationId, gameId);
+    if (kind === 'screenshot') throw AppException.notFound();
+    const current = await this.repo.findCurrentAssetInOrg(organizationId, gameId, kind);
+    if (!current) throw AppException.notFound();
+
+    const deleted = await this.repo.softDeleteAssetInOrg(organizationId, gameId, current.id);
+    await this.storage.remove(deleted.storageKey).catch(() => undefined);
+  }
+
   private async toViews(organizationId: string, rows: GameRow[]): Promise<GameView[]> {
     const ids = rows.map((r) => r.id);
     const [metrics, assets] = await Promise.all([
