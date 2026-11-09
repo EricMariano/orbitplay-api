@@ -3,7 +3,11 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'node:crypto';
 import { newId } from '../../infra/database/schema/_helpers';
-import type { AccessTokenPayload, RefreshTokenPayload } from '../../shared/auth/jwt-payload';
+import {
+  JWT_ALGORITHM,
+  type AccessTokenPayload,
+  type RefreshTokenPayload,
+} from '../../shared/auth/jwt-payload';
 
 export interface IssuedRefreshToken {
   token: string; // the signed JWT (goes in the httpOnly cookie)
@@ -28,6 +32,7 @@ export class TokenService {
   signAccessToken(payload: AccessTokenPayload): Promise<string> {
     return this.jwt.signAsync(payload, {
       secret: this.config.get<string>('jwt.accessSecret'),
+      algorithm: JWT_ALGORITHM,
       // Config holds a duration string like "15m"; jsonwebtoken/ms parses it at
       // runtime. Cast bridges the ms StringValue literal-type friction.
       expiresIn: this.config.get<string>('jwt.accessTtl') as unknown as number,
@@ -49,6 +54,7 @@ export class TokenService {
     };
     const token = await this.jwt.signAsync(payload, {
       secret: this.config.get<string>('jwt.refreshSecret'),
+      algorithm: JWT_ALGORITHM,
       expiresIn: this.config.get<string>('jwt.refreshTtl') as unknown as number,
     });
     const expiresAt = new Date(Date.now() + this.config.get<number>('jwt.refreshTtlMs')!);
@@ -58,6 +64,7 @@ export class TokenService {
   verifyRefreshToken(token: string): Promise<RefreshTokenPayload> {
     return this.jwt.verifyAsync<RefreshTokenPayload>(token, {
       secret: this.config.get<string>('jwt.refreshSecret'),
+      algorithms: [JWT_ALGORITHM],
     });
   }
 
