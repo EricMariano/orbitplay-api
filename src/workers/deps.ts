@@ -10,7 +10,10 @@ import * as schema from '../infra/database/schema';
 import { redisConnectionOptions } from '../infra/queue/connection';
 import { MAIN_QUEUE } from '../infra/queue/queue.constants';
 import { attachRedisErrorLogging } from '../infra/redis/redis-error-logging';
+import { ClamdScannerAdapter } from '../infra/scanner/clamd-scanner.adapter';
+import { SkippedScannerAdapter } from '../infra/scanner/skipped-scanner.adapter';
 import { MinioStorageAdapter } from '../infra/storage/minio-storage.adapter';
+import type { MalwareScannerPort } from '../shared/ports/malware-scanner.port';
 import type { StoragePort } from '../shared/ports/storage.port';
 
 export interface WorkerDeps {
@@ -21,8 +24,8 @@ export interface WorkerDeps {
   queue: Queue;
   /** Plain ioredis client — same store the API's heartbeat keys live in (see `heartbeat.store.ts`). */
   redis: Redis;
-  /** Dev-only: skip the (not yet integrated) malware scan — see `processBuildValidate`. */
-  malwareScanBypass: boolean;
+  /** ClamAV in real runs; the `skipped` no-op only with the dev bypass — see `processBuildValidate`. */
+  scanner: MalwareScannerPort;
 }
 
 export async function createWorkerDeps(): Promise<WorkerDeps> {
@@ -42,7 +45,10 @@ export async function createWorkerDeps(): Promise<WorkerDeps> {
   const logRedis = (message: string) => console.error(`[worker] ${message}`);
   attachRedisErrorLogging(queue, 'redis queue', logRedis);
   attachRedisErrorLogging(redis, 'redis client', logRedis);
-  return { db, storage, sql, queue, redis, malwareScanBypass: config.builds.malwareScanBypass };
+  const scanner = config.builds.malwareScanBypass
+    ? new SkippedScannerAdapter()
+    : new ClamdScannerAdapter(config.builds.clamd);
+  return { db, storage, sql, queue, redis, scanner };
 }
 
 export async function closeWorkerDeps(deps: WorkerDeps): Promise<void> {

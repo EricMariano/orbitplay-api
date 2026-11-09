@@ -28,6 +28,9 @@ export function buildConfig(env: Env) {
   if (env.BUILD_MALWARE_SCAN_BYPASS && env.NODE_ENV === 'production') {
     throw new Error('BUILD_MALWARE_SCAN_BYPASS=true is not allowed in production');
   }
+  if (env.NODE_ENV === 'production' && !env.CLAMD_HOST) {
+    throw new Error('CLAMD_HOST is required in production (build malware scanning)');
+  }
   const webOrigins = splitList(env.WEB_ORIGIN);
   return {
     nodeEnv: env.NODE_ENV,
@@ -80,6 +83,12 @@ export function buildConfig(env: Env) {
     },
     builds: {
       malwareScanBypass: env.BUILD_MALWARE_SCAN_BYPASS,
+      clamd: {
+        host: env.CLAMD_HOST ?? 'localhost',
+        port: env.CLAMD_PORT,
+        timeoutMs: env.CLAMD_TIMEOUT_MS,
+        maxScanBytes: env.CLAMD_MAX_SCAN_BYTES,
+      },
     },
   };
 }

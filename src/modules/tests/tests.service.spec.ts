@@ -63,6 +63,9 @@ function makeBuild(overrides: Partial<BuildRow> = {}): BuildRow {
     storageKey: `orgs/${ORG}/tests/${TEST_ID}/builds/${BUILD_ID}/game.zip`,
     status: 'validated',
     failureReason: null,
+    scanEngine: null,
+    scanSignatures: null,
+    scanFinishedAt: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   };

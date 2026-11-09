@@ -158,13 +158,23 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
     (`visible | hidden | removed`), para moderar mensagem e moderar publicação
     significarem exatamente a mesma coisa.
 
-- **Flag de dev para pular a verificação de malware das builds.** Não há
-  antivírus integrado, e o worker reprova toda build no passo `malware_scan`
-  (falha fechada, de propósito). Para exercitar o wizard de ponta a ponta em
-  desenvolvimento, `BUILD_MALWARE_SCAN_BYPASS=true` marca esse passo como
-  pulado — a mensagem do passo diz "PULADA", nunca "aprovada" — e valida a
-  build. Padrão `false`; `buildConfig` derruba o boot se a flag vier `true`
-  com `NODE_ENV=production`. Remover quando um scanner real for integrado.
+- **Verificação de malware das builds via ClamAV (clamd).** O worker faz
+  stream do objeto do storage para o clamd (`zINSTREAM`, protocolo falado
+  direto, sem lib) atrás da porta `MalwareScannerPort`. Só o veredito `clean`
+  valida a build; `infected`/`unscannable` reprovam sem retry; `error`
+  (clamd fora, timeout) lança e deixa a build em `processing` para o sweep de
+  reconciliação reenfileirar (até `MAX_JOB_RUNS`, depois `failed`). Motor e
+  versão das assinaturas ficam em `builds.scan_*` para auditoria. Limites do
+  clamd (`StreamMaxLength`, `MaxFileSize` = 1G, `MaxScanSize` = 4G) ficam
+  no compose; `AlertExceedsMax yes` faz scan truncado virar `unscannable`,
+  nunca "limpo". `CLAMD_HOST` é obrigatório em produção. **Teto de build em
+  1 GiB (`MAX_BUILD_BYTES`):** medido com ClamAV 1.5.4, 1 GB passa e 2 GB+
+  volta `Heuristics.Limits.Exceeded.MaxFileSize` mesmo com limites maiores;
+  em vez de aceitar uploads que nunca poderiam ser aprovados, o teto da
+  build foi alinhado ao que o scanner consegue verificar.
+- **Flag de dev `BUILD_MALWARE_SCAN_BYPASS`.** Troca o clamd por um scanner
+  `skipped` — a mensagem do passo diz "PULADA", nunca "aprovada". Padrão
+  `false`; `buildConfig` derruba o boot com a flag `true` em produção.
 
 ## 3. Notas de implementação relevantes
 

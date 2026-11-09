@@ -159,6 +159,10 @@ export const builds = pgTable(
     storageKey: text('storage_key').notNull(),
     status: buildStatusEnum('status').notNull().default('awaiting_upload'),
     failureReason: text('failure_reason'),
+    /** Malware-scan audit trail: which engine/signature set cleared (or flagged) this build. */
+    scanEngine: text('scan_engine'),
+    scanSignatures: text('scan_signatures'),
+    scanFinishedAt: timestamp('scan_finished_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

@@ -62,8 +62,11 @@ export const WIZARD_STEP_NUMBER: Record<(typeof wizardStepValues)[number], numbe
   review: 5,
 };
 
-/** 5 GiB — game builds, single presigned PUT (no multipart in this phase). */
-export const MAX_BUILD_BYTES = 5 * 1024 * 1024 * 1024;
+/**
+ * 1 GiB — game builds, single presigned PUT (no multipart in this phase).
+ * Capped by what ClamAV can fully scan (measured: 1 GB ok, 2 GB+ unscannable).
+ */
+export const MAX_BUILD_BYTES = 1024 * 1024 * 1024;
 export const BUILD_UPLOAD_TTL_SECONDS = 3600;
 
 export const createTestSchema = z.object({

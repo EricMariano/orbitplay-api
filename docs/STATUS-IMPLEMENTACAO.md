@@ -97,7 +97,7 @@ Legenda: ✅ implementado · 🟡 parcial (existe mas incompleto) · ⬜ a fazer
 | `PATCH /tests/{id}/model`           | ✅     | modelo indisponível → 422; só em `draft`                                                     |
 | `PUT /tests/{id}/form`              | ✅     | substitui o conjunto inteiro em 1 transação; `position` é autoridade                         |
 | `GET /tests/{id}/form/preview`      | ✅     |                                                                                              |
-| `POST /tests/{id}/build/upload-url` | ✅     | URL assinada única (sem multipart); até 5 GiB                                                |
+| `POST /tests/{id}/build/upload-url` | ✅     | URL assinada única (sem multipart); até 1 GiB                                                |
 | `POST /tests/{id}/build`            | ✅     | confirma upload, enfileira `build.validate`, devolve `202 processing`                        |
 | `GET /tests/{id}/build`             | ✅     | `validationSteps[]`; `failureReason` quando falha                                            |
 | `DELETE /tests/{id}/build`          | ✅     | teste publicado → 409; senão remove build + objeto do storage                                |

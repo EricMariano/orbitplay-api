@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 import { buildValidationSteps, builds } from '../infra/database/schema/tests';
+import type { ScanResult } from '../shared/ports/malware-scanner.port';
 import type { WorkerDeps } from './deps';
 
 type BuildStepKey = 'checksum' | 'malware_scan' | 'metadata';
@@ -30,12 +31,12 @@ const FORMAT_SIGNATURES: Record<string, readonly number[]> = {
  * Real validation pipeline: HEAD confirms the object landed in storage, then
  * the object's actual bytes are streamed server-side to compute a SHA-256
  * checksum and sniff the format's magic bytes — neither trusts anything the
- * client claimed at upload time. There is no malware scanner integrated yet,
- * so that step always fails closed: a build can never be auto-approved for a
- * scan that never ran — except in local development with
- * `BUILD_MALWARE_SCAN_BYPASS=true`, which marks the step as skipped (never as
- * scanned) so the wizard can be exercised end to end. `buildConfig` refuses
- * the flag in production. `plugin_manifest` is a reserved future step
+ * client claimed at upload time. The same bytes are then streamed to the
+ * malware scanner (ClamAV via clamd). Only a `clean` verdict validates the
+ * build; a scan that could not finish is retried, never waved through. The
+ * dev bypass swaps in a scanner that reports `skipped` (never `clean`);
+ * `buildConfig` refuses it in production.
+ * `plugin_manifest` is a reserved future step
  * (ORB-M6-02 scope) and is never instantiated here.
  */
 export async function processBuildValidate(deps: WorkerDeps, buildId: string): Promise<void> {
@@ -97,30 +98,75 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
     `Formato .${ext} confirmado por assinatura binária`,
   );
 
-  if (deps.malwareScanBypass) {
-    await setStep(
-      deps,
-      buildId,
-      'malware_scan',
-      'ready',
-      'Verificação de malware PULADA (BUILD_MALWARE_SCAN_BYPASS, só em desenvolvimento)',
+  let scan: ScanResult;
+  try {
+    scan = await deps.scanner.scan(
+      await deps.storage.getObjectStream(build.storageKey),
+      meta.sizeBytes,
     );
-    await deps.db
-      .update(builds)
-      .set({ status: 'validated', failureReason: null })
-      .where(eq(builds.id, buildId));
-    return;
+  } catch (err) {
+    scan = { verdict: 'error', reason: `Falha ao ler objeto para verificação: ${String(err)}` };
   }
 
-  // No AV/malware scanner is integrated in this environment. Fail closed
-  // rather than pretend a scan happened — the build stays blocked until a
-  // real scanner is wired in (or a human clears it through manual review).
-  await fail(
-    deps,
-    buildId,
-    'malware_scan',
-    'Verificação de malware indisponível: nenhum scanner integrado ainda',
-  );
+  switch (scan.verdict) {
+    case 'clean':
+      await recordScan(deps, buildId, scan.engine, scan.signatures);
+      await setStep(
+        deps,
+        buildId,
+        'malware_scan',
+        'ready',
+        `Nenhuma ameaça encontrada (${scan.engine}, assinaturas ${scan.signatures})`,
+      );
+      await deps.db
+        .update(builds)
+        .set({ status: 'validated', failureReason: null })
+        .where(eq(builds.id, buildId));
+      return;
+    case 'skipped':
+      await setStep(
+        deps,
+        buildId,
+        'malware_scan',
+        'ready',
+        'Verificação de malware PULADA (BUILD_MALWARE_SCAN_BYPASS, só em desenvolvimento)',
+      );
+      await deps.db
+        .update(builds)
+        .set({ status: 'validated', failureReason: null })
+        .where(eq(builds.id, buildId));
+      return;
+    case 'infected':
+      await recordScan(deps, buildId, scan.engine, scan.signatures);
+      await fail(deps, buildId, 'malware_scan', `Ameaça detectada: ${scan.threat}`);
+      return;
+    case 'unscannable':
+      await recordScan(deps, buildId, scan.engine, scan.signatures);
+      await fail(
+        deps,
+        buildId,
+        'malware_scan',
+        `Verificação de malware não concluída: ${scan.reason}`,
+      );
+      return;
+    case 'error':
+      // Transient (scanner down, timeout): leave the build `processing` and throw so the
+      // job fails; the reconciliation sweep re-enqueues it up to MAX_JOB_RUNS times and then
+      // settles the build as failed. A build is never approved for a scan that did not finish.
+      throw new Error(`Verificação de malware indisponível: ${scan.reason}`);
+  }
+}
+
+async function recordScan(
+  deps: WorkerDeps,
+  buildId: string,
+  engine: string,
+  signatures: string,
+): Promise<void> {
+  await deps.db
+    .update(builds)
+    .set({ scanEngine: engine, scanSignatures: signatures, scanFinishedAt: new Date() })
+    .where(eq(builds.id, buildId));
 }
 
 /** Streams the object once, hashing every byte and capturing the leading bytes for format sniffing. */

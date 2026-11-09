@@ -8,6 +8,7 @@
 #   redis     6379        BullMQ queues + idempotency store
 #   minio     9000/9001   S3-protocol object storage (console on 9001)
 #   minio-init            one-shot: creates the dev bucket, then exits
+#   clamav    3310        clamd malware scanner (build validation worker)
 #   mailhog   1025/8025   SMTP sink (web UI on 8025)
 
 name: orbitplay
@@ -96,6 +97,26 @@ services:
       echo 'bucket orbitplay-dev ready (private, 20GiB quota)';
       "
 
+  # Malware scanner for uploaded builds (worker -> CLAMD_HOST:CLAMD_PORT).
+  # First boot downloads the signature DB (a few minutes, ~1-2 GB RAM); the
+  # healthcheck turns healthy only once clamd answers PING.
+  clamav:
+    image: clamav/clamav:stable
+    # The official image is amd64-only; on Apple Silicon it runs emulated.
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3310:3310'
+    volumes:
+      - clamav-db:/var/lib/clamav
+      - ./clamav/clamd.conf:/etc/clamav/clamd.conf:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'echo PING | nc -w 3 127.0.0.1 3310 | grep -q PONG']
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
   mailhog:
     image: mailhog/mailhog:latest
     restart: unless-stopped
@@ -107,3 +128,4 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
+  clamav-db:

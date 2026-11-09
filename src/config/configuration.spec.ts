@@ -50,3 +50,27 @@ describe('buildConfig — BUILD_MALWARE_SCAN_BYPASS', () => {
     expect(() => buildConfig(env)).toThrow(/not allowed in production/);
   });
 });
+
+describe('buildConfig — clamd', () => {
+  const prodEnv = {
+    ...baseEnv,
+    NODE_ENV: 'production',
+    JWT_ACCESS_SECRET: 'x'.repeat(40),
+    JWT_REFRESH_SECRET: 'y'.repeat(40),
+  };
+
+  it('defaults to localhost:3310 outside production', () => {
+    expect(buildConfig(validateEnv({ ...baseEnv })).builds.clamd).toMatchObject({
+      host: 'localhost',
+      port: 3310,
+      maxScanBytes: 1024 * 1024 * 1024,
+    });
+  });
+
+  it('requires CLAMD_HOST in production', () => {
+    expect(() => buildConfig(validateEnv({ ...prodEnv }))).toThrow(/CLAMD_HOST/);
+    expect(buildConfig(validateEnv({ ...prodEnv, CLAMD_HOST: 'clamav' })).builds.clamd.host).toBe(
+      'clamav',
+    );
+  });
+});

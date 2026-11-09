@@ -79,6 +79,18 @@ export const envSchema = z
       .enum(['true', 'false'])
       .default('false')
       .transform((v) => v === 'true'),
+
+    /** ClamAV daemon (clamd) used by the build validation worker. Host is mandatory in production. */
+    CLAMD_HOST: z.string().min(1).optional(),
+    CLAMD_PORT: z.coerce.number().int().positive().default(3310),
+    /** Socket inactivity timeout while scanning (clamd is silent during the post-upload scan). */
+    CLAMD_TIMEOUT_MS: z.coerce.number().int().positive().default(600_000),
+    /** Largest object sent to clamd; bigger ones fail as unscannable. Must match clamd's own limits. */
+    CLAMD_MAX_SCAN_BYTES: z.coerce
+      .number()
+      .int()
+      .positive()
+      .default(1024 * 1024 * 1024),
   })
   .superRefine((env, ctx) => {
     // Distinct secrets: with a shared one a refresh token would verify as an

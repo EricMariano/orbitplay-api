@@ -174,7 +174,7 @@
 
 - **Labels:** backend, api, infra · **Estimativa:** G · **Depende de:** M6-01
 - **Escopo:**
-  - [x] `POST /tests/{id}/build/upload-url` — URL assinada única (sem multipart), até 5 GiB; nenhuma linha criada no banco ainda.
+  - [x] `POST /tests/{id}/build/upload-url` — URL assinada única (sem multipart), até 1 GiB; nenhuma linha criada no banco ainda.
   - [x] `POST /tests/{id}/build` confirma o objeto no storage (`stat()`, nunca confia no cliente), cria a build + 3 `build_validation_steps` (`checksum`/`malware_scan`/`metadata`), enfileira `build.validate` e devolve `202 processing`.
   - [x] `GET /tests/{id}/build` com `validationSteps[]` e `failureReason` quando falha.
   - [x] `DELETE /tests/{id}/build` — teste publicado → `409`; senão remove a build e o objeto do storage.
