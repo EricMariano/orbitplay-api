@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, countDistinct, desc, eq, gte, inArray, isNull, lt, lte } from 'drizzle-orm';
+import { and, count, countDistinct, desc, eq, gt, inArray, isNull, lt, lte } from 'drizzle-orm';
 import {
   DRIZZLE,
   type Database,
@@ -159,6 +159,12 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
    * Replaces the whole question set in one transaction (RN-03: atomic
    * reordering). `position` from the input is authoritative. Pass the
    * `withRowLock` transaction as `db` (see the note there).
+   *
+   * One multi-row INSERT for the questions and one for all their options —
+   * not one round trip per question. Ids are generated here so options can
+   * point at their question before it's inserted; with the DTO caps (100
+   * questions × 50 options) both statements stay far below Postgres's 65535
+   * bind parameters.
    */
   async replaceForm(
     testId: string,
@@ -167,53 +173,82 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
   ): Promise<FormQuestionWithOptions[]> {
     return db.transaction(async (tx) => {
       await tx.delete(testFormQuestions).where(eq(testFormQuestions.testId, testId));
+      if (questions.length === 0) return [];
 
-      const result: FormQuestionWithOptions[] = [];
-      for (const q of questions) {
-        const [row] = await tx
-          .insert(testFormQuestions)
-          .values({
-            id: newId(),
-            testId,
-            type: q.type,
-            label: q.prompt,
-            helpText: q.helpText ?? null,
-            required: q.required,
-            position: q.position,
-            scaleMin: q.scaleMin ?? null,
-            scaleMax: q.scaleMax ?? null,
-            scaleMinLabel: q.scaleMinLabel ?? null,
-            scaleMaxLabel: q.scaleMaxLabel ?? null,
-          })
-          .returning();
+      const questionValues = questions.map((q) => ({
+        id: newId(),
+        testId,
+        type: q.type,
+        label: q.prompt,
+        helpText: q.helpText ?? null,
+        required: q.required,
+        position: q.position,
+        scaleMin: q.scaleMin ?? null,
+        scaleMax: q.scaleMax ?? null,
+        scaleMinLabel: q.scaleMinLabel ?? null,
+        scaleMaxLabel: q.scaleMaxLabel ?? null,
+      }));
+      const optionValues = questions.flatMap((q, index) =>
+        (q.options ?? []).map((o) => ({
+          id: newId(),
+          questionId: questionValues[index].id,
+          label: o.label,
+          position: o.position,
+        })),
+      );
 
-        let optionRows: TestFormOptionRow[] = [];
-        if (q.options && q.options.length > 0) {
-          optionRows = await tx
-            .insert(testFormOptions)
-            .values(
-              q.options.map((o) => ({
-                id: newId(),
-                questionId: row.id,
-                label: o.label,
-                position: o.position,
-              })),
-            )
-            .returning();
-        }
-        result.push({ ...row, options: optionRows.sort((a, b) => a.position - b.position) });
+      const questionRows = await tx.insert(testFormQuestions).values(questionValues).returning();
+      const optionRows =
+        optionValues.length > 0
+          ? await tx.insert(testFormOptions).values(optionValues).returning()
+          : [];
+
+      const byQuestion = new Map<string, TestFormOptionRow[]>();
+      for (const opt of optionRows) {
+        const list = byQuestion.get(opt.questionId) ?? [];
+        list.push(opt);
+        byQuestion.set(opt.questionId, list);
       }
-      return result;
+      // Input order, as before — RETURNING's row order isn't something to lean on.
+      const rowsById = new Map(questionRows.map((row) => [row.id, row]));
+      return questionValues.flatMap(({ id }) => {
+        const row = rowsById.get(id);
+        if (!row) return [];
+        const options = (byQuestion.get(id) ?? []).sort((a, b) => a.position - b.position);
+        return [{ ...row, options }];
+      });
     });
   }
 
-  async findAudience(testId: string): Promise<TestAudienceCriteriaRow | null> {
-    const rows = await this.db
+  /** Batch audience lookup for a page of tests (`TestView`), keyed by test id. */
+  async findAudiencesByTestIds(
+    testIds: string[],
+    db: DbExecutor = this.db,
+  ): Promise<Map<string, TestAudienceCriteriaRow>> {
+    if (testIds.length === 0) return new Map();
+    const rows = await db
       .select()
       .from(testAudienceCriteria)
-      .where(eq(testAudienceCriteria.testId, testId))
-      .limit(1);
-    return rows[0] ?? null;
+      .where(inArray(testAudienceCriteria.testId, testIds));
+    return new Map(rows.map((row) => [row.testId, row]));
+  }
+
+  /**
+   * Question count per test for a page of tests — `pendingValidations` only
+   * asks whether the form is empty, so loading every question and option
+   * (`findFormQuestions`) for it was waste. Tests without questions are absent.
+   */
+  async countFormQuestionsByTestIds(
+    testIds: string[],
+    db: DbExecutor = this.db,
+  ): Promise<Map<string, number>> {
+    if (testIds.length === 0) return new Map();
+    const rows = await db
+      .select({ testId: testFormQuestions.testId, total: count() })
+      .from(testFormQuestions)
+      .where(inArray(testFormQuestions.testId, testIds))
+      .groupBy(testFormQuestions.testId);
+    return new Map(rows.map((row) => [row.testId, row.total]));
   }
 
   /** Pass the `withRowLock` transaction as `db` (see the note there). */
@@ -232,7 +267,10 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
 
   /**
    * Reach estimate (RN-01, Tela 09): count of active players whose birthdate
-   * falls in [minBirthdate, maxBirthdate] (inclusive, `YYYY-MM-DD`). Location/
+   * falls in (minBirthdate, maxBirthdate] (`YYYY-MM-DD`). For an age range
+   * [ageMin, ageMax] the caller passes `minBirthdate = ageMax + 1 years ago`
+   * and `maxBirthdate = ageMin years ago`: the lower bound is exclusive, since
+   * someone born exactly ageMax + 1 years ago turns ageMax + 1 today. Location/
    * archetype/device filters are stored but not applied here yet — `users` has
    * no such columns in this phase (same stub pattern as `GameSpecs`).
    */
@@ -251,7 +289,7 @@ export class TestsRepository extends OrgScopedRepository<TestRow, NewTestRow> {
           isNull(memberships.deletedAt),
           eq(users.isActive, true),
           isNull(users.deletedAt),
-          gte(users.birthdate, minBirthdate),
+          gt(users.birthdate, minBirthdate),
           lte(users.birthdate, maxBirthdate),
         ),
       );

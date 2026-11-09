@@ -19,6 +19,15 @@ const RIVAL = {
   email: 'rival-builds@rival.dev',
 };
 
+// A player whose (personal) org is not the studio's — the seed player shares
+// the studio's org (DECISIONS.md §1.1), so it can't show a cross-org leak.
+const OUTSIDER = {
+  userId: '01996000-0000-7000-8000-0000000000e2',
+  orgId: '01996000-0000-7000-8000-0000000000f2',
+  membershipId: '01996000-0000-7000-8000-0000000000ea',
+  email: 'outsider-builds@player.dev',
+};
+
 // Starts with the zip signature — the build worker sniffs magic bytes against
 // the declared `.zip` extension.
 const BUILD_BYTES = Buffer.concat([
@@ -50,7 +59,7 @@ async function uploadAndConfirmBuild(
   testId: string,
   platform: string,
   version: string,
-): Promise<void> {
+): Promise<{ uploadUrl: string; storageKey: string }> {
   const uploadUrl = await request(app.getHttpServer())
     .post(`/tests/${testId}/build/upload-url`)
     .set('Authorization', `Bearer ${token}`)
@@ -70,6 +79,10 @@ async function uploadAndConfirmBuild(
     .set('Authorization', `Bearer ${token}`)
     .send({ storageKey: uploadUrl.body.storageKey, platform, version });
   expect(confirm.status).toBe(202);
+  return {
+    uploadUrl: uploadUrl.body.uploadUrl as string,
+    storageKey: uploadUrl.body.storageKey as string,
+  };
 }
 
 async function waitForBuildId(
@@ -99,6 +112,7 @@ describe('Builds — M6 (e2e)', () => {
   let playerToken: string;
   let playerId: string;
   let rivalToken: string;
+  let outsiderToken: string;
 
   beforeAll(async () => {
     app = await createE2EApp();
@@ -119,6 +133,21 @@ describe('Builds — M6 (e2e)', () => {
               (SELECT id FROM roles WHERE key = 'owner'))
       ON CONFLICT DO NOTHING`;
 
+    await sql`
+      INSERT INTO users (id, email, password_hash, display_name)
+      SELECT ${OUTSIDER.userId}, ${OUTSIDER.email}, password_hash, 'Outsider Player'
+      FROM users WHERE email = ${SEED_EMAILS.studio}
+      ON CONFLICT DO NOTHING`;
+    await sql`
+      INSERT INTO organizations (id, name, slug, owner_user_id)
+      VALUES (${OUTSIDER.orgId}, 'Conta de Outsider', 'outsider-builds-player', ${OUTSIDER.userId})
+      ON CONFLICT DO NOTHING`;
+    await sql`
+      INSERT INTO memberships (id, organization_id, user_id, role_id)
+      VALUES (${OUTSIDER.membershipId}, ${OUTSIDER.orgId}, ${OUTSIDER.userId},
+              (SELECT id FROM roles WHERE key = 'player'))
+      ON CONFLICT DO NOTHING`;
+
     workerDeps = await createWorkerDeps();
     worker = new Worker(MAIN_QUEUE, (job) => handleJob(job, workerDeps), {
       connection: redisConnectionOptions(process.env.REDIS_URL ?? 'redis://localhost:6379'),
@@ -128,6 +157,7 @@ describe('Builds — M6 (e2e)', () => {
     studioToken = await bearer(app, SEED_EMAILS.studio);
     playerToken = await bearer(app, SEED_EMAILS.player);
     rivalToken = await bearer(app, RIVAL.email);
+    outsiderToken = await bearer(app, OUTSIDER.email);
 
     const me = await request(app.getHttpServer())
       .get('/auth/me')
@@ -269,5 +299,99 @@ describe('Builds — M6 (e2e)', () => {
       expiresAt: null,
       version: '2.3.1',
     });
+  });
+  // A studio could upload a clean file, wait for `validated`, then re-PUT
+  // other bytes through the upload URL (valid for 1h) — players downloaded
+  // them under the validated badge. The worker now validates and serves a
+  // server-side copy no presigned URL was ever issued for.
+  it('serves the validated copy: a re-PUT through the still-live upload URL never reaches players', async () => {
+    const testId = await createDraftTest(app, studioToken);
+    const upload = await uploadAndConfirmBuild(app, studioToken, testId, 'windows', '3.0.0');
+    const buildId = await waitForBuildId(app, studioToken, testId);
+
+    const [row] = await sql`SELECT status, storage_key FROM builds WHERE id = ${buildId}`;
+    expect(row.status).toBe('validated');
+    const validatedKey = upload.storageKey.replace(/\/([^/]+)$/, '/validated/$1');
+    expect(row.storage_key).toBe(validatedKey);
+    // The upload itself goes right after the approving write.
+    const deadline = Date.now() + 5_000;
+    while ((await workerDeps.storage.stat(upload.storageKey)) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    expect(await workerDeps.storage.stat(upload.storageKey)).toBeNull();
+
+    // Same length on purpose: the presigned PUT signs Content-Length.
+    const swapped = Buffer.alloc(BUILD_BYTES.length, 0x41);
+    const put = await fetch(upload.uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/zip' },
+      body: swapped,
+    });
+    expect(put.ok).toBe(true);
+
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${uuidv7()}, ${testId}, ${playerId}, 'ready')`;
+    const download = await request(app.getHttpServer())
+      .get(`/builds/${buildId}/download-url`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(download.status).toBe(200);
+
+    const served = Buffer.from(
+      await (await fetch(download.body.downloadUrl as string)).arrayBuffer(),
+    );
+    expect(served.equals(BUILD_BYTES)).toBe(true);
+  });
+
+  // `/compatibility` answers any account (the player tutorial uses it) and
+  // `failureReason` can carry the malware signature the scanner found.
+  it('never shows another org why a build failed — compatibility and download-url', async () => {
+    const testId = await createDraftTest(app, studioToken);
+    const buildId = uuidv7();
+    const threat = 'Ameaça detectada: Win.Test.EICAR_HDB-1';
+    await sql`
+      INSERT INTO builds (id, organization_id, test_id, file_name, storage_key, status,
+                          failure_reason, platform)
+      SELECT ${buildId}, organization_id, id, 'game.zip', 'fake/storage/key.zip', 'failed',
+             ${threat}, 'windows'
+      FROM tests WHERE id = ${testId}`;
+
+    const asOwner = await request(app.getHttpServer())
+      .get(`/builds/${buildId}/compatibility`)
+      .query({ platform: 'windows' })
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(asOwner.status).toBe(200);
+    expect(asOwner.body.reasons).toContain(threat);
+
+    for (const token of [rivalToken, outsiderToken]) {
+      const crossOrg = await request(app.getHttpServer())
+        .get(`/builds/${buildId}/compatibility`)
+        .query({ platform: 'windows' })
+        .set('Authorization', `Bearer ${token}`);
+      expect(crossOrg.status).toBe(200);
+      expect(crossOrg.body).toEqual({
+        compatible: false,
+        reasons: ['Build indisponível no momento'],
+        supportedPlatforms: ['windows'],
+      });
+    }
+
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${uuidv7()}, ${testId}, ${OUTSIDER.userId}, 'ready')`;
+    const outsiderDownload = await request(app.getHttpServer())
+      .get(`/builds/${buildId}/download-url`)
+      .set('Authorization', `Bearer ${outsiderToken}`);
+    expect(outsiderDownload.status).toBe(409);
+    expect(JSON.stringify(outsiderDownload.body)).not.toContain('EICAR');
+
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${uuidv7()}, ${testId}, ${playerId}, 'ready')`;
+    const sameOrgDownload = await request(app.getHttpServer())
+      .get(`/builds/${buildId}/download-url`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(sameOrgDownload.status).toBe(409);
+    expect(sameOrgDownload.body.message).toBe(threat);
   });
 });

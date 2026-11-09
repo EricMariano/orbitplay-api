@@ -25,10 +25,18 @@ export function buildReportStorageKey(
  *   `ready`/`failed` is left alone.
  * - The row only becomes `ready` AFTER the upload succeeded, so a `ready`
  *   row always points at a real object.
- * - On error the row is marked `failed` (never left `processing` forever)
- *   and the error is rethrown so BullMQ's own retry/failed bookkeeping runs.
+ * - On error the error is rethrown so BullMQ retries the job
+ *   (`JOB_OPTIONS`). The row stays `processing` while attempts remain —
+ *   marking it `failed` right away made every retry stop at the status check
+ *   below — and is marked `failed` on the last one (`finalAttempt`), so it is
+ *   never left `processing` forever. Called without options (tests, scripts),
+ *   a run is its own last attempt.
  */
-export async function processReportExport(deps: WorkerDeps, exportId: string): Promise<void> {
+export async function processReportExport(
+  deps: WorkerDeps,
+  exportId: string,
+  { finalAttempt = true }: { finalAttempt?: boolean } = {},
+): Promise<void> {
   const rows = await deps.db
     .select()
     .from(testReportExports)
@@ -52,10 +60,16 @@ export async function processReportExport(deps: WorkerDeps, exportId: string): P
       .set({ status: 'ready', storageKey: key, failureReason: null, completedAt: new Date() })
       .where(and(eq(testReportExports.id, job.id), eq(testReportExports.status, 'processing')));
   } catch (err) {
-    await deps.db
-      .update(testReportExports)
-      .set({ status: 'failed', failureReason: 'Falha ao gerar o arquivo', completedAt: new Date() })
-      .where(and(eq(testReportExports.id, job.id), eq(testReportExports.status, 'processing')));
+    if (finalAttempt) {
+      await deps.db
+        .update(testReportExports)
+        .set({
+          status: 'failed',
+          failureReason: 'Falha ao gerar o arquivo',
+          completedAt: new Date(),
+        })
+        .where(and(eq(testReportExports.id, job.id), eq(testReportExports.status, 'processing')));
+    }
     throw err;
   }
 }

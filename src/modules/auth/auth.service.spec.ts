@@ -2,11 +2,12 @@ import type { ConfigService } from '@nestjs/config';
 import type { Request, Response } from 'express';
 import type { Redis } from 'ioredis';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RefreshTokenRow } from '../../infra/database/schema/refresh-tokens';
 import type { UserRow } from '../../infra/database/schema/users';
 import { drainAuditDrafts } from '../../shared/audit/audit-context';
 import type { NotificationPort } from '../../shared/ports/notification.port';
-import { AuthRepository, EmailAlreadyTakenError } from './auth.repository';
-import { AuthService } from './auth.service';
+import { AuthRepository, EmailAlreadyTakenError, type PendingInvite } from './auth.repository';
+import { AuthService, INVITE_TOKEN_TTL_MS, REFRESH_REUSE_GRACE_MS } from './auth.service';
 import type { PasswordService } from './password.service';
 import type { TokenService } from './token.service';
 
@@ -176,6 +177,197 @@ describe('AuthService login', () => {
       ),
     ).rejects.toMatchObject({ status: 401 });
     expect(repo.insertRefreshToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService refresh (rotation + reuse grace window)', () => {
+  const TOKEN_ID = '01920000-0000-7000-8000-0000000000e1';
+  const SUCCESSOR_ID = '01920000-0000-7000-8000-0000000000e2';
+  const FAMILY_ID = '01920000-0000-7000-8000-0000000000f1';
+
+  let repo: {
+    findRefreshTokenByHash: ReturnType<typeof vi.fn>;
+    findRefreshTokenById: ReturnType<typeof vi.fn>;
+    findUserById: ReturnType<typeof vi.fn>;
+    findActiveMembershipForOrg: ReturnType<typeof vi.fn>;
+    rotateRefreshToken: ReturnType<typeof vi.fn>;
+    insertRefreshTokenIfFamilyActive: ReturnType<typeof vi.fn>;
+    revokeFamily: ReturnType<typeof vi.fn>;
+  };
+  let token: {
+    verifyRefreshToken: ReturnType<typeof vi.fn>;
+    hashToken: ReturnType<typeof vi.fn>;
+    createRefreshToken: ReturnType<typeof vi.fn>;
+    signAccessToken: ReturnType<typeof vi.fn>;
+  };
+  let service: AuthService;
+  let req: Request;
+  let res: Response;
+
+  function storedToken(overrides: Partial<RefreshTokenRow> = {}): RefreshTokenRow {
+    const now = new Date();
+    return {
+      id: TOKEN_ID,
+      userId: USER_ID,
+      organizationId: ORG_ID,
+      familyId: FAMILY_ID,
+      tokenHash: 'hash:presented',
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      revokedAt: null,
+      replacedByTokenId: null,
+      ip: null,
+      userAgent: null,
+      createdAt: now,
+      updatedAt: now,
+      ...overrides,
+    };
+  }
+
+  /** Revoked `ageMs` ago — by rotation unless `replacedByTokenId` is overridden to null. */
+  function rotatedToken(ageMs: number, overrides: Partial<RefreshTokenRow> = {}) {
+    return storedToken({
+      revokedAt: new Date(Date.now() - ageMs),
+      replacedByTokenId: SUCCESSOR_ID,
+      ...overrides,
+    });
+  }
+
+  beforeEach(() => {
+    repo = {
+      findRefreshTokenByHash: vi.fn().mockResolvedValue(storedToken()),
+      findRefreshTokenById: vi.fn(),
+      findUserById: vi.fn().mockResolvedValue(makeUser()),
+      findActiveMembershipForOrg: vi
+        .fn()
+        .mockResolvedValue({ organizationId: ORG_ID, roleKey: 'studio' }),
+      rotateRefreshToken: vi.fn().mockResolvedValue(true),
+      insertRefreshTokenIfFamilyActive: vi.fn().mockResolvedValue(true),
+      revokeFamily: vi.fn().mockResolvedValue(undefined),
+    };
+    token = {
+      verifyRefreshToken: vi.fn().mockResolvedValue({}),
+      hashToken: vi.fn((raw: string) => `hash:${raw}`),
+      createRefreshToken: vi.fn().mockResolvedValue({
+        token: 'next-raw',
+        tokenId: 'next-id',
+        familyId: FAMILY_ID,
+        tokenHash: 'hash:next-raw',
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      }),
+      signAccessToken: vi.fn().mockResolvedValue('access-token'),
+    };
+    const config = {
+      get: vi.fn((key: string) => {
+        if (key === 'jwt.refreshTtlMs') return 7 * 24 * 60 * 60 * 1000;
+        if (key === 'isProduction') return false;
+        return undefined;
+      }),
+    };
+    service = new AuthService(
+      repo as unknown as AuthRepository,
+      {} as unknown as PasswordService,
+      token as unknown as TokenService,
+      config as unknown as ConfigService,
+      {} as unknown as Redis,
+      { sendEmail: vi.fn() } as unknown as NotificationPort,
+    );
+    req = { headers: {}, cookies: { refresh_token: 'presented' } } as unknown as Request;
+    res = makeRes();
+  });
+
+  const expectSession = (result: { accessToken: string }) => {
+    expect(result.accessToken).toBe('access-token');
+    expect(res.cookie).toHaveBeenCalledWith(
+      'refresh_token',
+      'next-raw',
+      expect.objectContaining({ httpOnly: true }),
+    );
+    expect(repo.revokeFamily).not.toHaveBeenCalled();
+  };
+
+  const expectFamilyRevoked = async () => {
+    await expect(service.refresh(req, res)).rejects.toMatchObject({ status: 401 });
+    expect(repo.revokeFamily).toHaveBeenCalledWith(FAMILY_ID);
+    expect(res.clearCookie).toHaveBeenCalledWith('refresh_token', { path: '/' });
+    expect(res.cookie).not.toHaveBeenCalled();
+    expect(token.signAccessToken).not.toHaveBeenCalled();
+  };
+
+  it('rotates a live token within its family', async () => {
+    const result = await service.refresh(req, res);
+
+    expectSession(result);
+    expect(repo.rotateRefreshToken).toHaveBeenCalledWith(
+      TOKEN_ID,
+      expect.objectContaining({ id: 'next-id', familyId: FAMILY_ID, tokenHash: 'hash:next-raw' }),
+    );
+    expect(repo.insertRefreshTokenIfFamilyActive).not.toHaveBeenCalled();
+  });
+
+  it('a token rotated moments ago (second tab / reload) gets a sibling, not a family revoke', async () => {
+    repo.findRefreshTokenByHash.mockResolvedValue(rotatedToken(5_000));
+
+    const result = await service.refresh(req, res);
+
+    expectSession(result);
+    expect(repo.rotateRefreshToken).not.toHaveBeenCalled();
+    expect(repo.insertRefreshTokenIfFamilyActive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'next-id', familyId: FAMILY_ID, userId: USER_ID }),
+    );
+    expect(token.createRefreshToken).toHaveBeenCalledWith(
+      expect.objectContaining({ familyId: FAMILY_ID }),
+    );
+  });
+
+  it('still checks the user and the membership inside the grace window', async () => {
+    repo.findRefreshTokenByHash.mockResolvedValue(rotatedToken(1_000));
+    repo.findActiveMembershipForOrg.mockResolvedValue(null);
+
+    await expect(service.refresh(req, res)).rejects.toMatchObject({ status: 401 });
+    expect(repo.insertRefreshTokenIfFamilyActive).not.toHaveBeenCalled();
+    expect(token.signAccessToken).not.toHaveBeenCalled();
+  });
+
+  it(`revokes the family when a rotated token comes back after ${REFRESH_REUSE_GRACE_MS} ms`, async () => {
+    repo.findRefreshTokenByHash.mockResolvedValue(rotatedToken(REFRESH_REUSE_GRACE_MS + 1_000));
+
+    await expectFamilyRevoked();
+    expect(repo.insertRefreshTokenIfFamilyActive).not.toHaveBeenCalled();
+  });
+
+  it('gives no grace to a token revoked by logout/password reset (no successor)', async () => {
+    repo.findRefreshTokenByHash.mockResolvedValue(rotatedToken(1_000, { replacedByTokenId: null }));
+
+    await expectFamilyRevoked();
+    expect(repo.insertRefreshTokenIfFamilyActive).not.toHaveBeenCalled();
+  });
+
+  it('refuses the grace once the rest of the family was revoked (logout after the rotation)', async () => {
+    repo.findRefreshTokenByHash.mockResolvedValue(rotatedToken(2_000));
+    repo.insertRefreshTokenIfFamilyActive.mockResolvedValue(false);
+
+    await expectFamilyRevoked();
+  });
+
+  it('losing the rotation race to a concurrent rotation joins the winner instead of revoking', async () => {
+    repo.rotateRefreshToken.mockResolvedValue(false);
+    repo.findRefreshTokenById.mockResolvedValue(rotatedToken(10));
+
+    const result = await service.refresh(req, res);
+
+    expectSession(result);
+    expect(repo.findRefreshTokenById).toHaveBeenCalledWith(TOKEN_ID);
+    expect(repo.insertRefreshTokenIfFamilyActive).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'next-id', familyId: FAMILY_ID }),
+    );
+  });
+
+  it('losing the race to a logout (revoked without successor) still revokes the family', async () => {
+    repo.rotateRefreshToken.mockResolvedValue(false);
+    repo.findRefreshTokenById.mockResolvedValue(rotatedToken(10, { replacedByTokenId: null }));
+
+    await expectFamilyRevoked();
+    expect(repo.insertRefreshTokenIfFamilyActive).not.toHaveBeenCalled();
   });
 });
 
@@ -675,5 +867,260 @@ describe('AuthService checkSignupAvailability', () => {
       status: 429,
     });
     expect(repo.emailExists).not.toHaveBeenCalled();
+  });
+});
+
+describe('AuthService invites (explicit acceptance)', () => {
+  const MEMBERSHIP_ID = '01920000-0000-7000-8000-0000000000d7';
+  const INVITED_ID = '01920000-0000-7000-8000-0000000000c8';
+
+  let repo: {
+    replaceInviteToken: ReturnType<typeof vi.fn>;
+    findPendingInviteByTokenHash: ReturnType<typeof vi.fn>;
+    findActiveMemberships: ReturnType<typeof vi.fn>;
+    acceptInvite: ReturnType<typeof vi.fn>;
+  };
+  let password: { hash: ReturnType<typeof vi.fn>; verify: ReturnType<typeof vi.fn> };
+  let redis: {
+    incr: ReturnType<typeof vi.fn>;
+    ttl: ReturnType<typeof vi.fn>;
+    expire: ReturnType<typeof vi.fn>;
+    del: ReturnType<typeof vi.fn>;
+  };
+  let service: AuthService;
+  let req: Request;
+
+  function pendingInvite(overrides: Partial<PendingInvite> = {}): PendingInvite {
+    return {
+      inviteTokenId: 'invite-token-id',
+      membershipId: MEMBERSHIP_ID,
+      organizationId: ORG_ID,
+      organizationName: 'Studio A',
+      role: 'studio',
+      userId: INVITED_ID,
+      email: 'convidado@estudio.dev',
+      passwordHash: 'stored-hash',
+      birthdate: null,
+      ...overrides,
+    };
+  }
+
+  beforeEach(() => {
+    repo = {
+      replaceInviteToken: vi.fn().mockResolvedValue(undefined),
+      findPendingInviteByTokenHash: vi.fn().mockResolvedValue(pendingInvite()),
+      findActiveMemberships: vi.fn().mockResolvedValue([]),
+      acceptInvite: vi.fn().mockResolvedValue(true),
+    };
+    password = {
+      hash: vi.fn().mockResolvedValue('new-hash'),
+      verify: vi.fn().mockResolvedValue(true),
+    };
+    redis = {
+      incr: vi.fn().mockResolvedValue(1),
+      ttl: vi.fn().mockResolvedValue(60),
+      expire: vi.fn().mockResolvedValue(1),
+      del: vi.fn().mockResolvedValue(1),
+    };
+    const config = {
+      get: vi.fn((key: string) => {
+        if (key === 'authThrottle.limit') return 5;
+        if (key === 'authThrottle.ttl') return 60;
+        return undefined;
+      }),
+    };
+    service = new AuthService(
+      repo as unknown as AuthRepository,
+      password as unknown as PasswordService,
+      { hashToken: vi.fn((raw: string) => `hash:${raw}`) } as unknown as TokenService,
+      config as unknown as ConfigService,
+      redis as unknown as Redis,
+      { sendEmail: vi.fn() } as unknown as NotificationPort,
+    );
+    req = {} as Request;
+  });
+
+  it('issues a random token valid for 7 days, storing only its hash', async () => {
+    const before = Date.now();
+    const raw = await service.issueInviteToken(MEMBERSHIP_ID, ORG_ID);
+
+    expect(raw).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    const stored = repo.replaceInviteToken.mock.calls[0]![0] as {
+      tokenHash: string;
+      expiresAt: Date;
+      membershipId: string;
+      organizationId: string;
+    };
+    expect(stored).toMatchObject({
+      membershipId: MEMBERSHIP_ID,
+      organizationId: ORG_ID,
+      tokenHash: `hash:${raw}`,
+    });
+    expect(stored.expiresAt.getTime()).toBeGreaterThanOrEqual(before + INVITE_TOKEN_TTL_MS);
+    expect(INVITE_TOKEN_TTL_MS).toBe(7 * 24 * 60 * 60 * 1000);
+  });
+
+  it('a resend shares the per-e-mail mail budget (429 past it)', async () => {
+    redis.incr.mockResolvedValue(6);
+
+    await expect(
+      service.reissueInviteToken(MEMBERSHIP_ID, ORG_ID, 'Convidado@Estudio.dev'),
+    ).rejects.toMatchObject({ status: 429 });
+    expect(redis.incr).toHaveBeenCalledWith('forgot:id:convidado@estudio.dev');
+    expect(repo.replaceInviteToken).not.toHaveBeenCalled();
+  });
+
+  describe('preview', () => {
+    it('shows a new account (created by the invite) as needing password and birthdate', async () => {
+      await expect(service.previewInvite('tok')).resolves.toEqual({
+        organizationName: 'Studio A',
+        role: 'studio',
+        email: 'convidado@estudio.dev',
+        accountExists: false,
+        birthdateRequired: true,
+      });
+      expect(repo.findPendingInviteByTokenHash).toHaveBeenCalledWith('hash:tok');
+    });
+
+    it('treats an account with a birthdate (signed up) as existing', async () => {
+      repo.findPendingInviteByTokenHash.mockResolvedValue(
+        pendingInvite({ birthdate: '1990-01-01' }),
+      );
+      await expect(service.previewInvite('tok')).resolves.toMatchObject({
+        accountExists: true,
+        birthdateRequired: false,
+      });
+    });
+
+    it('treats an account already active in another org as existing', async () => {
+      repo.findActiveMemberships.mockResolvedValue([
+        { organizationId: 'other', organizationName: 'Outra', roleKey: 'player' },
+      ]);
+      await expect(service.previewInvite('tok')).resolves.toMatchObject({
+        accountExists: true,
+        birthdateRequired: true,
+      });
+    });
+
+    it('answers 422 (token) for an unknown, used or expired token', async () => {
+      repo.findPendingInviteByTokenHash.mockResolvedValue(null);
+      await expect(service.previewInvite('nope')).rejects.toMatchObject({ status: 422 });
+    });
+  });
+
+  describe('accept — account created by the invite', () => {
+    it('sets password + birthdate and activates the membership', async () => {
+      const result = await service.acceptInvite(
+        { token: 'tok', password: 'NovaSenha1', birthdate: '1995-06-15' },
+        req,
+      );
+
+      expect(result).toMatchObject({
+        email: 'convidado@estudio.dev',
+        organizationName: 'Studio A',
+      });
+      expect(password.hash).toHaveBeenCalledWith('NovaSenha1');
+      expect(repo.acceptInvite).toHaveBeenCalledWith({
+        tokenHash: 'hash:tok',
+        membershipId: MEMBERSHIP_ID,
+        userId: INVITED_ID,
+        passwordHash: 'new-hash',
+        birthdate: '1995-06-15',
+      });
+      expect(drainAuditDrafts(req)[0]).toMatchObject({
+        action: 'org.invite_accepted',
+        entityId: INVITED_ID,
+        after: { status: 'active', organizationId: ORG_ID, accountCreated: true },
+      });
+    });
+
+    it('requires a birthdate and enforces 18+', async () => {
+      await expect(
+        service.acceptInvite({ token: 'tok', password: 'NovaSenha1' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      await expect(
+        service.acceptInvite(
+          { token: 'tok', password: 'NovaSenha1', birthdate: '2015-01-01' },
+          req,
+        ),
+      ).rejects.toMatchObject({ status: 422 });
+      expect(repo.acceptInvite).not.toHaveBeenCalled();
+    });
+
+    it('requires a password', async () => {
+      await expect(
+        service.acceptInvite({ token: 'tok', birthdate: '1995-06-15' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      expect(repo.acceptInvite).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('accept — existing account', () => {
+    beforeEach(() => {
+      repo.findPendingInviteByTokenHash.mockResolvedValue(
+        pendingInvite({ birthdate: '1990-01-01' }),
+      );
+    });
+
+    it('accepts with the CURRENT password and never changes it', async () => {
+      await service.acceptInvite(
+        { token: 'tok', currentPassword: 'Atual123', password: 'TentaTrocar1' },
+        req,
+      );
+
+      expect(password.verify).toHaveBeenCalledWith('stored-hash', 'Atual123');
+      expect(password.hash).not.toHaveBeenCalled();
+      expect(repo.acceptInvite).toHaveBeenCalledWith(
+        expect.objectContaining({ passwordHash: undefined, birthdate: undefined }),
+      );
+    });
+
+    it('refuses a token holder who does not know the password — no takeover', async () => {
+      password.verify.mockResolvedValue(false);
+
+      await expect(
+        service.acceptInvite({ token: 'tok', currentPassword: 'chute' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      await expect(
+        service.acceptInvite({ token: 'tok', password: 'NovaSenha1' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      expect(repo.acceptInvite).not.toHaveBeenCalled();
+      expect(redis.incr).toHaveBeenCalledWith('invite:id:convidado@estudio.dev');
+    });
+
+    it('throttles password guesses per e-mail', async () => {
+      redis.incr.mockResolvedValue(6);
+      await expect(
+        service.acceptInvite({ token: 'tok', currentPassword: 'chute' }, req),
+      ).rejects.toMatchObject({ status: 429 });
+      expect(password.verify).not.toHaveBeenCalled();
+    });
+
+    it('still collects a missing birthdate (18+) from an existing account', async () => {
+      repo.findPendingInviteByTokenHash.mockResolvedValue(pendingInvite({ birthdate: null }));
+      repo.findActiveMemberships.mockResolvedValue([
+        { organizationId: 'other', organizationName: 'Outra', roleKey: 'studio' },
+      ]);
+
+      await expect(
+        service.acceptInvite({ token: 'tok', currentPassword: 'Atual123' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+
+      await service.acceptInvite(
+        { token: 'tok', currentPassword: 'Atual123', birthdate: '1990-02-02' },
+        req,
+      );
+      expect(repo.acceptInvite).toHaveBeenCalledWith(
+        expect.objectContaining({ birthdate: '1990-02-02', passwordHash: undefined }),
+      );
+    });
+  });
+
+  it('answers 422 when the token was consumed concurrently', async () => {
+    repo.acceptInvite.mockResolvedValue(false);
+    await expect(
+      service.acceptInvite({ token: 'tok', password: 'NovaSenha1', birthdate: '1995-06-15' }, req),
+    ).rejects.toMatchObject({ status: 422 });
+    expect(drainAuditDrafts(req)).toHaveLength(0);
   });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ParticipationRow } from '../../infra/database/schema/participations';
 import type { TestRow } from '../../infra/database/schema/tests';
 import type { BuildsRepository } from '../builds/builds.repository';
@@ -89,7 +89,7 @@ describe('ParticipationsService', () => {
     repo = {
       findTestById: vi.fn(),
       findAudienceAgeRange: vi.fn().mockResolvedValue(null),
-      findUserBirthdate: vi.fn().mockResolvedValue(null),
+      findUserBirthdate: vi.fn().mockResolvedValue('1995-06-15'),
       reserveParticipation: vi.fn(),
       hasCompletedParticipation: vi.fn().mockResolvedValue(false),
       findById: vi.fn(),
@@ -142,12 +142,63 @@ describe('ParticipationsService', () => {
       expect(repo.reserveParticipation).not.toHaveBeenCalled();
     });
 
+    it('403s a player without birthdate, even on a test without age bracket', async () => {
+      repo.findTestById.mockResolvedValue(makeTestRow());
+      repo.findUserBirthdate.mockResolvedValue(null);
+      await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({
+        status: 403,
+        message: 'Data de nascimento obrigatória para participar',
+      });
+      expect(repo.reserveParticipation).not.toHaveBeenCalled();
+    });
+
     it('403s when the player is outside the audience age bracket', async () => {
       repo.findTestById.mockResolvedValue(makeTestRow());
       repo.findAudienceAgeRange.mockResolvedValue({ ageMin: 18, ageMax: 25 });
       repo.findUserBirthdate.mockResolvedValue('1960-01-01'); // way older than 25
       await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({ status: 403 });
       expect(repo.reserveParticipation).not.toHaveBeenCalled();
+    });
+
+    describe('age bracket boundaries', () => {
+      const NOW = new Date('2026-11-09T12:00:00.000Z');
+
+      beforeEach(() => {
+        vi.useFakeTimers();
+        vi.setSystemTime(NOW);
+        repo.findTestById.mockResolvedValue(makeTestRow());
+        repo.findAudienceAgeRange.mockResolvedValue({ ageMin: 18, ageMax: 30 });
+        repo.reserveParticipation.mockResolvedValue(makeParticipation());
+      });
+
+      afterEach(() => {
+        vi.useRealTimers();
+      });
+
+      it('403s a player who turns ageMax + 1 today', async () => {
+        repo.findUserBirthdate.mockResolvedValue('1995-11-09'); // 31 today
+        await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({ status: 403 });
+        expect(repo.reserveParticipation).not.toHaveBeenCalled();
+      });
+
+      it('accepts a player who is still ageMax (turns ageMax + 1 tomorrow)', async () => {
+        repo.findUserBirthdate.mockResolvedValue('1995-11-10'); // 30
+        await expect(service.join(TEST_ID, USER_ID)).resolves.toMatchObject({
+          id: PARTICIPATION_ID,
+        });
+      });
+
+      it('accepts a player who turns ageMin today', async () => {
+        repo.findUserBirthdate.mockResolvedValue('2008-11-09'); // 18 today
+        await expect(service.join(TEST_ID, USER_ID)).resolves.toMatchObject({
+          id: PARTICIPATION_ID,
+        });
+      });
+
+      it('403s a player who turns ageMin tomorrow', async () => {
+        repo.findUserBirthdate.mockResolvedValue('2008-11-10'); // 17
+        await expect(service.join(TEST_ID, USER_ID)).rejects.toMatchObject({ status: 403 });
+      });
     });
 
     it('lets a player inside the audience age bracket through', async () => {

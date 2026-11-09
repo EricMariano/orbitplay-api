@@ -16,6 +16,15 @@ export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 export type DbExecutor = Database | Transaction;
 
 /**
+ * Server-side ceiling for any single statement on the API pool. A runaway
+ * query (missing index, pathological report, lock wait) is cancelled by
+ * Postgres instead of pinning one of the 10 connections and the request
+ * behind it. Migrations open their own client (`migrate.ts`) and the worker
+ * has its own, larger, ceiling (`src/workers/deps.ts`), so neither gets this.
+ */
+export const API_STATEMENT_TIMEOUT_MS = 30_000;
+
+/**
  * Global database module. Provides the raw postgres-js client (PG_CLIENT, used
  * by the telemetry adapter's raw SQL) and the Drizzle instance (DRIZZLE) used
  * by every repository. casing:'snake_case' maps camelCase schema keys to the
@@ -25,7 +34,8 @@ export type DbExecutor = Database | Transaction;
  * connection (queries in flight at that moment do fail). The explicit timeouts
  * below keep an unreachable database from holding requests for the library
  * default (30s connect timeout) and recycle idle connections so stale sockets
- * after a DB restart don't linger in the pool.
+ * after a DB restart don't linger in the pool. `statement_timeout` is sent as a
+ * startup parameter, so it applies to every connection the pool opens.
  */
 @Global()
 @Module({
@@ -39,6 +49,7 @@ export type DbExecutor = Database | Transaction;
           max: 10,
           connect_timeout: 10, // seconds
           idle_timeout: 30, // seconds
+          connection: { statement_timeout: API_STATEMENT_TIMEOUT_MS },
         });
       },
     },

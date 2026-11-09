@@ -130,8 +130,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   ): Promise<Ack<ChatPresenceView>> {
     return this.run(async () => {
       const { channelId } = parse(wsChannelRefSchema, body);
-      await this.chat.enforceSocketEventLimit(requireUser(client).userId);
-      await this.chat.getChannelOrThrow(channelId);
+      const user = requireUser(client);
+      await this.chat.enforceSocketEventLimit(user.userId);
+      await this.chat.getChannelOrThrow(channelId, user);
 
       const alreadyIn = client.rooms.has(channelRoom(channelId));
       await client.join(channelRoom(channelId));
@@ -170,7 +171,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
       // The service broadcasts to the room; the ack just confirms to the sender
       // (and carries the persisted id, so an optimistic bubble can reconcile).
-      return this.chat.sendMessage(payload.channelId, user.userId, { body: payload.body });
+      return this.chat.sendMessage(payload.channelId, user, { body: payload.body });
     });
   }
 

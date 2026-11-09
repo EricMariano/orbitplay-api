@@ -31,13 +31,19 @@ export class BuildsService {
    * `compatible: false` + readable reasons, never an error. `os`/`arch` are
    * accepted (per the design contract) but not matched against anything —
    * `builds` stores no OS/arch data, only `platform` (DECISIONS.md §3).
+   * Any account may ask (the player tutorial does), so a caller outside the
+   * build's org only learns that it isn't ready — never why (see `unreadyReason`).
    */
-  async checkCompatibility(id: string, query: CompatibilityQuery): Promise<CompatibilityReport> {
+  async checkCompatibility(
+    callerOrganizationId: string,
+    id: string,
+    query: CompatibilityQuery,
+  ): Promise<CompatibilityReport> {
     const build = await this.findAnyOrgOrThrow(id);
     const reasons: string[] = [];
 
     if (build.status !== 'validated') {
-      reasons.push(unreadyReason(build));
+      reasons.push(unreadyReason(build, callerOrganizationId));
     }
     if (build.platform && build.platform !== query.platform) {
       reasons.push(`Build disponível apenas para ${build.platform}`);
@@ -46,7 +52,9 @@ export class BuildsService {
     return {
       compatible: reasons.length === 0,
       reasons,
-      supportedPlatforms: build.platform ? [build.platform as CompatibilityReport['supportedPlatforms'][number]] : [],
+      supportedPlatforms: build.platform
+        ? [build.platform as CompatibilityReport['supportedPlatforms'][number]]
+        : [],
     };
   }
 
@@ -64,6 +72,7 @@ export class BuildsService {
    */
   async getDownloadUrl(
     userId: string,
+    callerOrganizationId: string,
     id: string,
     query: DownloadUrlQuery,
   ): Promise<DownloadUrlResponse> {
@@ -74,7 +83,7 @@ export class BuildsService {
       throw AppException.forbidden('Sem participação ativa neste teste');
     }
     if (build.status !== 'validated') {
-      throw AppException.conflict(unreadyReason(build));
+      throw AppException.conflict(unreadyReason(build, callerOrganizationId));
     }
 
     const needsDownload = query.localVersion == null || query.localVersion !== build.version;
@@ -103,7 +112,16 @@ export class BuildsService {
   }
 }
 
-function unreadyReason(build: BuildRow): string {
+/** What a caller outside the build's org is told — nothing about the build's state. */
+const GENERIC_UNREADY_REASON = 'Build indisponível no momento';
+
+/**
+ * `failureReason` is the studio's own diagnostic — it can name the malware
+ * signature the scanner found — and these routes read builds of any org
+ * (`findByIdAnyOrg`). Only the owning org gets the details.
+ */
+function unreadyReason(build: BuildRow, callerOrganizationId: string): string {
+  if (build.organizationId !== callerOrganizationId) return GENERIC_UNREADY_REASON;
   if (build.status === 'failed') return build.failureReason ?? 'Build falhou na validação';
   return 'Build ainda não validada';
 }

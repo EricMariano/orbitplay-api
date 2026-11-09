@@ -1,13 +1,14 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import type { Request } from 'express';
 import { toBuildView } from '../builds/build-view.mapper';
-import { BuildsRepository } from '../builds/builds.repository';
+import { type BuildWithSteps, BuildsRepository } from '../builds/builds.repository';
 import { GamesService } from '../games/games.service';
 import type { TestModelView } from '../test-models/dto/test-model.dto';
 import { TestModelsService } from '../test-models/test-models.service';
+import type { DbExecutor } from '../../infra/database/database.module';
 import { newId } from '../../infra/database/schema/_helpers';
 import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
-import type { TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
+import type { BuildRow, TestAudienceCriteriaRow, TestRow } from '../../infra/database/schema/tests';
 import { buildValidateJobId, JobName } from '../../infra/queue/queue.constants';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
@@ -35,7 +36,7 @@ import {
   type BuildUploadUrlResponse,
   type WizardStepValue,
 } from './dto/test.dto';
-import { buildBuildStorageKey, parseBuildStorageKey } from './storage-key';
+import { buildBuildStorageKey, buildObjectKeys, parseBuildStorageKey } from './storage-key';
 import { type FormQuestionWithOptions, TestsRepository } from './tests.repository';
 
 const BUILD_STEP_KEYS = ['checksum', 'malware_scan', 'metadata'] as const;
@@ -46,6 +47,16 @@ const STATUS_TRANSITIONS: Partial<Record<TestStatusValue, TestStatusValue[]>> = 
 };
 
 const STEP_ORDER: readonly WizardStepValue[] = ['model', 'form', 'build', 'audience', 'review'];
+
+/** Global UNIQUE on `tests.publish_idempotency_key` — across every test, not per test. */
+const PUBLISH_IDEMPOTENCY_KEY_CONSTRAINT = 'tests_publish_idempotency_key_unique';
+
+/** What a `TestView` (and its `pendingValidations`) reads besides the test row itself. */
+interface TestViewDeps {
+  audience: TestAudienceCriteriaRow | null;
+  build: BuildWithSteps | null;
+  questionCount: number;
+}
 
 @Injectable()
 export class TestsService {
@@ -110,14 +121,14 @@ export class TestsService {
     if (!gameExists) throw AppException.notFound('Jogo não encontrado');
 
     const page = await this.repo.listByGameInOrg(organizationId, gameId, query);
-    const data = await Promise.all(page.data.map((row) => this.toView(row)));
+    const data = await this.toViews(page.data);
     return { data, nextCursor: page.nextCursor };
   }
 
   /** Most recent tests of the org, any game — the Home's "testes recentes" (M11, Tela 02). */
   async listRecent(organizationId: string, limit: number): Promise<TestView[]> {
     const page = await this.repo.listInOrg(organizationId, { limit });
-    return Promise.all(page.data.map((row) => this.toView(row)));
+    return this.toViews(page.data);
   }
 
   async setModel(
@@ -225,57 +236,71 @@ export class TestsService {
       });
     }
 
-    const result = await this.repo.withRowLock(organizationId, id, async (test, updateTest, tx) => {
-      this.assertDraft(test);
+    // Storage first, before the row lock: a HEAD is a network round trip, and
+    // holding `FOR UPDATE` (and one of the pool's connections) across it
+    // stalled every other wizard call on this test behind MinIO. Only the
+    // DB-state checks below need the lock.
+    const meta = await this.storage.stat(dto.storageKey);
+    if (!meta) {
+      throw AppException.validation('Objeto ausente no storage', {
+        storageKey: 'Upload não encontrado — envie o arquivo antes de confirmar',
+      });
+    }
+    if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_BUILD_BYTES) {
+      // Reject without leaving the oversized object behind (SEC-06) —
+      // the signed Content-Length should already stop this at upload
+      // time, but a rejected object here must never linger either.
+      await this.storage.remove(dto.storageKey).catch(() => undefined);
+      throw AppException.validation('Tamanho de build inválido', {
+        sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_BUILD_BYTES} bytes`,
+      });
+    }
 
-      const existing = await this.builds.findLatestBuild(id);
-      if (existing) {
-        if (existing.build.status === 'failed') {
+    const { created: result, replaced } = await this.repo.withRowLock(
+      organizationId,
+      id,
+      async (test, updateTest, tx) => {
+        this.assertDraft(test);
+
+        let replaced: BuildRow | null = null;
+        const existing = await this.builds.findLatestBuild(id);
+        if (existing) {
+          if (existing.build.status !== 'failed') {
+            throw AppException.conflict(
+              'Já existe uma build para este teste — remova antes de enviar outra',
+            );
+          }
           await this.builds.deleteBuild(existing.build.id, tx);
-        } else {
-          throw AppException.conflict(
-            'Já existe uma build para este teste — remova antes de enviar outra',
-          );
+          replaced = existing.build;
         }
-      }
 
-      const meta = await this.storage.stat(dto.storageKey);
-      if (!meta) {
-        throw AppException.validation('Objeto ausente no storage', {
-          storageKey: 'Upload não encontrado — envie o arquivo antes de confirmar',
-        });
-      }
-      if (meta.sizeBytes < 1 || meta.sizeBytes > MAX_BUILD_BYTES) {
-        // Reject without leaving the oversized object behind (SEC-06) —
-        // the signed Content-Length should already stop this at upload
-        // time, but a rejected object here must never linger either.
-        await this.storage.remove(dto.storageKey).catch(() => undefined);
-        throw AppException.validation('Tamanho de build inválido', {
-          sizeBytes: `Tamanho deve ficar entre 1 e ${MAX_BUILD_BYTES} bytes`,
-        });
-      }
+        const created = await this.builds.createBuildWithSteps(
+          {
+            id: parsed.buildId,
+            organizationId,
+            testId: id,
+            fileName: parsed.fileName,
+            version: dto.version ?? null,
+            platform: dto.platform,
+            sizeBytes: meta.sizeBytes,
+            checksum: dto.checksum ?? null,
+            storageKey: dto.storageKey,
+            status: 'processing',
+          },
+          BUILD_STEP_KEYS,
+          tx,
+        );
 
-      const created = await this.builds.createBuildWithSteps(
-        {
-          id: parsed.buildId,
-          organizationId,
-          testId: id,
-          fileName: parsed.fileName,
-          version: dto.version ?? null,
-          platform: dto.platform,
-          sizeBytes: meta.sizeBytes,
-          checksum: dto.checksum ?? null,
-          storageKey: dto.storageKey,
-          status: 'processing',
-        },
-        BUILD_STEP_KEYS,
-        tx,
-      );
+        await updateTest({ currentStep: this.advance(test.currentStep, 'audience') });
 
-      await updateTest({ currentStep: this.advance(test.currentStep, 'audience') });
-
-      return created;
-    });
+        return { created, replaced };
+      },
+    );
+    // The failed build's row is gone with the transaction; nothing else would
+    // ever remove its objects. A retry may re-confirm that build's own key
+    // (OPS-01: same id) — that upload now belongs to the new row, and only its
+    // stale validated copy goes, before the job could reuse it.
+    if (replaced) await this.removeBuildObjects(replaced, dto.storageKey);
 
     // OPS-01: the insert and the enqueue are two separate operations with no
     // shared transaction — if this fails, the row must not linger silently
@@ -285,9 +310,14 @@ export class TestsService {
     // on its own. `ensureEnqueued`'s deterministic id also makes this
     // safe if a reconciliation sweep or a client retry races it later.
     try {
-      await this.queue.ensureEnqueued(JobName.BUILD_VALIDATE, buildValidateJobId(result.build.id), {
-        buildId: result.build.id,
-      });
+      // The build row was just (re)created: a confirm that replaces a failed
+      // build with the same id must not wait on that build's finished job.
+      await this.queue.ensureEnqueued(
+        JobName.BUILD_VALIDATE,
+        buildValidateJobId(result.build.id),
+        { buildId: result.build.id },
+        { rerunCompleted: true },
+      );
     } catch (err) {
       result.build = await this.builds.markBuildFailed(
         result.build.id,
@@ -335,7 +365,7 @@ export class TestsService {
         return latest;
       },
     );
-    await this.storage.remove(existing.build.storageKey).catch(() => undefined);
+    await this.removeBuildObjects(existing.build);
 
     recordAudit(req, {
       action: 'test.build.removed',
@@ -449,9 +479,9 @@ export class TestsService {
       });
     }
 
-    let result: { test: TestRow; justPublished: boolean };
+    let result: { test: TestRow; justPublished: boolean; deps?: TestViewDeps };
     try {
-      result = await this.repo.withRowLock(organizationId, id, async (test, updateTest) => {
+      result = await this.repo.withRowLock(organizationId, id, async (test, updateTest, tx) => {
         if (test.status === 'published') {
           return { test, justPublished: false };
         }
@@ -459,7 +489,10 @@ export class TestsService {
           throw AppException.conflict('Teste não está em rascunho');
         }
 
-        const pending = await this.pendingValidationsFor(test);
+        // On `tx`: reads on the pool while this transaction holds the row lock
+        // would take more of its 10 connections per publish.
+        const deps = await this.loadViewDeps([test.id], tx);
+        const pending = this.pendingValidationsFor(test, deps(test.id));
         if (pending.length > 0) {
           throw AppException.validation(
             'Etapas pendentes para publicar',
@@ -480,17 +513,27 @@ export class TestsService {
           publishIdempotencyKey: idempotencyKey,
         });
 
-        return { test: updated, justPublished: true };
+        // Publishing touches none of the view's other inputs: reuse them.
+        return { test: updated, justPublished: true, deps: deps(test.id) };
       });
     } catch (err) {
-      if (isUniqueViolation(err)) {
+      // The key is unique across ALL tests. Hitting it is a replay only if
+      // this test did get published (by a concurrent call); otherwise the key
+      // was already spent on another test and nothing happened here — a 200
+      // carrying the draft would claim a publish that never took place.
+      if (isUniqueViolation(err, PUBLISH_IDEMPOTENCY_KEY_CONSTRAINT)) {
         const current = await this.repo.getByIdInOrgOrThrow(organizationId, id);
-        return this.toView(current);
+        if (current.status === 'published') return this.toView(current);
+        throw AppException.conflict(
+          'Idempotency-Key já usada para publicar outro teste — envie uma chave nova',
+        );
       }
       throw err;
     }
 
-    const view = await this.toView(result.test);
+    const view = result.deps
+      ? this.assembleView(result.test, result.deps)
+      : await this.toView(result.test);
     if (result.justPublished) {
       await this.dashboardKpis.invalidate(organizationId);
       recordAudit(req, {
@@ -559,7 +602,17 @@ export class TestsService {
     return STEP_ORDER.indexOf(atLeast) > STEP_ORDER.indexOf(current) ? atLeast : current;
   }
 
-  private async pendingValidationsFor(test: TestRow): Promise<PendingValidationView[]> {
+  /**
+   * Upload and validated copy alike (`buildObjectKeys`), except `keep`.
+   * Best-effort, like every storage cleanup here: a leftover object is waste,
+   * not a broken build.
+   */
+  private async removeBuildObjects(build: BuildRow, keep?: string): Promise<void> {
+    const keys = buildObjectKeys(build).filter((key) => key !== keep);
+    await Promise.all(keys.map((key) => this.storage.remove(key).catch(() => undefined)));
+  }
+
+  private pendingValidationsFor(test: TestRow, deps: TestViewDeps): PendingValidationView[] {
     const pending: PendingValidationView[] = [];
 
     const model = this.testModels.get(test.modelKey);
@@ -571,8 +624,7 @@ export class TestsService {
       });
     }
 
-    const questions = await this.repo.findFormQuestions(test.id);
-    if (questions.length === 0) {
+    if (deps.questionCount === 0) {
       pending.push({ step: 2, code: 'FORM_EMPTY', message: 'Formulário sem perguntas' });
     }
 
@@ -580,7 +632,7 @@ export class TestsService {
     // on one — ab_test_images compares static images and is explicitly
     // advertised as not requiring a build (test-models.catalog.ts).
     if (model.requiresBuild) {
-      const buildWithSteps = await this.builds.findLatestBuild(test.id);
+      const buildWithSteps = deps.build;
       if (!buildWithSteps || buildWithSteps.build.status !== 'validated') {
         pending.push({
           step: 3,
@@ -590,7 +642,7 @@ export class TestsService {
       }
     }
 
-    const audience = await this.repo.findAudience(test.id);
+    const audience = deps.audience;
     if (!audience || !audience.estimatedReach || audience.estimatedReach <= 0) {
       pending.push({
         step: 4,
@@ -602,13 +654,40 @@ export class TestsService {
     return pending;
   }
 
-  private async toView(test: TestRow): Promise<TestView> {
-    const [audience, build, pendingValidations] = await Promise.all([
-      this.repo.findAudience(test.id),
-      this.builds.findLatestBuild(test.id),
-      this.pendingValidationsFor(test),
+  /**
+   * Everything the views of these tests read, in a fixed number of queries
+   * (one per table) whatever the page size — `listByGame` (up to 100 rows)
+   * and the Home's `listRecent` used to cost ~8 queries per test, half of
+   * them fetched twice (once for the view, again for `pendingValidations`).
+   */
+  private async loadViewDeps(
+    testIds: string[],
+    db?: DbExecutor,
+  ): Promise<(testId: string) => TestViewDeps> {
+    const [audiences, builds, questionCounts] = await Promise.all([
+      this.repo.findAudiencesByTestIds(testIds, db),
+      this.builds.findLatestBuildsByTestIds(testIds, db),
+      this.repo.countFormQuestionsByTestIds(testIds, db),
     ]);
+    return (testId) => ({
+      audience: audiences.get(testId) ?? null,
+      build: builds.get(testId) ?? null,
+      questionCount: questionCounts.get(testId) ?? 0,
+    });
+  }
 
+  private async toView(test: TestRow): Promise<TestView> {
+    const deps = await this.loadViewDeps([test.id]);
+    return this.assembleView(test, deps(test.id));
+  }
+
+  private async toViews(tests: TestRow[]): Promise<TestView[]> {
+    if (tests.length === 0) return [];
+    const deps = await this.loadViewDeps(tests.map((t) => t.id));
+    return tests.map((test) => this.assembleView(test, deps(test.id)));
+  }
+
+  private assembleView(test: TestRow, deps: TestViewDeps): TestView {
     return {
       id: test.id,
       gameId: test.gameId,
@@ -617,9 +696,9 @@ export class TestsService {
       status: test.status,
       testModelKey: test.modelKey,
       currentStep: WIZARD_STEP_NUMBER[test.currentStep],
-      pendingValidations,
-      audience: audience ? toAudienceView(audience, test.durationDays) : null,
-      build: build ? toBuildView(build) : null,
+      pendingValidations: this.pendingValidationsFor(test, deps),
+      audience: deps.audience ? toAudienceView(deps.audience, test.durationDays) : null,
+      build: deps.build ? toBuildView(deps.build) : null,
       spotsTotal: test.slotsTotal,
       spotsTaken: test.slotsTaken,
       rewardCents: test.rewardAmountCents,
@@ -671,8 +750,16 @@ function dateYearsAgo(years: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-function isUniqueViolation(err: unknown): boolean {
-  const code = (err as { code?: string } | null)?.code;
-  const causeCode = (err as { cause?: { code?: string } } | null)?.cause?.code;
-  return code === '23505' || causeCode === '23505';
+/**
+ * Drizzle wraps the driver error in a `DrizzleQueryError` whose own `.code`
+ * is undefined — the real `PostgresError` (`code`, `constraint_name`) sits on
+ * `.cause` (DECISIONS.md §3). Matching the constraint too, not just 23505,
+ * keeps any other unique violation from passing for this one.
+ */
+function isUniqueViolation(err: unknown, constraint: string): boolean {
+  const candidates = [err, (err as { cause?: unknown } | null)?.cause];
+  return candidates.some((candidate) => {
+    const e = candidate as { code?: string; constraint_name?: string } | null | undefined;
+    return e?.code === '23505' && e.constraint_name === constraint;
+  });
 }

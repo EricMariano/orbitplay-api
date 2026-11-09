@@ -28,12 +28,24 @@ export interface WorkerDeps {
   scanner: MalwareScannerPort;
 }
 
+/**
+ * Statement ceiling for the worker pool — deliberately well above the API's
+ * 30 s: report exports read every session of a test in one unpaginated query
+ * and the reconciliation sweeps scan whole tables, and a timed-out export just
+ * fails the job. It still exists because the pool has only two connections: a
+ * statement that never returns would otherwise take half the worker's database
+ * capacity until a restart. The long non-SQL work (ffmpeg, ClamAV, uploads)
+ * happens between statements, so it is not counted.
+ */
+export const WORKER_STATEMENT_TIMEOUT_MS = 5 * 60_000;
+
 export async function createWorkerDeps(): Promise<WorkerDeps> {
   const config = buildConfig(validateEnv(process.env));
   const sql = postgres(config.database.url, {
     max: 2,
     connect_timeout: 10, // seconds
     idle_timeout: 30, // seconds
+    connection: { statement_timeout: WORKER_STATEMENT_TIMEOUT_MS },
     onnotice: () => {},
   });
   const db = drizzle(sql, { schema, casing: 'snake_case' });

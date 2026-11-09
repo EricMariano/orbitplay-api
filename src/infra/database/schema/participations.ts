@@ -46,6 +46,8 @@ export const participations = pgTable(
   },
   (t) => [
     index('participations_test_user_idx').on(t.testId, t.userId),
+    // "Meus testes": user_id = $1 [AND id < cursor] ORDER BY id DESC.
+    index('participations_user_idx').on(t.userId, t.id),
     uniqueIndex('participations_active_test_user_unique')
       .on(t.testId, t.userId)
       .where(
@@ -87,7 +89,14 @@ export const sessions = pgTable(
     durationMs: integer('duration_ms'),
     finishIdempotencyKey: text('finish_idempotency_key'),
   },
-  (t) => [index('sessions_test_idx').on(t.testId)],
+  (t) => [
+    index('sessions_test_idx').on(t.testId),
+    // Open/first/last session per participation (ORDER BY started_at) and the
+    // participation → sessions joins in reports and the dashboard.
+    index('sessions_participation_idx').on(t.participationId, t.startedAt),
+    // Dashboard KPIs (organization_id = $1) and per-day stats (… AND started_at >= $2).
+    index('sessions_org_started_idx').on(t.organizationId, t.startedAt),
+  ],
 );
 
 export const sessionDeviceEvents = pgTable(
@@ -125,7 +134,11 @@ export const sessionRecordings = pgTable(
     status: processingStatusEnum('status').notNull().default('processing'),
     thumbnailKey: text('thumbnail_key'),
   },
-  (t) => [index('session_recordings_session_idx').on(t.sessionId)],
+  (t) => [
+    index('session_recordings_session_idx').on(t.sessionId),
+    // completeUpload looks the row up by key; the unique closes the race.
+    uniqueIndex('session_recordings_storage_key_unique').on(t.storageKey),
+  ],
 );
 
 /**
@@ -183,19 +196,30 @@ export const formResponses = pgTable(
   (t) => [uniqueIndex('form_responses_session_unique').on(t.sessionId)],
 );
 
-export const formAnswers = pgTable('form_answers', {
-  id: primaryId(),
-  responseId: uuid('response_id')
-    .notNull()
-    .references(() => formResponses.id, { onDelete: 'cascade' }),
-  questionId: uuid('question_id')
-    .notNull()
-    .references(() => testFormQuestions.id),
-  valueText: text('value_text'),
-  valueNumber: numeric('value_number'),
-  valueBoolean: boolean('value_boolean'),
-  optionIds: uuid('option_ids').array(),
-});
+/**
+ * Every report block joins answers on both FKs; `question_id` is also the
+ * NO ACTION FK checked when a form's questions are replaced.
+ */
+export const formAnswers = pgTable(
+  'form_answers',
+  {
+    id: primaryId(),
+    responseId: uuid('response_id')
+      .notNull()
+      .references(() => formResponses.id, { onDelete: 'cascade' }),
+    questionId: uuid('question_id')
+      .notNull()
+      .references(() => testFormQuestions.id),
+    valueText: text('value_text'),
+    valueNumber: numeric('value_number'),
+    valueBoolean: boolean('value_boolean'),
+    optionIds: uuid('option_ids').array(),
+  },
+  (t) => [
+    index('form_answers_response_idx').on(t.responseId),
+    index('form_answers_question_idx').on(t.questionId),
+  ],
+);
 
 export type ParticipationRow = typeof participations.$inferSelect;
 export type NewParticipationRow = typeof participations.$inferInsert;

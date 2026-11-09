@@ -91,8 +91,9 @@ export class GameAccessController {
     return this.access.getGameAccess(organizationId, gameId);
   }
 
+  /** Who may do what on the game is a management decision: owner/admin only, like groups. */
   @Put()
-  @Roles(...STUDIO_ROLES)
+  @Roles(Role.OWNER, Role.ADMIN)
   @ZodResponse({ type: GameAccessListDto })
   set(
     @CurrentUser('organizationId') organizationId: string,

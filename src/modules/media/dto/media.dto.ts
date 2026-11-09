@@ -24,20 +24,41 @@ export const MAX_RECORDING_DURATION_MS = 4 * 60 * 60 * 1000;
 
 export const RECORDING_UPLOAD_TTL_SECONDS = 3600;
 
+/**
+ * Highest multipart part number a recording upload may use (S3 allows
+ * 10 000). With the client's ≥ 8 MiB parts, 1000 parts already exceed
+ * `MAX_RECORDING_BYTES`, so a legitimate upload never gets near it.
+ */
+export const MAX_RECORDING_PARTS = 1000;
+
+/** Recordings (stored + still uploading) one session may hold. */
+export const MAX_RECORDINGS_PER_SESSION = 10;
+
+/**
+ * How long after a session ends a new recording upload may still start. The
+ * `session.validate` worker waits this long for a required recording before
+ * settling the session as "Gravação obrigatória ausente" — keep both in step.
+ */
+export const RECORDING_UPLOAD_WINDOW_MS = 2 * 60 * 60 * 1000;
+
 export const recordingUploadUrlRequestSchema = z.object({
   contentType: z.enum(recordingContentTypeValues),
+  // Advisory, on every call: the recording's expected total size or this
+  // part's size — both fit the range. Only range-checked here; the presigned
+  // part URL doesn't bind it, and `complete` enforces the real object size
+  // (`stat`, 1..MAX_RECORDING_BYTES) before any row exists.
   sizeBytes: z
     .number()
     .int()
     .min(1, 'Arquivo vazio')
     .max(MAX_RECORDING_BYTES, `Arquivo acima de ${MAX_RECORDING_BYTES} bytes`),
-  partNumber: z.number().int().min(1).optional(),
+  partNumber: z.number().int().min(1).max(MAX_RECORDING_PARTS).optional(),
   uploadId: z.string().min(1).max(500).optional(),
   kind: z.enum(recordingKindApiValues).optional(),
 });
 
 export const recordingCompletePartSchema = z.object({
-  partNumber: z.number().int().min(1),
+  partNumber: z.number().int().min(1).max(MAX_RECORDING_PARTS),
   etag: z.string().min(1).max(200),
 });
 
@@ -47,7 +68,7 @@ export const recordingCompleteRequestSchema = z
     durationMs: z.number().int().min(0).max(MAX_RECORDING_DURATION_MS),
     sizeBytes: z.number().int().min(1).optional(),
     uploadId: z.string().min(1).max(500).optional(),
-    parts: z.array(recordingCompletePartSchema).optional(),
+    parts: z.array(recordingCompletePartSchema).max(MAX_RECORDING_PARTS).optional(),
   })
   .superRefine((value, ctx) => {
     const hasUploadId = Boolean(value.uploadId);

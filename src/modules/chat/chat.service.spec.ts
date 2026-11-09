@@ -13,6 +13,7 @@ import { ChatService } from './chat.service';
 const OWNER_ORG = 'org-owner';
 const GAME_ID = 'game-1';
 const CHANNEL_ID = 'channel-1';
+const PAGE = { limit: 20 };
 
 const studio: AuthUser = {
   userId: 'user-studio',
@@ -22,6 +23,9 @@ const studio: AuthUser = {
 };
 
 const rival: AuthUser = { ...studio, userId: 'user-rival', organizationId: 'org-rival' };
+
+/** A player browsing from their own (personal) organization — never the game's owner. */
+const player = { userId: 'user-player', organizationId: 'org-player' };
 
 function channel(overrides: Partial<ChatChannelRow> = {}): ChatChannelRow {
   return {
@@ -123,7 +127,7 @@ describe('ChatService', () => {
   describe('sendMessage', () => {
     it('broadcasts the persisted message to the channel room', async () => {
       const spy = vi.spyOn(realtime, 'messageCreated');
-      const view = await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'olá' });
+      const view = await service.sendMessage(CHANNEL_ID, player, { body: 'olá' });
 
       expect(view.body).toBe('olá');
       expect(spy).toHaveBeenCalledWith(view);
@@ -132,44 +136,44 @@ describe('ChatService', () => {
     it('refuses an archived channel', async () => {
       vi.mocked(repo.findChannelById).mockResolvedValueOnce(channel({ archivedAt: new Date() }));
 
-      await expect(
-        service.sendMessage(CHANNEL_ID, 'user-player', { body: 'olá' }),
-      ).rejects.toMatchObject({ status: HttpStatus.CONFLICT });
+      await expect(service.sendMessage(CHANNEL_ID, player, { body: 'olá' })).rejects.toMatchObject({
+        status: HttpStatus.CONFLICT,
+      });
     });
 
     it('404s a channel whose game was deleted, instead of taking the message', async () => {
       vi.mocked(games.existsAnyOrg).mockRejectedValueOnce(AppException.notFound());
 
-      await expect(
-        service.sendMessage(CHANNEL_ID, 'player-1', { body: 'oi' }),
-      ).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+      await expect(service.sendMessage(CHANNEL_ID, player, { body: 'oi' })).rejects.toMatchObject({
+        status: HttpStatus.NOT_FOUND,
+      });
       expect(repo.createMessage).not.toHaveBeenCalled();
     });
 
     it('404s an unknown channel', async () => {
       vi.mocked(repo.findChannelById).mockResolvedValueOnce(null);
 
-      await expect(
-        service.sendMessage('nope', 'user-player', { body: 'olá' }),
-      ).rejects.toMatchObject({ status: HttpStatus.NOT_FOUND });
+      await expect(service.sendMessage('nope', player, { body: 'olá' })).rejects.toMatchObject({
+        status: HttpStatus.NOT_FOUND,
+      });
     });
 
     it('throttles a user past the configured limit', async () => {
       vi.mocked(redis.incr).mockResolvedValueOnce(11);
 
       await expect(
-        service.sendMessage(CHANNEL_ID, 'user-player', { body: 'flood' }),
+        service.sendMessage(CHANNEL_ID, player, { body: 'flood' }),
       ).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
       expect(repo.createMessage).not.toHaveBeenCalled();
     });
 
     it('starts the throttle window only on the first message', async () => {
-      await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'um' });
+      await service.sendMessage(CHANNEL_ID, player, { body: 'um' });
       expect(redis.expire).toHaveBeenCalledWith('chat:rate:user-player', 10);
 
       vi.mocked(redis.incr).mockResolvedValueOnce(2);
       vi.mocked(redis.expire).mockClear();
-      await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'dois' });
+      await service.sendMessage(CHANNEL_ID, player, { body: 'dois' });
       expect(redis.expire).not.toHaveBeenCalled();
     });
 
@@ -177,8 +181,61 @@ describe('ChatService', () => {
       vi.mocked(redis.incr).mockResolvedValueOnce(3);
       vi.mocked(redis.ttl).mockResolvedValueOnce(-1);
       vi.mocked(redis.expire).mockClear();
-      await service.sendMessage(CHANNEL_ID, 'user-player', { body: 'tres' });
+      await service.sendMessage(CHANNEL_ID, player, { body: 'tres' });
       expect(redis.expire).toHaveBeenCalledWith('chat:rate:user-player', 10);
+    });
+  });
+
+  describe.each(['draft', 'archived'])('a game that is %s (not active)', (status) => {
+    beforeEach(() => {
+      vi.mocked(games.existsAnyOrg).mockResolvedValue({
+        id: GAME_ID,
+        organizationId: OWNER_ORG,
+        status,
+      });
+      vi.mocked(repo.findMessageRowById).mockResolvedValue({
+        id: 'msg-1',
+        channelId: CHANNEL_ID,
+      } as never);
+      repo.listChannels = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
+      repo.listVisibleMessages = vi.fn().mockResolvedValue({ data: [], nextCursor: null });
+    });
+
+    it('404s outsiders on every read and write path (list, history, join, send)', async () => {
+      const notFound = { status: HttpStatus.NOT_FOUND };
+      await expect(service.listChannels(GAME_ID, player, PAGE)).rejects.toMatchObject(notFound);
+      await expect(service.listMessages(CHANNEL_ID, player, PAGE)).rejects.toMatchObject(notFound);
+      await expect(service.getChannelOrThrow(CHANNEL_ID, player)).rejects.toMatchObject(notFound);
+      await expect(service.sendMessage(CHANNEL_ID, player, { body: 'oi' })).rejects.toMatchObject(
+        notFound,
+      );
+      expect(repo.createMessage).not.toHaveBeenCalled();
+    });
+
+    it('404s (not 403) another studio trying to manage or moderate it', async () => {
+      const notFound = { status: HttpStatus.NOT_FOUND };
+      await expect(service.createChannel(GAME_ID, rival, { name: 'Geral' })).rejects.toMatchObject(
+        notFound,
+      );
+      await expect(
+        service.moderateMessage('msg-1', rival, { action: 'hide' }, {} as never),
+      ).rejects.toMatchObject(notFound);
+      expect(repo.moderateMessage).not.toHaveBeenCalled();
+    });
+
+    it('stays open to the owning studio, which still reads, talks and moderates', async () => {
+      await expect(service.listChannels(GAME_ID, studio, PAGE)).resolves.toMatchObject({
+        data: [],
+      });
+      await expect(service.listMessages(CHANNEL_ID, studio, PAGE)).resolves.toMatchObject({
+        data: [],
+      });
+      await expect(service.sendMessage(CHANNEL_ID, studio, { body: 'oi' })).resolves.toMatchObject({
+        body: 'olá',
+      });
+      await expect(
+        service.moderateMessage('msg-1', studio, { action: 'hide' }, {} as never),
+      ).resolves.toMatchObject({ status: 'hidden' });
     });
   });
 

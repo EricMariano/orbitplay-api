@@ -31,6 +31,8 @@ export const refreshTokens = pgTable(
     uniqueIndex('refresh_tokens_hash_unique').on(t.tokenHash),
     index('refresh_tokens_family_idx').on(t.familyId),
     index('refresh_tokens_user_idx').on(t.userId),
+    // Housekeeping (reconcile sweep) deletes rows past expiry in batches.
+    index('refresh_tokens_expires_idx').on(t.expiresAt),
   ],
 );
 

@@ -1,4 +1,5 @@
 import {
+  index,
   integer,
   jsonb,
   numeric,
@@ -37,16 +38,21 @@ export const playerPreferences = pgTable('player_preferences', {
  * requests; paginating without freezing repeats/skips items. Redis is an
  * acceptable alternative because these rows are ephemeral.
  */
-export const feedRankingSnapshots = pgTable('feed_ranking_snapshots', {
-  seed: text('seed').primaryKey(),
-  userId: uuid('user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  filtersHash: text('filters_hash'),
-  itemIds: uuid('item_ids').array().notNull(),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
-});
+export const feedRankingSnapshots = pgTable(
+  'feed_ranking_snapshots',
+  {
+    seed: text('seed').primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    filtersHash: text('filters_hash'),
+    itemIds: uuid('item_ids').array().notNull(),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  },
+  // Housekeeping deletes expired snapshots in batches.
+  (t) => [index('feed_ranking_snapshots_expires_idx').on(t.expiresAt)],
+);
 
 /**
  * Append-only XP ledger. Total XP and level are DERIVED from the sum; the

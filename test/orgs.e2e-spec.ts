@@ -13,6 +13,13 @@ const OUTSIDER = {
   email: 'outsider@rival.dev',
 };
 
+// A soft-deleted account: it can never log in again, so an invite must not
+// attach a membership to it — and its e-mail can't go to a new account either.
+const DELETED_ACCOUNT = {
+  userId: '01940000-0000-7000-8000-0000000000e2',
+  email: 'conta-excluida@rival.dev',
+};
+
 const FRESH = 'convidado-novo@estudio.dev';
 const DUPLICATE = 'convidado-dup@estudio.dev';
 
@@ -41,6 +48,11 @@ describe('Org members — invite (e2e)', () => {
     await sql`
       INSERT INTO users (id, email, password_hash, display_name)
       SELECT ${OUTSIDER.userId}, ${OUTSIDER.email}, password_hash, 'Outsider'
+      FROM users WHERE email = ${SEED_EMAILS.studio}
+      ON CONFLICT DO NOTHING`;
+    await sql`
+      INSERT INTO users (id, email, password_hash, display_name, deleted_at)
+      SELECT ${DELETED_ACCOUNT.userId}, ${DELETED_ACCOUNT.email}, password_hash, 'Conta Excluída', now()
       FROM users WHERE email = ${SEED_EMAILS.studio}
       ON CONFLICT DO NOTHING`;
 
@@ -82,15 +94,15 @@ describe('Org members — invite (e2e)', () => {
     expect(invited).toMatchObject({ status: 'invited' });
   });
 
-  it('sends an invitation e-mail carrying no token and no password', async () => {
+  it('sends an invitation e-mail with a single-use acceptance link and no password', async () => {
     const sent = mail.sent.find((m) => m.to === FRESH);
     expect(sent).toBeDefined();
-    expect(sent!.text).toContain('Esqueci minha senha');
-    expect(sent!.text).not.toContain('token');
+    expect(sent!.text).toMatch(/\/accept-invite\?token=[A-Za-z0-9_-]{43}/);
+    expect(sent!.text).not.toContain('Esqueci minha senha');
     expect(sent!.text).not.toContain(SEED_PASSWORD);
   });
 
-  it('the invited user cannot log in until they set a password', async () => {
+  it('the invited user cannot log in until they accept the invite', async () => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email: FRESH, password: SEED_PASSWORD });
@@ -136,6 +148,25 @@ describe('Org members — invite (e2e)', () => {
     } finally {
       await sql`UPDATE users SET display_name = 'Outsider' WHERE id = ${OUTSIDER.userId}`;
     }
+  });
+
+  it('refuses an e-mail that only belongs to a deleted account with a clear 409', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/orgs/members/invite')
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send({ email: 'Conta-Excluida@Rival.dev', role: 'studio' });
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CONFLICT');
+    expect(res.body.message).toContain('conta excluída');
+    expect(res.body.message).not.toContain('já é membro');
+
+    const memberships = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM memberships WHERE user_id = ${DELETED_ACCOUNT.userId}`;
+    expect(memberships[0].count).toBe('0');
+    const accounts = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM users WHERE lower(email) = ${DELETED_ACCOUNT.email}`;
+    expect(accounts[0].count).toBe('1');
   });
 
   it('rejects a second invite for the same person with 409 (unique membership)', async () => {

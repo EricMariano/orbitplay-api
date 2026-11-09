@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import {
   participations,
@@ -69,9 +69,39 @@ export class MediaRepository {
     return rows[0] ?? null;
   }
 
-  async insertRecording(values: NewSessionRecordingRow): Promise<SessionRecordingRow> {
-    const rows = await this.db.insert(sessionRecordings).values(values).returning();
-    return rows[0];
+  async countRecordingsForSession(sessionId: string): Promise<number> {
+    const [row] = await this.db
+      .select({ n: count() })
+      .from(sessionRecordings)
+      .where(eq(sessionRecordings.sessionId, sessionId));
+    return row?.n ?? 0;
+  }
+
+  /**
+   * Inserts the recording unless its session already holds `max` of them —
+   * `null` then. The session row is locked for the count + insert, so two
+   * concurrent completes can't both take the last place. A duplicate
+   * `storage_key` still surfaces as the unique violation (23505) for the
+   * caller to resolve.
+   */
+  async insertRecordingWithinCap(
+    values: NewSessionRecordingRow,
+    max: number,
+  ): Promise<SessionRecordingRow | null> {
+    return this.db.transaction(async (tx) => {
+      await tx
+        .select({ id: sessions.id })
+        .from(sessions)
+        .where(eq(sessions.id, values.sessionId))
+        .for('update');
+      const [held] = await tx
+        .select({ n: count() })
+        .from(sessionRecordings)
+        .where(eq(sessionRecordings.sessionId, values.sessionId));
+      if ((held?.n ?? 0) >= max) return null;
+      const rows = await tx.insert(sessionRecordings).values(values).returning();
+      return rows[0];
+    });
   }
 
   async updateRecording(

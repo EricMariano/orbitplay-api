@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { and, count, desc, eq, inArray, isNotNull, lt, sql } from 'drizzle-orm';
-import { DRIZZLE, type Database } from '../../infra/database/database.module';
+import { DRIZZLE, type Database, type Transaction } from '../../infra/database/database.module';
 import {
   testReportExports,
   testReportSnapshots,
@@ -35,6 +35,14 @@ import { users } from '../../infra/database/schema/users';
 import { AppException } from '../../shared/errors/app.exception';
 import { buildPage, decodeCursor, type Page } from '../../shared/pagination/pagination';
 import { isUuid } from '../../shared/util/uuid';
+import {
+  creditSessionXp,
+  hasOtherSlotHoldingParticipation,
+  holdsSlot,
+  reclaimTestSlot,
+  releaseTestSlot,
+  revokeSessionXp,
+} from '../participations/session-outcome';
 import { RATING_SCALE_BOUNDS } from '../tests/dto/test.dto';
 import {
   playerArchetypeValues,
@@ -671,6 +679,15 @@ export class ReportsRepository {
    * can never turn it valid. A session the worker hasn't validated yet can't
    * be marked (409): writing the row first would make the `session.validate`
    * job skip it for good (it no-ops when a validation row exists).
+   *
+   * The verdict is reverted in full, in this same transaction (product
+   * decision), and only on an actual transition — re-sending the same flag
+   * changes nothing:
+   * - marking invalid: session → `invalidated`, participation → `rejected`
+   *   (its slot given back, M8-03) and the session's XP removed;
+   * - restoring: both back to `completed`, XP re-credited (still once per
+   *   player and test) and the slot taken again — 409, with nothing written,
+   *   when the test is full or the player already holds another place in it.
    */
   async rateSession(
     organizationId: string,
@@ -682,7 +699,11 @@ export class ReportsRepository {
 
     return this.db.transaction(async (tx) => {
       const [session] = await tx
-        .select({ id: sessions.id, testId: sessions.testId })
+        .select({
+          id: sessions.id,
+          testId: sessions.testId,
+          participationId: sessions.participationId,
+        })
         .from(sessions)
         .where(and(eq(sessions.id, sessionId), eq(sessions.organizationId, organizationId)))
         .limit(1);
@@ -714,14 +735,16 @@ export class ReportsRepository {
             'A sessão ainda não foi validada — aguarde a validação antes de marcá-la como inválida',
           );
         }
-        await tx
+        const flipped = await tx
           .update(sessionValidations)
           .set({ valid: false, reason: STUDIO_INVALID_REASON, validatedAt: new Date() })
           .where(
             and(eq(sessionValidations.sessionId, sessionId), eq(sessionValidations.valid, true)),
-          );
+          )
+          .returning({ sessionId: sessionValidations.sessionId });
+        if (flipped.length > 0) await revertToInvalid(tx, session);
       } else {
-        await tx
+        const flipped = await tx
           .update(sessionValidations)
           .set({ valid: true, reason: null, validatedAt: new Date() })
           .where(
@@ -729,10 +752,16 @@ export class ReportsRepository {
               eq(sessionValidations.sessionId, sessionId),
               eq(sessionValidations.reason, STUDIO_INVALID_REASON),
             ),
-          );
+          )
+          .returning({ sessionId: sessionValidations.sessionId });
+        if (flipped.length > 0) await restoreToValid(tx, session);
       }
 
-      await tx.delete(testReportSnapshots).where(eq(testReportSnapshots.testId, session.testId));
+      // Stale, not deleted: same as `invalidateReportSnapshots` (M10).
+      await tx
+        .update(testReportSnapshots)
+        .set({ computedAt: null })
+        .where(eq(testReportSnapshots.testId, session.testId));
       return rating;
     });
   }
@@ -782,4 +811,58 @@ export class ReportsRepository {
       .set({ status: 'failed', failureReason: reason, completedAt: new Date() })
       .where(eq(testReportExports.id, exportId));
   }
+}
+
+type RatedSession = { id: string; testId: string; participationId: string };
+
+/** The participation of a rated session, locked for the status change below. */
+async function lockParticipation(tx: Transaction, participationId: string) {
+  const [row] = await tx
+    .select({
+      id: participations.id,
+      testId: participations.testId,
+      userId: participations.userId,
+      status: participations.status,
+    })
+    .from(participations)
+    .where(eq(participations.id, participationId))
+    .for('update');
+  return row;
+}
+
+/** "Marcar inválida": the worker's valid verdict undone (session, participation, slot, XP). */
+async function revertToInvalid(tx: Transaction, session: RatedSession): Promise<void> {
+  await tx.update(sessions).set({ status: 'invalidated' }).where(eq(sessions.id, session.id));
+  const participation = await lockParticipation(tx, session.participationId);
+  if (participation) {
+    await tx
+      .update(participations)
+      .set({ status: 'rejected' })
+      .where(eq(participations.id, participation.id));
+    if (holdsSlot(participation.status)) await releaseTestSlot(tx, session.testId);
+  }
+  await revokeSessionXp(tx, session.id);
+}
+
+/** Un-marking: back to `completed`, which takes a place in the test again — or 409. */
+async function restoreToValid(tx: Transaction, session: RatedSession): Promise<void> {
+  const participation = await lockParticipation(tx, session.participationId);
+  if (participation && !holdsSlot(participation.status)) {
+    if (await hasOtherSlotHoldingParticipation(tx, participation)) {
+      throw AppException.conflict(
+        'O jogador já tem outra participação neste teste — não é possível restaurar a sessão',
+      );
+    }
+    if (!(await reclaimTestSlot(tx, session.testId))) {
+      throw AppException.conflict('Vagas esgotadas — não é possível restaurar a sessão');
+    }
+  }
+  if (participation) {
+    await tx
+      .update(participations)
+      .set({ status: 'completed' })
+      .where(eq(participations.id, participation.id));
+  }
+  await tx.update(sessions).set({ status: 'completed' }).where(eq(sessions.id, session.id));
+  await creditSessionXp(tx, session);
 }

@@ -58,6 +58,35 @@ async function seedOrg(
   }
 }
 
+/**
+ * With the role hierarchy only an owner can target an owner, and nobody can
+ * target themselves — so the last-active-owner rule only fires for an owner
+ * whose own membership stopped being active after their token was issued.
+ * This builds exactly that caller: a second owner logs in, then is disabled.
+ */
+async function staleOwnerToken(
+  app: INestApplication,
+  sql: postgres.Sql,
+  orgId: string,
+  person: { id: string; email: string },
+): Promise<string> {
+  await sql`
+    INSERT INTO users (id, email, password_hash, display_name)
+    SELECT ${person.id}, ${person.email}, password_hash, ${person.email}
+    FROM users WHERE email = ${SEED_EMAILS.studio}
+    ON CONFLICT DO NOTHING`;
+  await sql`
+    INSERT INTO memberships (id, organization_id, user_id, role_id, status)
+    VALUES (gen_random_uuid(), ${orgId}, ${person.id},
+            (SELECT id FROM roles WHERE key = 'owner'), 'active')
+    ON CONFLICT (organization_id, user_id) DO UPDATE SET status = 'active', deleted_at = NULL`;
+  const token = await bearer(app, person.email);
+  await sql`
+    UPDATE memberships SET status = 'disabled'
+    WHERE organization_id = ${orgId} AND user_id = ${person.id}`;
+  return token;
+}
+
 describe('Org members — change status (e2e)', () => {
   let app: INestApplication;
   let sql: postgres.Sql;
@@ -201,11 +230,26 @@ describe('Org members — change status (e2e)', () => {
     expect(res.status).toBe(403);
   });
 
-  it('refuses to disable the last active owner with 409 (RN-03/RN-06)', async () => {
-    // Admin (not the owner) disables the sole owner — self-protection above
-    // guards the "same person" case; this exercises the last-owner guard on
-    // its own, with a different caller than the target.
+  it('an admin cannot act on an owner: 403 (role hierarchy)', async () => {
     const res = await patchStatus(adminToken, STATUS_ORG.owner.id, {
+      status: 'disabled',
+      confirm: true,
+    });
+
+    expect(res.status).toBe(403);
+    const [owner] = await sql<{ status: string }[]>`
+      SELECT status FROM memberships
+      WHERE organization_id = ${STATUS_ORG.orgId} AND user_id = ${STATUS_ORG.owner.id}`;
+    expect(owner.status).toBe('active');
+  });
+
+  it('still refuses to disable the last active owner with 409 (RN-03/RN-06)', async () => {
+    const token = await staleOwnerToken(app, sql, STATUS_ORG.orgId, {
+      id: '01960000-0000-7000-8000-0000000000a5',
+      email: 'owner2@status-org.dev',
+    });
+
+    const res = await patchStatus(token, STATUS_ORG.owner.id, {
       status: 'disabled',
       confirm: true,
     });
@@ -290,6 +334,41 @@ describe('Org members — trigger password reset (e2e)', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .send();
     expect(res.status).toBe(202);
+  });
+
+  it('admin cannot trigger a reset for an owner: 403 (role hierarchy)', async () => {
+    mail.clear();
+    const res = await request(app.getHttpServer())
+      .post(`/orgs/members/${STATUS_ORG.owner.id}/password-reset`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send();
+    expect(res.status).toBe(403);
+    expect(mail.sent).toHaveLength(0);
+  });
+
+  it('answers 409 for a pending invite — the reset never accepts it', async () => {
+    const invitee = {
+      id: '01960000-0000-7000-8000-0000000000a6',
+      email: 'convidado-reset@status-org.dev',
+    };
+    await sql`
+      INSERT INTO users (id, email, password_hash, display_name)
+      SELECT ${invitee.id}, ${invitee.email}, password_hash, 'Convidado'
+      FROM users WHERE email = ${SEED_EMAILS.studio}
+      ON CONFLICT DO NOTHING`;
+    await sql`
+      INSERT INTO memberships (id, organization_id, user_id, role_id, status)
+      VALUES (gen_random_uuid(), ${STATUS_ORG.orgId}, ${invitee.id},
+              (SELECT id FROM roles WHERE key = 'studio'), 'invited')
+      ON CONFLICT DO NOTHING`;
+    mail.clear();
+
+    const res = await request(app.getHttpServer())
+      .post(`/orgs/members/${invitee.id}/password-reset`)
+      .set('Authorization', `Bearer ${ownerToken}`)
+      .send();
+    expect(res.status).toBe(409);
+    expect(mail.sent).toHaveLength(0);
   });
 
   it('studio cannot trigger a reset: 403', async () => {
@@ -395,20 +474,34 @@ describe('Org members — remove (e2e)', () => {
     expect(res.status).toBe(404);
   });
 
-  it('admin also removes a member: 204 (not owner-only — see OrgsService.removeMember)', async () => {
+  it('admin also removes a non-owner member: 204', async () => {
     const res = await request(app.getHttpServer())
       .delete(`/orgs/members/${REMOVE_ORG.member2.id}`)
       .set('Authorization', `Bearer ${adminToken}`);
     expect(res.status).toBe(204);
   });
 
-  it('refuses to remove the last active owner with 409 (RN-03)', async () => {
-    // Admin (not the owner) removes the sole owner — self-protection above
-    // guards the "same person" case; this exercises the last-owner guard on
-    // its own, with a different caller than the target.
+  it('an admin cannot remove an owner: 403 (role hierarchy)', async () => {
     const res = await request(app.getHttpServer())
       .delete(`/orgs/members/${REMOVE_ORG.owner.id}`)
       .set('Authorization', `Bearer ${adminToken}`);
+
+    expect(res.status).toBe(403);
+    const [owner] = await sql<{ deletedAt: Date | null }[]>`
+      SELECT deleted_at AS "deletedAt" FROM memberships
+      WHERE organization_id = ${REMOVE_ORG.orgId} AND user_id = ${REMOVE_ORG.owner.id}`;
+    expect(owner.deletedAt).toBeNull();
+  });
+
+  it('still refuses to remove the last active owner with 409 (RN-03)', async () => {
+    const token = await staleOwnerToken(app, sql, REMOVE_ORG.orgId, {
+      id: '01970000-0000-7000-8000-0000000000a5',
+      email: 'owner2@remove-org.dev',
+    });
+
+    const res = await request(app.getHttpServer())
+      .delete(`/orgs/members/${REMOVE_ORG.owner.id}`)
+      .set('Authorization', `Bearer ${token}`);
 
     expect(res.status).toBe(409);
     expect(res.body.code).toBe('CONFLICT');

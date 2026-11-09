@@ -1,7 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger } from '@nestjs/common';
 import type { Queue } from 'bullmq';
-import type { QueuePort } from '../../shared/ports/queue.port';
+import type { EnsureJobOptions, QueuePort } from '../../shared/ports/queue.port';
 import { withTimeout } from '../../shared/util/with-timeout';
 import { attachRedisErrorLogging } from '../redis/redis-error-logging';
 import { ensureJobEnqueued } from './ensure-enqueued';
@@ -22,9 +22,14 @@ export class BullMqQueueAdapter implements QueuePort {
     attachRedisErrorLogging(queue, 'bullmq queue', (message) => this.logger.warn(message));
   }
 
-  async ensureEnqueued(name: string, jobId: string, data: Record<string, unknown>): Promise<void> {
+  async ensureEnqueued(
+    name: string,
+    jobId: string,
+    data: Record<string, unknown>,
+    options?: EnsureJobOptions,
+  ): Promise<void> {
     await withTimeout(
-      ensureJobEnqueued(this.queue, name, jobId, data),
+      ensureJobEnqueued(this.queue, name, jobId, data, options),
       ENQUEUE_TIMEOUT_MS,
       'BullMQ enqueue',
     );

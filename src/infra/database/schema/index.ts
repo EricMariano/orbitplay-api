@@ -15,6 +15,7 @@ export * from './game-access';
 export * from './audit-log';
 export * from './refresh-tokens';
 export * from './password-reset-tokens';
+export * from './invite-tokens';
 export * from './tests';
 export * from './participations';
 export * from './player';

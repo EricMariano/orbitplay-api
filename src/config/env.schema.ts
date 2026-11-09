@@ -67,6 +67,23 @@ export const envSchema = z
     /** Lifetime of a password-reset token (raw value lives only in the e-mail). */
     PASSWORD_RESET_TTL: durationString,
 
+    /**
+     * Express `trust proxy`: how many reverse proxies (load balancer, ingress)
+     * sit in front of the API, so `req.ip` — the per-IP login throttle and the
+     * audit log — is the client's address from `X-Forwarded-For`, not the
+     * proxy's. `false` (default) trusts no header: right when the API is
+     * exposed directly, since a client could otherwise spoof its IP. `true`
+     * ("trust every hop") is refused for the same reason — give the count.
+     * Optional with a safe default, like `BUILD_MALWARE_SCAN_BYPASS`, so an
+     * existing `.env` keeps booting.
+     */
+    TRUST_PROXY: z
+      .string()
+      .trim()
+      .regex(/^(false|\d+)$/, 'TRUST_PROXY must be "false" or a hop count like 1')
+      .default('false')
+      .transform((v) => (v === 'false' || Number(v) === 0 ? false : Number(v))),
+
     /** Flood control for chat messages: at most LIMIT per TTL seconds, per user. */
     CHAT_MESSAGE_THROTTLE_TTL: z.coerce.number().int().positive(),
     CHAT_MESSAGE_THROTTLE_LIMIT: z.coerce.number().int().positive(),

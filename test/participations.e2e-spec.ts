@@ -169,6 +169,31 @@ describe('Participations — M7-02 (e2e)', () => {
     expect(res.status).toBe(403);
   });
 
+  // 18+ is mandatory: an account without birthdate (created by invite) can't
+  // take part in any test — bracket or not — until it provides one.
+  it('403s a player without birthdate, even on a test without age bracket', async () => {
+    const email = `no-birthdate-${uuidv7()}@orbitplay.test`;
+    const signup = await request(app.getHttpServer()).post('/auth/signup/player').send({
+      displayName: 'No Birthdate',
+      email,
+      password: 'NoBirth@Test123',
+      birthdate: '1995-06-15',
+    });
+    expect(signup.status).toBe(201);
+    await sql`UPDATE users SET birthdate = NULL WHERE email = ${email}`;
+    const testId = uuidv7();
+    await seedPublishedTest({ id: testId, slotsTotal: 5 });
+
+    const res = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${signup.body.accessToken as string}`)
+      .send();
+    expect(res.status).toBe(403);
+    expect(res.body.message).toBe('Data de nascimento obrigatória para participar');
+    const [row] = await sql`SELECT slots_taken FROM tests WHERE id = ${testId}`;
+    expect(row.slots_taken).toBe(0);
+  });
+
   it('replays the same response for a repeated Idempotency-Key without double-reserving', async () => {
     const testId = uuidv7();
     await seedPublishedTest({ id: testId, slotsTotal: 5 });

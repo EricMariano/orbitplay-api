@@ -30,6 +30,7 @@ export interface InviteMemberInput {
 }
 
 export interface InvitedMemberRecord {
+  membershipId: string;
   userId: string;
   email: string;
   displayName: string;
@@ -60,6 +61,8 @@ export interface ChangeMemberStatusInput {
   organizationId: string;
   userId: string;
   status: 'active' | 'disabled';
+  /** Role of the member making the change — only an owner may act on an owner. */
+  callerRole: RoleValue;
 }
 
 export interface StatusChangeResult {
@@ -79,6 +82,35 @@ export class MemberAlreadyExistsError extends Error {
   }
 }
 
+/**
+ * Thrown when the invited e-mail belongs only to a soft-deleted account. The
+ * invite never reuses a deleted account (it could never log in again), and
+ * `users_email_unique` keeps the address from going to a new one.
+ */
+export class InviteEmailUnavailableError extends Error {
+  constructor() {
+    super('Este e-mail pertence a uma conta excluída e não pode ser convidado');
+    this.name = 'InviteEmailUnavailableError';
+  }
+}
+
+/**
+ * Thrown when a non-owner (an admin) tries to disable, remove or otherwise act
+ * on an owner. Role hierarchy: an admin manages admins, studio members and
+ * players; only an owner acts on an owner.
+ */
+export class OwnerOnlyError extends Error {
+  constructor() {
+    super('Somente owners podem gerenciar outro owner');
+    this.name = 'OwnerOnlyError';
+  }
+}
+
+/** True when `callerRole` may act on a member whose role is `targetRole`. */
+export function canManageRole(callerRole: RoleValue, targetRole: string): boolean {
+  return targetRole !== 'owner' || callerRole === 'owner';
+}
+
 /** Thrown when a demotion would leave the organization without an active owner. */
 export class LastOwnerError extends Error {
   constructor() {
@@ -92,13 +124,14 @@ export class LastOwnerError extends Error {
  * invitation. The invite reuses any existing account by e-mail, so activating
  * it by hand — directly, or by disabling it first and then "re-activating" —
  * would drop someone from another tenant into this organization without their
- * consent. Only the invitee accepts, by setting their password; cancelling is
- * removing the member (a removed membership can't come back).
+ * consent. Only the invitee accepts, through the link in the invitation
+ * e-mail; cancelling is removing the member (a removed membership can't come
+ * back).
  */
 export class PendingInviteError extends Error {
   constructor() {
     super(
-      'Convite pendente: só o convidado o aceita, ao definir a senha. Para cancelar, remova o membro',
+      'Convite pendente: só o convidado o aceita, pelo link do convite. Para cancelar, remova o membro',
     );
     this.name = 'PendingInviteError';
   }
@@ -247,6 +280,10 @@ export class OrgsRepository {
    * one otherwise. Both writes share a transaction so a failure never leaves a
    * user without the membership it was created for.
    *
+   * A soft-deleted account is never reused: it can't log in, so the invite
+   * would point at someone who can never accept it. Its e-mail still holds
+   * `users_email_unique`, which then answers `InviteEmailUnavailableError`.
+   *
    * The (organization_id, user_id) unique index is what makes a double invite
    * safe under concurrency — checking first and inserting after would let two
    * simultaneous requests through.
@@ -258,55 +295,80 @@ export class OrgsRepository {
     }
 
     try {
-      return await this.db.transaction(async (tx) => {
-        const existing = await tx
-          .select({ id: users.id })
-          .from(users)
-          .where(eq(sql`lower(${users.email})`, input.email))
-          .limit(1);
-
-        const found = existing[0];
-        const userId = found?.id ?? newId();
-        // Never echo the stored name of an account that already exists: the
-        // inviter is not entitled to it, and it would reveal which e-mails
-        // are registered.
-        const displayName = input.displayName;
-
-        if (!found) {
-          await tx.insert(users).values({
-            id: userId,
-            email: input.email,
-            passwordHash: input.passwordHash,
-            displayName: input.displayName,
-            isActive: true,
-          });
-        }
-
-        await tx.insert(memberships).values({
-          id: newId(),
-          organizationId: input.organizationId,
-          userId,
-          roleId,
-          status: 'invited',
-        });
-
-        return {
-          userId,
-          email: input.email,
-          displayName,
-          role: input.role,
-          status: 'invited' as const,
-        };
-      });
+      return await this.insertInvitedMember(input, roleId);
     } catch (err) {
       if (isUniqueViolation(err, 'memberships_org_user_unique')) {
         throw new MemberAlreadyExistsError();
       }
-      if (isUniqueViolation(err, 'users_email_unique')) {
+      if (!isUniqueViolation(err, 'users_email_unique')) throw err;
+    }
+
+    // `users_email_unique` with no live account found: either the address
+    // belongs to a deleted account, or a concurrent invite created the account
+    // between our lookup and our insert — then retry once, now reusing it.
+    if (!(await this.findLiveUserIdByEmail(this.db, input.email))) {
+      throw new InviteEmailUnavailableError();
+    }
+    try {
+      return await this.insertInvitedMember(input, roleId);
+    } catch (err) {
+      if (isUniqueViolation(err, 'memberships_org_user_unique')) {
         throw new MemberAlreadyExistsError();
       }
       throw err;
     }
+  }
+
+  private async insertInvitedMember(
+    input: InviteMemberInput,
+    roleId: string,
+  ): Promise<InvitedMemberRecord> {
+    return this.db.transaction(async (tx) => {
+      const found = await this.findLiveUserIdByEmail(tx, input.email);
+      const userId = found ?? newId();
+      // Never echo the stored name of an account that already exists: the
+      // inviter is not entitled to it, and it would reveal which e-mails
+      // are registered.
+      const displayName = input.displayName;
+
+      if (!found) {
+        await tx.insert(users).values({
+          id: userId,
+          email: input.email,
+          passwordHash: input.passwordHash,
+          displayName: input.displayName,
+          isActive: true,
+        });
+      }
+
+      const membershipId = newId();
+      await tx.insert(memberships).values({
+        id: membershipId,
+        organizationId: input.organizationId,
+        userId,
+        roleId,
+        status: 'invited',
+      });
+
+      return {
+        membershipId,
+        userId,
+        email: input.email,
+        displayName,
+        role: input.role,
+        status: 'invited' as const,
+      };
+    });
+  }
+
+  /** The non-deleted account that owns this (lower-cased) e-mail, if any. */
+  private async findLiveUserIdByEmail(db: Database | Tx, email: string): Promise<string | null> {
+    const rows = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(and(eq(sql`lower(${users.email})`, email), isNull(users.deletedAt)))
+      .limit(1);
+    return rows[0]?.id ?? null;
   }
 
   /**
@@ -365,7 +427,9 @@ export class OrgsRepository {
   /**
    * Change a member's status (ORB-M2-05). Same last-active-owner guard as
    * `changeMemberRole` (RN-03/RN-06): disabling the org's only active owner
-   * is refused with a 409, never silently allowed.
+   * is refused with a 409, never silently allowed. An admin can't act on an
+   * owner (`OwnerOnlyError`) — checked on the row read inside the transaction,
+   * after the owner rows are locked, so a concurrent promotion can't slip by.
    */
   async changeMemberStatus(input: ChangeMemberStatusInput): Promise<StatusChangeResult | null> {
     if (!isUuid(input.userId)) return null;
@@ -377,6 +441,7 @@ export class OrgsRepository {
 
       const current = await findMembershipForUpdate(tx, input.organizationId, input.userId);
       if (!current) return null;
+      if (!canManageRole(input.callerRole, current.role)) throw new OwnerOnlyError();
       if (current.status === 'invited') throw new PendingInviteError();
 
       const losesAnActiveOwner =
@@ -406,9 +471,14 @@ export class OrgsRepository {
   /**
    * Remove a member (ORB-M2-06). RN-06: always a logical deactivation
    * (`deleted_at` + `status: disabled`), never a physical delete — history
-   * (audit, past test participation) stays intact. Same last-owner guard.
+   * (audit, past test participation) stays intact. Same last-owner guard, and
+   * the same role hierarchy as `changeMemberStatus` (`OwnerOnlyError`).
    */
-  async removeMember(organizationId: string, userId: string): Promise<RemoveMemberResult | null> {
+  async removeMember(
+    organizationId: string,
+    userId: string,
+    callerRole: RoleValue,
+  ): Promise<RemoveMemberResult | null> {
     if (!isUuid(userId)) return null;
 
     const ownerRoleId = await this.requireOwnerRoleId();
@@ -418,6 +488,7 @@ export class OrgsRepository {
 
       const current = await findMembershipForUpdate(tx, organizationId, userId);
       if (!current) return null;
+      if (!canManageRole(callerRole, current.role)) throw new OwnerOnlyError();
 
       const losesAnActiveOwner = current.role === 'owner' && current.status === 'active';
       if (losesAnActiveOwner && activeOwners.length <= 1) {
@@ -442,7 +513,10 @@ export class OrgsRepository {
   }
 
   /** Read-only membership lookup — no row lock, used outside mutating flows. */
-  async findMembership(organizationId: string, userId: string): Promise<MemberRoleRecord | null> {
+  async findMembership(
+    organizationId: string,
+    userId: string,
+  ): Promise<(MemberRoleRecord & { membershipId: string }) | null> {
     // Same guard as role/status/remove: a malformed id is a 404, not a 22P02 → 500.
     if (!isUuid(userId)) return null;
     const row = await findMembershipForUpdate(this.db, organizationId, userId);

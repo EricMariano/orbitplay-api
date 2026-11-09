@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
@@ -24,7 +35,8 @@ import {
  * moderation — plus a `POST` fallback for sending when no socket is open.
  *
  * Global content like `community`: any authenticated user reads and talks in
- * any game's channels; only the owning studio creates, edits and moderates.
+ * any game's channels; only the owning studio creates, edits and moderates. A
+ * game that isn't `active` answers 404 outside its own studio.
  */
 @ApiTags('chat')
 @ApiBearerAuth()
@@ -34,8 +46,12 @@ export class ChatController {
 
   @Get('games/:gameId/chat/channels')
   @ZodResponse({ type: ChatChannelListDto })
-  listChannels(@Param('gameId') gameId: string, @Query() query: PaginationQueryDto) {
-    return this.chat.listChannels(gameId, query);
+  listChannels(
+    @Param('gameId') gameId: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.chat.listChannels(gameId, user, query);
   }
 
   @Post('games/:gameId/chat/channels')
@@ -63,8 +79,12 @@ export class ChatController {
 
   @Get('chat/channels/:id/messages')
   @ZodResponse({ type: ChatMessageListDto })
-  listMessages(@Param('id') id: string, @Query() query: PaginationQueryDto) {
-    return this.chat.listMessages(id, query);
+  listMessages(
+    @Param('id') id: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.chat.listMessages(id, user, query);
   }
 
   /** Same path as `message:send` over the socket — both broadcast to the room. */
@@ -76,7 +96,7 @@ export class ChatController {
     @CurrentUser() user: AuthUser,
     @Body() dto: SendChatMessageRequestDto,
   ) {
-    return this.chat.sendMessage(id, user.userId, dto);
+    return this.chat.sendMessage(id, user, dto);
   }
 
   @Patch('chat/messages/:id/moderate')

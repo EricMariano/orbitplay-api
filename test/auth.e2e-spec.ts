@@ -1,20 +1,48 @@
 import type { INestApplication } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import postgres from 'postgres';
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { SEED_EMAILS } from '../src/infra/database/seed';
 import { SEED_PASSWORD } from '../src/infra/database/seed';
+import { REFRESH_REUSE_GRACE_MS } from '../src/modules/auth/auth.service';
 import { CapturingMailAdapter, createE2EApp } from './helpers/e2e-app';
+import { TEST_DATABASE_URL } from './helpers/test-db';
+
+/** The `refresh_token=…` pair from a response's Set-Cookie, ready for a `Cookie` header. */
+function refreshCookieOf(res: request.Response): string {
+  const cookie = (res.headers['set-cookie'] as unknown as string[] | undefined)?.find((c) =>
+    c.startsWith('refresh_token='),
+  );
+  if (!cookie) throw new Error('resposta sem cookie refresh_token');
+  return cookie.split(';')[0]!;
+}
 
 describe('Auth (e2e)', () => {
   let app: INestApplication;
   let mail: CapturingMailAdapter;
+  let sql: postgres.Sql;
+
+  /** Backdate the rotation of the token in `cookie`, as if `ageMs` had passed since it was consumed. */
+  async function ageRotation(cookie: string, ageMs: number): Promise<void> {
+    const raw = decodeURIComponent(cookie.slice('refresh_token='.length));
+    const tokenHash = createHash('sha256').update(raw).digest('hex');
+    const updated = await sql`
+      UPDATE refresh_tokens
+      SET revoked_at = revoked_at - make_interval(secs => ${ageMs / 1000})
+      WHERE token_hash = ${tokenHash} AND revoked_at IS NOT NULL
+      RETURNING id`;
+    expect(updated).toHaveLength(1);
+  }
 
   beforeAll(async () => {
     mail = new CapturingMailAdapter();
     app = await createE2EApp({ mail });
+    sql = postgres(TEST_DATABASE_URL, { max: 1 });
   });
 
   afterAll(async () => {
+    await sql.end({ timeout: 5 });
     await app.close();
   });
 
@@ -89,24 +117,117 @@ describe('Auth (e2e)', () => {
     expect(me.body.email).toBe(SEED_EMAILS.owner);
   });
 
-  it('detects refresh-token reuse and revokes the family', async () => {
+  it('detects refresh-token reuse past the grace window and revokes the family', async () => {
     // Login to obtain a concrete refresh cookie we can replay.
     const loginRes = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email: SEED_EMAILS.admin, password: SEED_PASSWORD });
-    const oldCookie = (loginRes.headers['set-cookie'] as unknown as string[]).find((c) =>
-      c.startsWith('refresh_token='),
-    )!;
+    const oldCookie = refreshCookieOf(loginRes);
 
     // First use rotates successfully (old token becomes revoked/replaced).
     const firstUse = await request(app.getHttpServer())
       .post('/auth/refresh')
       .set('Cookie', oldCookie);
     expect(firstUse.status).toBe(200);
+    const successorCookie = refreshCookieOf(firstUse);
 
-    // Replaying the now-rotated cookie is detected as reuse → 401.
+    // Push the rotation out of the reuse grace window instead of waiting it out.
+    await ageRotation(oldCookie, REFRESH_REUSE_GRACE_MS + 60_000);
+
+    // Replaying the now-rotated cookie is detected as reuse → 401…
     const reuse = await request(app.getHttpServer()).post('/auth/refresh').set('Cookie', oldCookie);
     expect(reuse.status).toBe(401);
+
+    // …and it takes the whole family down, the legitimate successor included.
+    const successor = await request(app.getHttpServer())
+      .post('/auth/refresh')
+      .set('Cookie', successorCookie);
+    expect(successor.status).toBe(401);
+  });
+
+  describe('refresh reuse grace window (two tabs / reload mid-refresh)', () => {
+    it('a token rotated moments ago still refreshes, and the winner keeps its session', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: SEED_EMAILS.owner, password: SEED_PASSWORD });
+      const tabCookie = refreshCookieOf(loginRes);
+
+      // Tab A rotates; tab B (or the page that reloaded mid-refresh) still holds the old cookie.
+      const tabA = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', tabCookie);
+      expect(tabA.status).toBe(200);
+      const winnerCookie = refreshCookieOf(tabA);
+
+      const tabB = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', tabCookie);
+      expect(tabB.status).toBe(200);
+      expect(tabB.body.accessToken).toBeTypeOf('string');
+      expect(tabB.body.user.email).toBe(SEED_EMAILS.owner);
+      const siblingCookie = refreshCookieOf(tabB);
+      expect(siblingCookie).not.toBe(winnerCookie);
+
+      // Neither tab was logged out: both new tokens still rotate.
+      const winner = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', winnerCookie);
+      expect(winner.status).toBe(200);
+      const sibling = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', siblingCookie);
+      expect(sibling.status).toBe(200);
+    });
+
+    it('two concurrent refreshes with the same cookie both succeed', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: SEED_EMAILS.studio, password: SEED_PASSWORD });
+      const cookie = refreshCookieOf(loginRes);
+
+      const [first, second] = await Promise.all([
+        request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie),
+        request(app.getHttpServer()).post('/auth/refresh').set('Cookie', cookie),
+      ]);
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+
+      const afterFirst = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', refreshCookieOf(first));
+      expect(afterFirst.status).toBe(200);
+      const afterSecond = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', refreshCookieOf(second));
+      expect(afterSecond.status).toBe(200);
+    });
+
+    it('gives no grace after logout, even to a token rotated moments ago', async () => {
+      const loginRes = await request(app.getHttpServer())
+        .post('/auth/login')
+        .send({ email: SEED_EMAILS.admin, password: SEED_PASSWORD });
+      const oldCookie = refreshCookieOf(loginRes);
+
+      const rotated = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', oldCookie);
+      expect(rotated.status).toBe(200);
+      const currentCookie = refreshCookieOf(rotated);
+
+      const logout = await request(app.getHttpServer())
+        .post('/auth/logout')
+        .set('Cookie', currentCookie);
+      expect(logout.status).toBe(200);
+
+      const replayOld = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', oldCookie);
+      expect(replayOld.status).toBe(401);
+      const replayCurrent = await request(app.getHttpServer())
+        .post('/auth/refresh')
+        .set('Cookie', currentCookie);
+      expect(replayCurrent.status).toBe(401);
+    });
   });
 
   describe('password reset (ORB-M1-01 / RN-05)', () => {

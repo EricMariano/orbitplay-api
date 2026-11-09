@@ -200,6 +200,110 @@ describe('Session rating — M10-03 (e2e)', () => {
     expect(plain.status).toBe(200);
   });
 
+  /**
+   * A validated session as the worker leaves it: participation `completed`
+   * holding one of `slotsTotal` places, and the session's XP credited.
+   */
+  async function seedCreditedSession(slotsTotal = 5) {
+    const testId = uuidv7();
+    const participationId = uuidv7();
+    const sessionId = uuidv7();
+    await sql`
+      INSERT INTO tests (id, organization_id, game_id, model_key, status, slots_total, slots_taken)
+      VALUES (${testId}, ${ORG_ID}, ${GAME_IDS.two}, 'free_exploration', 'published', ${slotsTotal}, 1)`;
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${participationId}, ${testId}, ${TESTER_ID}, 'completed')`;
+    await sql`
+      INSERT INTO sessions (id, participation_id, test_id, organization_id, status, duration_ms)
+      VALUES (${sessionId}, ${participationId}, ${testId}, ${ORG_ID}, 'completed', 600000)`;
+    await sql`
+      INSERT INTO session_validations (session_id, valid, reason, validator_version, validated_at)
+      VALUES (${sessionId}, true, null, 'v1', now())`;
+    await sql`
+      INSERT INTO xp_events (id, user_id, source_type, source_id, xp)
+      VALUES (${uuidv7()}, ${TESTER_ID}, 'session', ${sessionId}, 50)`;
+    return { testId, participationId, sessionId };
+  }
+
+  async function outcome(ids: { testId: string; participationId: string; sessionId: string }) {
+    const [row] = await sql`
+      SELECT p.status AS participation, s.status AS session, t.slots_taken AS slots,
+             (SELECT count(*)::int FROM xp_events x
+               WHERE x.source_type = 'session' AND x.source_id = s.id) AS xp
+      FROM sessions s
+      JOIN participations p ON p.id = s.participation_id
+      JOIN tests t ON t.id = s.test_id
+      WHERE s.id = ${ids.sessionId}`;
+    return row as { participation: string; session: string; slots: number; xp: number };
+  }
+
+  function rate(sessionId: string, markedInvalid: boolean) {
+    return request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/rate`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ rating: 2, markedInvalid });
+  }
+
+  it('marking invalid reverts the verdict (rejected, slot back, XP removed), once', async () => {
+    const ids = await seedCreditedSession();
+
+    expect((await rate(ids.sessionId, true)).status).toBe(200);
+    expect(await outcome(ids)).toEqual({
+      participation: 'rejected',
+      session: 'invalidated',
+      slots: 0,
+      xp: 0,
+    });
+
+    // Sending it again is not a second transition: the slot stays at zero.
+    expect((await rate(ids.sessionId, true)).status).toBe(200);
+    expect((await outcome(ids)).slots).toBe(0);
+  });
+
+  it('restoring brings back completed, the XP and the slot', async () => {
+    const ids = await seedCreditedSession();
+    await rate(ids.sessionId, true);
+
+    expect((await rate(ids.sessionId, false)).status).toBe(200);
+    expect(await outcome(ids)).toEqual({
+      participation: 'completed',
+      session: 'completed',
+      slots: 1,
+      xp: 1,
+    });
+  });
+
+  it('409s restoring when the test is full, changing nothing', async () => {
+    const ids = await seedCreditedSession(1);
+    await rate(ids.sessionId, true);
+    // Someone else took the freed place.
+    await sql`UPDATE tests SET slots_taken = 1 WHERE id = ${ids.testId}`;
+
+    const res = await rate(ids.sessionId, false);
+    expect(res.status).toBe(409);
+    expect(await outcome(ids)).toEqual({
+      participation: 'rejected',
+      session: 'invalidated',
+      slots: 1,
+      xp: 0,
+    });
+    const [validation] = await sql`
+      SELECT valid FROM session_validations WHERE session_id = ${ids.sessionId}`;
+    expect(validation.valid).toBe(false);
+  });
+
+  it('409s restoring when the player already joined the test again', async () => {
+    const ids = await seedCreditedSession();
+    await rate(ids.sessionId, true);
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${uuidv7()}, ${ids.testId}, ${TESTER_ID}, 'reserved')`;
+
+    expect((await rate(ids.sessionId, false)).status).toBe(409);
+    expect((await outcome(ids)).participation).toBe('rejected');
+  });
+
   it('validates the body (rating 1–5) with the error envelope', async () => {
     const { sessionId } = await seedSession();
 

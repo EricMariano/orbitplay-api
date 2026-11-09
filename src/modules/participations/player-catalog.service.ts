@@ -22,7 +22,9 @@ const PLATFORMS = new Set<string>(platformValues);
  * M8-03 — what a player sees of games and tests from ANY organization
  * (Telas 14 e 15). Same cross-org reasoning as the feed and as joining a test:
  * RN-01 governs a studio's own resources, while these are the public face of a
- * game. A `draft` game or test is the studio's private state and reads as 404.
+ * game. A `draft` game or test is the studio's private state and reads as 404;
+ * so does an `archived` game page (same rule as its community and chat). A
+ * test the player already reached stays readable through `getTest`.
  */
 @Injectable()
 export class PlayerCatalogService {
@@ -128,7 +130,7 @@ export class PlayerCatalogService {
 
   private async getVisibleGame(gameId: string): Promise<GameView> {
     const game = await this.games.getAnyOrg(gameId);
-    if (game.status === 'draft') throw AppException.notFound();
+    if (game.status !== 'active') throw AppException.notFound();
     return game;
   }
 

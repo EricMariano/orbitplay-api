@@ -89,6 +89,26 @@ describe('validateEnv', () => {
     );
   });
 
+  describe('TRUST_PROXY', () => {
+    it('defaults to not trusting any proxy, so an existing .env keeps booting', () => {
+      expect(validateEnv({ ...validEnv }).TRUST_PROXY).toBe(false);
+      expect(validateEnv({ ...validEnv, TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
+      expect(validateEnv({ ...validEnv, TRUST_PROXY: '0' }).TRUST_PROXY).toBe(false);
+    });
+
+    it('takes a hop count', () => {
+      expect(validateEnv({ ...validEnv, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
+      expect(validateEnv({ ...validEnv, TRUST_PROXY: ' 2 ' }).TRUST_PROXY).toBe(2);
+    });
+
+    it.each(['true', 'yes', '-1', '1.5', 'loopback'])(
+      'rejects %s (trusting every hop would let a client spoof its IP)',
+      (value) => {
+        expect(() => validateEnv({ ...validEnv, TRUST_PROXY: value })).toThrowError(/TRUST_PROXY/);
+      },
+    );
+  });
+
   // CFG-01 regression: every variable documented in .env.example is required.
   // None of them may carry a silent Zod default — deleting one must fail boot
   // naming that exact variable, never fall back unnoticed.

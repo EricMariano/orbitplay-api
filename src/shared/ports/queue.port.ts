@@ -15,9 +15,24 @@ export interface QueuePort {
    * Never creates a duplicate, never silently drops a resource that needs a
    * job.
    */
-  ensureEnqueued(name: string, jobId: string, data: Record<string, unknown>): Promise<void>;
+  ensureEnqueued(
+    name: string,
+    jobId: string,
+    data: Record<string, unknown>,
+    options?: EnsureJobOptions,
+  ): Promise<void>;
   /** Liveness/readiness check for /health. */
   healthCheck(): Promise<void>;
+}
+
+export interface EnsureJobOptions {
+  /**
+   * The resource behind `jobId` was recreated (e.g. a failed build confirmed
+   * again with the same id): a `completed` job belongs to its previous life and
+   * must run again. Without this, the new row waited on a job that would never
+   * run, and the sweep kept answering `exists` — `processing` forever.
+   */
+  rerunCompleted?: boolean;
 }
 
 export const QUEUE_PORT = Symbol('QUEUE_PORT');

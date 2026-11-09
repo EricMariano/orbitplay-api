@@ -28,6 +28,7 @@ describe('Groups and per-game access (e2e)', () => {
   let app: INestApplication;
   let sql: postgres.Sql;
   let ownerToken: string;
+  let adminToken: string;
   let studioToken: string;
   let playerToken: string;
   let rivalToken: string;
@@ -70,6 +71,7 @@ describe('Groups and per-game access (e2e)', () => {
     playerUserId = idOf(SEED_EMAILS.player);
 
     ownerToken = await bearer(app, SEED_EMAILS.owner);
+    adminToken = await bearer(app, SEED_EMAILS.admin);
     studioToken = await bearer(app, SEED_EMAILS.studio);
     playerToken = await bearer(app, SEED_EMAILS.player);
     rivalToken = await bearer(app, RIVAL.email);
@@ -133,7 +135,7 @@ describe('Groups and per-game access (e2e)', () => {
   it('sets, reads and replaces the per-game permission matrix', async () => {
     const put = await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.one}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({
         entries: [
           { subjectType: 'group', subjectId: groupId, permissions: ALL },
@@ -171,16 +173,43 @@ describe('Groups and per-game access (e2e)', () => {
 
     const replaced = await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.one}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({ entries: [] });
     expect(replaced.status).toBe(200);
     expect(replaced.body.data).toEqual([]);
   });
 
+  it('only owner/admin change the matrix; studio and player get 403', async () => {
+    const body = { entries: [] };
+    const asStudio = await request(app.getHttpServer())
+      .put(`/games/${GAME_IDS.one}/access`)
+      .set(auth(studioToken))
+      .send(body);
+    expect(asStudio.status).toBe(403);
+
+    const asPlayer = await request(app.getHttpServer())
+      .put(`/games/${GAME_IDS.one}/access`)
+      .set(auth(playerToken))
+      .send(body);
+    expect(asPlayer.status).toBe(403);
+
+    const asAdmin = await request(app.getHttpServer())
+      .put(`/games/${GAME_IDS.one}/access`)
+      .set(auth(adminToken))
+      .send(body);
+    expect(asAdmin.status).toBe(200);
+
+    // Reading stays open to the studio role.
+    const read = await request(app.getHttpServer())
+      .get(`/games/${GAME_IDS.one}/access`)
+      .set(auth(studioToken));
+    expect(read.status).toBe(200);
+  });
+
   it('validates the matrix: duplicates, unknown groups, foreign games and roles', async () => {
     const duplicate = await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.one}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({
         entries: [
           { subjectType: 'member', subjectId: studioUserId, permissions: ALL },
@@ -191,7 +220,7 @@ describe('Groups and per-game access (e2e)', () => {
 
     const unknownGroup = await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.one}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({
         entries: [
           {
@@ -205,7 +234,7 @@ describe('Groups and per-game access (e2e)', () => {
 
     const playerSubject = await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.one}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({ entries: [{ subjectType: 'member', subjectId: playerUserId, permissions: ALL }] });
     expect(playerSubject.status).toBe(422);
 
@@ -228,7 +257,7 @@ describe('Groups and per-game access (e2e)', () => {
   it('updates a group and drops its permissions when it is deleted', async () => {
     await request(app.getHttpServer())
       .put(`/games/${GAME_IDS.two}/access`)
-      .set(auth(studioToken))
+      .set(auth(ownerToken))
       .send({ entries: [{ subjectType: 'group', subjectId: groupId, permissions: ALL }] });
 
     const patched = await request(app.getHttpServer())

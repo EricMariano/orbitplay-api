@@ -4,7 +4,7 @@ import postgres from 'postgres';
 import request from 'supertest';
 import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { GAME_IDS } from '../src/infra/database/seed';
+import { GAME_IDS, SEED_EMAILS, SEED_PASSWORD } from '../src/infra/database/seed';
 import { redisConnectionOptions } from '../src/infra/queue/connection';
 import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
@@ -151,6 +151,32 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     throw new Error('timeout waiting for participation result');
   }
 
+  /** A screen recording row of the session, already through (or still in) the media pipeline. */
+  async function insertScreenRecording(
+    sessionId: string,
+    status: 'ready' | 'processing' | 'failed',
+  ): Promise<string> {
+    const id = uuidv7();
+    await sql`
+      INSERT INTO session_recordings (id, session_id, kind, storage_key, status)
+      SELECT ${id}, s.id, 'screen',
+             'orgs/' || s.organization_id::text || '/sessions/' || s.id::text
+               || '/recordings/screen/' || ${id},
+             ${status}
+      FROM sessions s WHERE s.id = ${sessionId}`;
+    return id;
+  }
+
+  /**
+   * What a valid verdict needs (product rule): at least a minute played — the
+   * start is moved back since `finish` caps the duration at the real elapsed
+   * time — and, for a model that requires it, a ready screen recording.
+   */
+  async function makeValidatable(sessionId: string): Promise<void> {
+    await sql`UPDATE sessions SET started_at = now() - interval '5 minutes' WHERE id = ${sessionId}`;
+    await insertScreenRecording(sessionId, 'ready');
+  }
+
   it('walks tutorial → consents → session → devices/heartbeat → finish → form → result (valid)', async () => {
     const { testId, questionId } = await seedReadyTest();
 
@@ -204,17 +230,18 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
       .send({ tMs: 1000 });
     expect(heartbeat.status).toBe(204);
 
+    await makeValidatable(sessionId);
     const finish = await request(app.getHttpServer())
       .post(`/sessions/${sessionId}/finish`)
       .set('Authorization', `Bearer ${playerToken}`)
-      .send({ tMs: 12_000, confirmed: true });
+      .send({ tMs: 120_000, confirmed: true });
     expect(finish.status).toBe(200);
     expect(finish.body.status).toBe('in_review');
 
     const secondFinish = await request(app.getHttpServer())
       .post(`/sessions/${sessionId}/finish`)
       .set('Authorization', `Bearer ${playerToken}`)
-      .send({ tMs: 13_000, confirmed: true });
+      .send({ tMs: 130_000, confirmed: true });
     expect(secondFinish.status).toBe(409);
 
     const summary = await request(app.getHttpServer())
@@ -347,10 +374,11 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
   });
 
   async function finishAndWaitCompleted(participationId: string, sessionId: string) {
+    await makeValidatable(sessionId);
     const finish = await request(app.getHttpServer())
       .post(`/sessions/${sessionId}/finish`)
       .set('Authorization', `Bearer ${playerToken}`)
-      .send({ tMs: 1, confirmed: true });
+      .send({ tMs: 120_000, confirmed: true });
     expect(finish.status).toBe(200);
     const result = await waitForResult(participationId, (s) => s === 'completed');
     expect(result.status).toBe('completed');
@@ -410,7 +438,8 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
       SELECT ${sessionId}, ${participationId}, id, organization_id, 'processing',
              now() - interval '2 minutes', now(), 60000
       FROM tests WHERE id = ${testId}`;
-    await processSessionValidate(workerDeps, sessionId);
+    await insertScreenRecording(sessionId, 'ready');
+    await expect(processSessionValidate(workerDeps, sessionId)).resolves.toBe('validated');
 
     expect(await sessionXpEventsForTest(testId)).toBe(1);
   });
@@ -449,6 +478,78 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
     expect(result.invalidReason).toContain('timeout');
   });
 
+  // M8-03: `rejected` doesn't hold a slot — the one taken on join comes back,
+  // exactly once, and the player can take it again.
+  it('gives the slot back when the session is rejected, once, and lets the player rejoin', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    const slotsTaken = async () =>
+      (await sql`SELECT slots_taken FROM tests WHERE id = ${testId}`)[0].slots_taken as number;
+    expect(await slotsTaken()).toBe(1);
+
+    await workerDeps.redis.del(`session:heartbeat:${sessionId}`);
+    await processReconcileStuckJobs(workerDeps);
+    const result = await waitForResult(participationId, (s) => s !== 'in_review');
+    expect(result.status).toBe('rejected');
+    expect(await slotsTaken()).toBe(0);
+
+    // Redelivery of the same validation changes nothing.
+    await processSessionValidate(workerDeps, sessionId);
+    expect(await slotsTaken()).toBe(0);
+
+    const rejoin = await request(app.getHttpServer())
+      .post(`/player/tests/${testId}/participations`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send();
+    expect(rejoin.status).toBe(201);
+    expect(await slotsTaken()).toBe(1);
+  });
+
+  // "Marcar inválida" by the studio reverts the verdict; the player's result
+  // follows it both ways.
+  it('reflects the studio marking the session invalid, and restoring it, in the result', async () => {
+    const login = await request(app.getHttpServer())
+      .post('/auth/login')
+      .send({ email: SEED_EMAILS.studio, password: SEED_PASSWORD });
+    const studioToken = login.body.accessToken as string;
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await finishAndWaitCompleted(participationId, sessionId);
+    const rate = (markedInvalid: boolean) =>
+      request(app.getHttpServer())
+        .post(`/sessions/${sessionId}/rate`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({ rating: 1, markedInvalid });
+    const result = async () =>
+      (
+        await request(app.getHttpServer())
+          .get(`/participations/${participationId}/result`)
+          .set('Authorization', `Bearer ${playerToken}`)
+      ).body as { status: string; xpEarned: number | null; invalidReason: string | null };
+
+    expect((await rate(true)).status).toBe(200);
+    expect(await result()).toMatchObject({
+      status: 'rejected',
+      xpEarned: null,
+      invalidReason: 'Marcada como inválida pelo estúdio',
+    });
+    expect(await sessionXpEventsForTest(testId)).toBe(0);
+
+    expect((await rate(false)).status).toBe(200);
+    const restored = await result();
+    expect(restored.status).toBe('completed');
+    expect(restored.xpEarned).toBeGreaterThan(0);
+  });
+
+  it('keeps the slot of a completed participation', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await finishAndWaitCompleted(participationId, sessionId);
+
+    const [test] = await sql`SELECT slots_taken FROM tests WHERE id = ${testId}`;
+    expect(test.slots_taken).toBe(1);
+  });
+
   // `finish` commits the session as `processing` and only then enqueues
   // `session.validate`: a lost enqueue used to leave it there for good.
   it('validates a finished session whose validation job never got enqueued', async () => {
@@ -459,10 +560,77 @@ describe('Sessions — M7-03/04/05/06 (e2e)', () => {
       SET status = 'processing', duration_ms = 60000, ended_at = now() - interval '20 minutes'
       WHERE id = ${sessionId}`;
     await sql`UPDATE participations SET status = 'in_review' WHERE id = ${participationId}`;
+    await insertScreenRecording(sessionId, 'ready');
 
     await processReconcileStuckJobs(workerDeps);
 
     const result = await waitForResult(participationId, (s) => s !== 'in_review');
     expect(result.status).toBe('completed');
+  });
+
+  // Validity rule (product decision): ≥ 1 minute and, when the model requires
+  // it, a ready screen recording — judged after media processing.
+  it('rejects a session shorter than a minute and gives its slot back', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await sql`UPDATE sessions SET started_at = now() - interval '40 seconds' WHERE id = ${sessionId}`;
+    await insertScreenRecording(sessionId, 'ready');
+
+    const finish = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/finish`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ tMs: 30_000, confirmed: true });
+    expect(finish.status).toBe(200);
+
+    const result = await waitForResult(participationId, (s) => s !== 'in_review');
+    expect(result.status).toBe('rejected');
+    expect(result.invalidReason).toContain('mínimo');
+    const [test] = await sql`SELECT slots_taken FROM tests WHERE id = ${testId}`;
+    expect(test.slots_taken).toBe(0);
+  });
+
+  it('waits for the recording to finish processing before validating', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await sql`UPDATE sessions SET started_at = now() - interval '5 minutes' WHERE id = ${sessionId}`;
+    const recordingId = await insertScreenRecording(sessionId, 'processing');
+
+    const finish = await request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/finish`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ tMs: 120_000, confirmed: true });
+    expect(finish.status).toBe(200);
+
+    await expect(processSessionValidate(workerDeps, sessionId)).resolves.toBe('deferred');
+    expect(
+      await sql`SELECT 1 FROM session_validations WHERE session_id = ${sessionId}`,
+    ).toHaveLength(0);
+    const pending = await request(app.getHttpServer())
+      .get(`/participations/${participationId}/result`)
+      .set('Authorization', `Bearer ${playerToken}`);
+    expect(pending.body.status).toBe('in_review');
+
+    // The transcode settles it and asks for the verdict again.
+    await sql`UPDATE session_recordings SET status = 'ready' WHERE id = ${recordingId}`;
+    await expect(processSessionValidate(workerDeps, sessionId)).resolves.toBe('validated');
+    const result = await waitForResult(participationId, (s) => s !== 'in_review');
+    expect(result.status).toBe('completed');
+  });
+
+  it('rejects a session whose required recording never arrived within the upload window', async () => {
+    const { testId } = await seedReadyTest();
+    const { participationId, sessionId } = await joinAndStart(testId);
+    await sql`
+      UPDATE sessions
+      SET status = 'processing', duration_ms = 600000,
+          started_at = now() - interval '4 hours', ended_at = now() - interval '3 hours'
+      WHERE id = ${sessionId}`;
+    await sql`UPDATE participations SET status = 'in_review' WHERE id = ${participationId}`;
+
+    await processReconcileStuckJobs(workerDeps);
+
+    const result = await waitForResult(participationId, (s) => s !== 'in_review');
+    expect(result.status).toBe('rejected');
+    expect(result.invalidReason).toBe('Gravação obrigatória ausente');
   });
 });

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionRecordingRow } from '../infra/database/schema/participations';
+import { JobName, sessionValidateAfterRecordingJobId } from '../infra/queue/queue.constants';
 import type { StoragePort } from '../shared/ports/storage.port';
 import { generateSampleWebm } from '../../test/helpers/sample-media';
 import { processMediaExtractAudio, processMediaTranscode } from './media.processor';
@@ -131,6 +132,26 @@ describe('media.processor (real ffmpeg, GAP-04)', () => {
       await processMediaTranscode(deps, RECORDING_ID);
 
       expect(row.status).toBe('failed');
+    });
+
+    it('asks for the session verdict once the recording settles (it may be waiting on it)', async () => {
+      const row = makeRecording();
+      const { db } = makeFakeDb(row);
+      const storage: Partial<StoragePort> = { stat: async () => null };
+      const add = vi.fn(async () => undefined);
+      const queue = { getJob: async () => undefined, add };
+      const deps = { db, storage: storage as StoragePort, queue } as unknown as WorkerDeps;
+
+      await processMediaTranscode(deps, RECORDING_ID);
+
+      expect(row.status).toBe('failed');
+      expect(add).toHaveBeenCalledWith(
+        JobName.SESSION_VALIDATE,
+        { sessionId: row.sessionId },
+        expect.objectContaining({
+          jobId: sessionValidateAfterRecordingJobId(row.sessionId, RECORDING_ID),
+        }),
+      );
     });
 
     // An HLS playlist uploaded as a "recording" would have ffmpeg open its

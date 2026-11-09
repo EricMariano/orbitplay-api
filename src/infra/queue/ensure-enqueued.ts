@@ -1,4 +1,6 @@
 import type { Queue } from 'bullmq';
+import type { EnsureJobOptions } from '../../shared/ports/queue.port';
+import { JOB_OPTIONS } from './queue.constants';
 
 /**
  * A job that already failed this many runs is failing deterministically (a
@@ -31,14 +33,20 @@ export async function ensureJobEnqueued(
   name: string,
   jobId: string,
   data: Record<string, unknown>,
+  options: EnsureJobOptions = {},
 ): Promise<EnsureJobOutcome> {
   const existing = await queue.getJob(jobId);
   if (!existing) {
-    await queue.add(name, data, { jobId });
+    await queue.add(name, data, { ...JOB_OPTIONS[name], jobId });
     return 'enqueued';
   }
 
   const state = await existing.getState();
+  if (state === 'completed' && options.rerunCompleted) {
+    await existing.remove();
+    await queue.add(name, data, { ...JOB_OPTIONS[name], jobId });
+    return 'enqueued';
+  }
   if (state !== 'failed') return 'exists';
   if (existing.attemptsMade >= MAX_JOB_RUNS) return 'exhausted';
 

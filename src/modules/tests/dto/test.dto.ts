@@ -36,6 +36,13 @@ export const RATING_SCALE_BOUNDS = { min: 0, max: 10 } as const;
  */
 const MAX_FORM_POSITION = 1000;
 const MAX_AUDIENCE_QUANTITY = 100_000;
+/**
+ * A form is replaced whole on every save, inside the test's row lock — an
+ * unbounded body made that save (and the lock) as long as the client wanted.
+ * Still far above what Tela 07 is meant for.
+ */
+export const MAX_FORM_QUESTIONS = 100;
+export const MAX_QUESTION_OPTIONS = 50;
 /** Tela 09 "Tipo de jogador" — mirrors `player_tier` in the schema. */
 export const playerTierValues = ['all', 'casual', 'experienced', 'trained', 'qa'] as const;
 export const buildStatusValues = [
@@ -152,7 +159,7 @@ const formQuestionInputSchema = z
     helpText: z.string().max(1000).optional(),
     required: z.boolean(),
     position: z.number().int().min(0).max(MAX_FORM_POSITION),
-    options: z.array(formOptionInputSchema).optional(),
+    options: z.array(formOptionInputSchema).max(MAX_QUESTION_OPTIONS).optional(),
     scaleMin: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
     scaleMax: z.number().int().min(RATING_SCALE_BOUNDS.min).max(RATING_SCALE_BOUNDS.max).optional(),
     /** Markers shown at the scale ends (Tela 07, "Primeiro/Último marcador"). */
@@ -194,7 +201,7 @@ const formQuestionInputSchema = z
 
 export const putFormSchema = z
   .object({
-    questions: z.array(formQuestionInputSchema),
+    questions: z.array(formQuestionInputSchema).max(MAX_FORM_QUESTIONS),
   })
   /** RN-03: `position` is authority, not array order — but it must still be unique per save. */
   .superRefine((v, ctx) => {

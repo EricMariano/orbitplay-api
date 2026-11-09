@@ -4,7 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { eq } from 'drizzle-orm';
-import { sessionRecordings } from '../infra/database/schema/participations';
+import {
+  sessionRecordings,
+  type SessionRecordingRow,
+} from '../infra/database/schema/participations';
+import { ensureJobEnqueued } from '../infra/queue/ensure-enqueued';
+import { JobName, sessionValidateAfterRecordingJobId } from '../infra/queue/queue.constants';
 import { MAX_RECORDING_DURATION_MS } from '../modules/media/dto/media.dto';
 import { extractedAudioKey, thumbnailKey } from '../modules/media/storage-key';
 import type { WorkerDeps } from './deps';
@@ -53,6 +58,36 @@ export async function processMediaTranscode(deps: WorkerDeps, recordingId: strin
   const recording = rows[0];
   if (!recording) throw new Error(`recording ${recordingId} not found`);
 
+  await transcode(deps, recording);
+  // Settled (`ready` or `failed`): the session's verdict may have been
+  // waiting for exactly this (`processSessionValidate` defers on it).
+  await requestSessionValidation(deps, recording);
+}
+
+/**
+ * Best-effort: a lost enqueue only delays the verdict until the reconcile
+ * sweep re-runs it — never fails (and re-transcodes) a recording that is done.
+ */
+async function requestSessionValidation(
+  deps: WorkerDeps,
+  recording: SessionRecordingRow,
+): Promise<void> {
+  try {
+    await ensureJobEnqueued(
+      deps.queue,
+      JobName.SESSION_VALIDATE,
+      sessionValidateAfterRecordingJobId(recording.sessionId, recording.id),
+      { sessionId: recording.sessionId },
+    );
+  } catch (err) {
+    console.warn(
+      `[worker] session.validate enqueue failed after recording ${recording.id}: ${String(err)}`,
+    );
+  }
+}
+
+async function transcode(deps: WorkerDeps, recording: SessionRecordingRow): Promise<void> {
+  const recordingId = recording.id;
   const meta = await deps.storage.stat(recording.storageKey);
   if (!meta) {
     await markFailed(deps, recordingId);

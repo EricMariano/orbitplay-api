@@ -5,10 +5,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres from 'postgres';
 import request from 'supertest';
+import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { GAME_IDS, ORG_ID, SEED_EMAILS, SEED_PASSWORD, USER_IDS } from '../src/infra/database/seed';
 import { redisConnectionOptions } from '../src/infra/queue/connection';
 import { MAIN_QUEUE } from '../src/infra/queue/queue.constants';
+import {
+  MAX_RECORDING_PARTS,
+  MAX_RECORDINGS_PER_SESSION,
+} from '../src/modules/media/dto/media.dto';
+import { buildRecordingStorageKey } from '../src/modules/media/storage-key';
 import { closeWorkerDeps, createWorkerDeps } from '../src/workers/deps';
 import { handleJob } from '../src/workers/handle-job';
 import { createE2EApp } from './helpers/e2e-app';
@@ -244,6 +250,111 @@ describe('Media (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`)
       .send({ contentType: 'video/webm', sizeBytes: 16 });
     expect(missing.status).toBe(404);
+  });
+
+  /** A fresh session of the seeded player (own test, all consents granted). */
+  async function seedSession(
+    status: 'recording' | 'processing' | 'completed' | 'invalidated',
+    endedMinutesAgo: number | null,
+  ): Promise<string> {
+    const testId = uuidv7();
+    const participationId = uuidv7();
+    const sessionId = uuidv7();
+    await sql`
+      INSERT INTO tests (id, organization_id, game_id, model_key, status)
+      VALUES (${testId}, ${ORG_ID}, ${GAME_IDS.two}, 'free_exploration', 'published')`;
+    await sql`
+      INSERT INTO participations (id, test_id, user_id, status)
+      VALUES (${participationId}, ${testId}, ${USER_IDS.player}, 'playing')`;
+    await sql`
+      INSERT INTO session_consents (participation_id, screen_recording, audio, microphone, webcam, accepted_at)
+      VALUES (${participationId}, true, true, true, true, now())`;
+    const endedAt =
+      endedMinutesAgo === null ? null : new Date(Date.now() - endedMinutesAgo * 60_000);
+    await sql`
+      INSERT INTO sessions (id, participation_id, test_id, organization_id, status, ended_at)
+      VALUES (${sessionId}, ${participationId}, ${testId}, ${ORG_ID}, ${status}, ${endedAt})`;
+    return sessionId;
+  }
+
+  function startUpload(sessionId: string, body: Record<string, unknown> = {}) {
+    return request(app.getHttpServer())
+      .post(`/sessions/${sessionId}/recordings/upload-url`)
+      .set('Authorization', `Bearer ${playerToken}`)
+      .send({ contentType: 'video/webm', sizeBytes: 16, kind: 'screen_recording', ...body });
+  }
+
+  it(`422s a part number above ${MAX_RECORDING_PARTS}`, async () => {
+    const res = await startUpload(SESSION.sessionId, { partNumber: MAX_RECORDING_PARTS + 1 });
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('VALIDATION_ERROR');
+  });
+
+  it(`409s a new upload once the session holds ${MAX_RECORDINGS_PER_SESSION} recordings`, async () => {
+    const sessionId = await seedSession('recording', null);
+    for (let i = 0; i < MAX_RECORDINGS_PER_SESSION; i += 1) {
+      const id = uuidv7();
+      await sql`
+        INSERT INTO session_recordings (id, session_id, kind, storage_key, status)
+        VALUES (${id}, ${sessionId}, 'screen',
+                ${buildRecordingStorageKey(ORG_ID, sessionId, 'screen', id)}, 'ready')`;
+    }
+
+    const res = await startUpload(sessionId);
+    expect(res.status).toBe(409);
+  });
+
+  it('409s new uploads for a session that ended long ago, but not right after finish', async () => {
+    const old = await seedSession('completed', 3 * 60);
+    expect((await startUpload(old)).status).toBe(409);
+
+    const justFinished = await seedSession('processing', 1);
+    expect((await startUpload(justFinished)).status).toBe(201);
+
+    // `session.validate` runs right after finish: a session validated a minute
+    // ago is still the normal "upload when the recorder stops" case.
+    const justValidated = await seedSession('completed', 1);
+    expect((await startUpload(justValidated)).status).toBe(201);
+  });
+
+  // The web uploads parts while it records: each part request renews the
+  // upload session, so a recording longer than one TTL (1 h) keeps going.
+  it('renews the upload session on every part request', async () => {
+    const sessionId = await seedSession('recording', null);
+    const first = await startUpload(sessionId, { sizeBytes: 8 * 1024 * 1024 });
+    expect(first.status).toBe(201);
+    const uploadId = first.body.uploadId as string;
+    const uploadKey = `recording-upload:${uploadId}`;
+    // As if almost an hour of parts had already gone by.
+    await workerDeps.redis.pexpire(uploadKey, 5_000);
+
+    const next = await startUpload(sessionId, {
+      sizeBytes: 8 * 1024 * 1024,
+      partNumber: 2,
+      uploadId,
+    });
+    expect(next.status).toBe(201);
+    expect(next.body.storageKey).toBe(first.body.storageKey);
+    expect(await workerDeps.redis.pttl(uploadKey)).toBeGreaterThan(50 * 60 * 1000);
+  });
+
+  it('keeps a single recording when the same upload is completed twice at once', async () => {
+    const sessionId = await seedSession('recording', null);
+    const storageKey = buildRecordingStorageKey(ORG_ID, sessionId, 'screen', uuidv7());
+    await workerDeps.storage.putObject(storageKey, WEBM_BYTES, 'video/webm');
+
+    const complete = () =>
+      request(app.getHttpServer())
+        .post(`/sessions/${sessionId}/recordings/complete`)
+        .set('Authorization', `Bearer ${playerToken}`)
+        .send({ storageKey, durationMs: 1000 });
+    const [a, b] = await Promise.all([complete(), complete()]);
+
+    expect(a.status).toBe(202);
+    expect(b.status).toBe(202);
+    expect(b.body.id).toBe(a.body.id);
+    const rows = await sql`SELECT id FROM session_recordings WHERE storage_key = ${storageKey}`;
+    expect(rows).toHaveLength(1);
   });
 
   it('refuses upload without consent and incomplete complete parts', async () => {

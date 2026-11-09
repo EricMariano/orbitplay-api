@@ -1,3 +1,5 @@
+import type { JobsOptions } from 'bullmq';
+
 /** Names of the BullMQ queues. Keep in sync with the worker process. */
 export const MAIN_QUEUE = 'main';
 
@@ -20,6 +22,18 @@ export const JobName = {
 } as const;
 
 export type JobNameValue = (typeof JobName)[keyof typeof JobName];
+
+/**
+ * BullMQ options per job name, applied when `ensureJobEnqueued` first adds
+ * the job. A job absent here runs once (BullMQ's default `attempts: 1`): its
+ * retry is the reconciliation sweep re-ensuring it from the DB row's state.
+ * `report.export` has no sweep behind it, so it retries on its own — a
+ * transient storage error must not settle the export as `failed` (the
+ * processor only marks it on the last attempt, see `processReportExport`).
+ */
+export const JOB_OPTIONS: Partial<Record<string, Pick<JobsOptions, 'attempts' | 'backoff'>>> = {
+  [JobName.REPORT_EXPORT]: { attempts: 3, backoff: { type: 'exponential', delay: 5_000 } },
+};
 
 /**
  * Deterministic BullMQ job ids, one per (job type, resource). The DB insert
@@ -50,6 +64,16 @@ export function mediaExtractAudioJobId(recordingId: string): string {
 
 export function sessionValidateJobId(sessionId: string): string {
   return `session-validate-${sessionId}`;
+}
+
+/**
+ * `session.validate` re-run once one of the session's recordings settles
+ * (`ready`/`failed`). Its own id per recording: the run `finish` enqueued
+ * under `sessionValidateJobId` may have completed without a verdict (waiting
+ * for the recording), and BullMQ keeps a completed job's id taken.
+ */
+export function sessionValidateAfterRecordingJobId(sessionId: string, recordingId: string): string {
+  return `session-validate-${sessionId}-after-${recordingId}`;
 }
 
 export function reportExportJobId(exportId: string): string {

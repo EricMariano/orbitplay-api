@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigService } from '@nestjs/config';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
@@ -9,12 +10,18 @@ import { buildOpenApiDocument } from './config/openapi.factory';
 import { RedisIoAdapter } from './infra/redis/redis-io.adapter';
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
 
   // Route Nest's logs through pino (structured, with requestId).
   app.useLogger(app.get(Logger));
 
   const config = app.get(ConfigService);
+
+  // Behind a load balancer `req.ip` would be the proxy's address: the per-IP
+  // login throttle would turn global and the audit log would store the proxy.
+  // TRUST_PROXY says how many hops to trust; false (default) ignores
+  // X-Forwarded-For, so a client exposed directly can't spoof its IP.
+  app.set('trust proxy', config.get<number | false>('http.trustProxy') ?? false);
 
   app.use(helmet());
   app.use(cookieParser());

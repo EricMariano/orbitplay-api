@@ -473,6 +473,202 @@ describe('Tests wizard — M5 (e2e)', () => {
     expect(noBuildYet.status).toBe(404);
   });
 
+  // The worker's immutable copy lives one segment deeper than an upload key
+  // (`.../builds/<id>/validated/<file>`): a client confirming such a key would
+  // make a never-scanned object look like an approved copy.
+  it('refuses to confirm a key shaped like the validated copy (raw `/` in the file name)', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration' });
+    const testId = create.body.id as string;
+    const orgId = create.body.organizationId as string;
+
+    const res = await request(app.getHttpServer())
+      .post(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        storageKey: `orgs/${orgId}/tests/${testId}/builds/${uuidv7()}/validated/game.zip`,
+        platform: 'windows',
+      });
+    expect(res.status).toBe(422);
+  });
+
+  it('DELETE removes the validated copy and the upload, even one re-PUT after validation', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration' });
+    const testId = create.body.id as string;
+
+    const uploadUrl = await request(app.getHttpServer())
+      .post(`/tests/${testId}/build/upload-url`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        fileName: 'game.zip',
+        contentType: 'application/zip',
+        sizeBytes: BUILD_BYTES.length,
+        platform: 'windows',
+      });
+    const uploadKey = uploadUrl.body.storageKey as string;
+    const putBytes = () =>
+      fetch(uploadUrl.body.uploadUrl as string, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/zip' },
+        body: BUILD_BYTES,
+      });
+    expect((await putBytes()).ok).toBe(true);
+    const confirm = await request(app.getHttpServer())
+      .post(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ storageKey: uploadKey, platform: 'windows' });
+    expect(confirm.status).toBe(202);
+    const validated = await waitForBuildValidated(app, studioToken, testId);
+    expect(validated.status).toBe('validated');
+
+    const [row] = await sql`SELECT storage_key FROM builds WHERE id = ${validated.id as string}`;
+    const validatedKey = row.storage_key as string;
+    expect(validatedKey).toContain('/validated/');
+    // Re-created through the still-live URL: referenced by no row, still the build's.
+    expect((await putBytes()).ok).toBe(true);
+
+    const del = await request(app.getHttpServer())
+      .delete(`/tests/${testId}/build`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(del.status).toBe(204);
+    expect(await workerDeps.storage.stat(validatedKey)).toBeNull();
+    expect(await workerDeps.storage.stat(uploadKey)).toBeNull();
+  });
+
+  // `tests_publish_idempotency_key_unique` is global: a key already spent on
+  // another test used to come back as 200 with this test still a draft.
+  it('answers 409, not a 200 draft, when the Idempotency-Key was already spent on another test', async () => {
+    const readyBuildlessTest = async (title: string): Promise<string> => {
+      const create = await request(app.getHttpServer())
+        .post(`/games/${GAME_IDS.one}/tests`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({ testModelKey: 'ab_test_images', title });
+      const testId = create.body.id as string;
+      const form = await request(app.getHttpServer())
+        .put(`/tests/${testId}/form`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({
+          questions: [{ type: 'open_text', prompt: 'Qual capa?', required: true, position: 0 }],
+        });
+      expect(form.status).toBe(200);
+      const audience = await request(app.getHttpServer())
+        .patch(`/tests/${testId}/audience`)
+        .set('Authorization', `Bearer ${studioToken}`)
+        .send({ ageMin: 18, ageMax: 99, quantity: 1, durationDays: 7 });
+      expect(audience.body.pendingValidations).toEqual([]);
+      return testId;
+    };
+    const first = await readyBuildlessTest('Capas A');
+    const second = await readyBuildlessTest('Capas B');
+    const key = uuidv7();
+
+    const publishFirst = await request(app.getHttpServer())
+      .post(`/tests/${first}/publish`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .set('Idempotency-Key', key)
+      .send();
+    expect(publishFirst.status).toBe(200);
+
+    const reused = await request(app.getHttpServer())
+      .post(`/tests/${second}/publish`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .set('Idempotency-Key', key)
+      .send();
+    expect(reused.status).toBe(409);
+    expect(reused.body.code).toBe('CONFLICT');
+
+    const stillDraft = await request(app.getHttpServer())
+      .get(`/tests/${second}`)
+      .set('Authorization', `Bearer ${studioToken}`);
+    expect(stillDraft.body.status).toBe('draft');
+
+    const freshKey = await request(app.getHttpServer())
+      .post(`/tests/${second}/publish`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .set('Idempotency-Key', uuidv7())
+      .send();
+    expect(freshKey.status).toBe(200);
+    expect(freshKey.body.status).toBe('published');
+  });
+
+  it('caps the form at 100 questions and 50 options per question (422)', async () => {
+    const create = await request(app.getHttpServer())
+      .post(`/games/${GAME_IDS.one}/tests`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({ testModelKey: 'free_exploration', title: 'Formulário enorme' });
+    const testId = create.body.id as string;
+
+    const tooManyQuestions = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: Array.from({ length: 101 }, (_, position) => ({
+          type: 'open_text',
+          prompt: `Pergunta ${position}`,
+          required: false,
+          position,
+        })),
+      });
+    expect(tooManyQuestions.status).toBe(422);
+
+    const tooManyOptions = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          {
+            type: 'single_choice',
+            prompt: 'Qual?',
+            required: true,
+            position: 0,
+            options: Array.from({ length: 51 }, (_, position) => ({
+              label: `Opção ${position}`,
+              position,
+            })),
+          },
+        ],
+      });
+    expect(tooManyOptions.status).toBe(422);
+
+    // At the caps the batched insert still saves everything, in input order
+    // (99 + 1 with 50 options keeps the body under Express's 100kb JSON limit).
+    const atCaps = await request(app.getHttpServer())
+      .put(`/tests/${testId}/form`)
+      .set('Authorization', `Bearer ${studioToken}`)
+      .send({
+        questions: [
+          ...Array.from({ length: 99 }, (_, position) => ({
+            type: 'open_text',
+            prompt: `Pergunta ${position}`,
+            required: false,
+            position,
+          })),
+          {
+            type: 'multiple_choice',
+            prompt: 'Pergunta 99',
+            required: false,
+            position: 99,
+            options: Array.from({ length: 50 }, (_, position) => ({
+              label: `Opção ${49 - position}`,
+              position: 49 - position,
+            })),
+          },
+        ],
+      });
+    expect(atCaps.status).toBe(200);
+    expect(atCaps.body.questions).toHaveLength(100);
+    expect(atCaps.body.questions[0].prompt).toBe('Pergunta 0');
+    expect(atCaps.body.questions[99].prompt).toBe('Pergunta 99');
+    expect(atCaps.body.questions[99].options).toHaveLength(50);
+    expect(atCaps.body.questions[99].options[0]).toMatchObject({ label: 'Opção 0', position: 0 });
+    expect(atCaps.body.questions[98].options).toEqual([]);
+  });
+
   it('returns 404 (not 500) for a malformed test id on a row-locked wizard step (VAL-01)', async () => {
     const res = await request(app.getHttpServer())
       .patch('/tests/not-a-uuid/model')
@@ -501,7 +697,9 @@ describe('Tests wizard — M5 (e2e)', () => {
 
     it('defaults to tab=active — draft/published, not finished', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/games/${GAME_IDS.two}/tests`)
+        // limit=100: other spec files also create tests on GAME_IDS.two, and these
+        // fixed (older) ids would fall off the default 20-row first page.
+        .get(`/games/${GAME_IDS.two}/tests?limit=100`)
         .set('Authorization', `Bearer ${studioToken}`);
       expect(res.status).toBe(200);
       const ids = res.body.data.map((t: { id: string }) => t.id);
@@ -511,7 +709,7 @@ describe('Tests wizard — M5 (e2e)', () => {
 
     it('tab=all includes finished too', async () => {
       const res = await request(app.getHttpServer())
-        .get(`/games/${GAME_IDS.two}/tests?tab=all`)
+        .get(`/games/${GAME_IDS.two}/tests?tab=all&limit=100`)
         .set('Authorization', `Bearer ${studioToken}`);
       expect(res.body.data.map((t: { id: string }) => t.id)).toEqual(
         expect.arrayContaining([draftId, publishedId, finishedId]),

@@ -90,20 +90,25 @@ export const gameReviews = pgTable(
   (t) => [uniqueIndex('game_reviews_unique').on(t.gameId, t.userId)],
 );
 
-export const communityPosts = pgTable('community_posts', {
-  id: primaryId(),
-  gameId: uuid('game_id')
-    .notNull()
-    .references(() => games.id, { onDelete: 'cascade' }),
-  authorUserId: uuid('author_user_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  body: text('body').notNull(),
-  status: postStatusEnum('status').notNull().default('visible'),
-  moderatedBy: uuid('moderated_by').references(() => users.id),
-  moderatedAt: timestamp('moderated_at', { withTimezone: true }),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+/** Listed per game, cursor-paged by id (newest first) — hence (game_id, id). */
+export const communityPosts = pgTable(
+  'community_posts',
+  {
+    id: primaryId(),
+    gameId: uuid('game_id')
+      .notNull()
+      .references(() => games.id, { onDelete: 'cascade' }),
+    authorUserId: uuid('author_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    body: text('body').notNull(),
+    status: postStatusEnum('status').notNull().default('visible'),
+    moderatedBy: uuid('moderated_by').references(() => users.id),
+    moderatedAt: timestamp('moderated_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('community_posts_game_idx').on(t.gameId, t.id)],
+);
 
 export const communityReports = pgTable('community_reports', {
   id: primaryId(),

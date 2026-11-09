@@ -24,6 +24,7 @@ describe('Player catalog — M8-03 (e2e)', () => {
 
   const gameId = uuidv7();
   const draftGameId = uuidv7();
+  const archivedGameId = uuidv7();
   const ids = {
     open: uuidv7(),
     full: uuidv7(),
@@ -33,7 +34,7 @@ describe('Player catalog — M8-03 (e2e)', () => {
   };
   const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
-  async function insertGame(id: string, status: 'active' | 'draft'): Promise<void> {
+  async function insertGame(id: string, status: 'active' | 'draft' | 'archived'): Promise<void> {
     await sql`
       INSERT INTO games (id, organization_id, title, slug, genre, status)
       VALUES (${id}, ${ORG_ID}, ${`Catálogo ${id}`}, ${`catalogo-${id}`}, 'Puzzle', ${status})`;
@@ -66,6 +67,7 @@ describe('Player catalog — M8-03 (e2e)', () => {
 
     await insertGame(gameId, 'active');
     await insertGame(draftGameId, 'draft');
+    await insertGame(archivedGameId, 'archived');
     await insertTest({ id: ids.open, gameId, status: 'published', reward: 1500, name: 'Fase 1' });
     await insertTest({ id: ids.full, gameId, status: 'published', slotsTotal: 1, slotsTaken: 1 });
     await insertTest({ id: ids.paused, gameId, status: 'paused', reward: 9000 });
@@ -106,8 +108,8 @@ describe('Player catalog — M8-03 (e2e)', () => {
     expect(res.body.specs).toEqual(expect.any(Object));
   });
 
-  it('404s a draft game, a malformed id and an unknown id', async () => {
-    for (const id of [draftGameId, 'not-a-uuid', uuidv7()]) {
+  it('404s a draft or archived game, a malformed id and an unknown id', async () => {
+    for (const id of [draftGameId, archivedGameId, 'not-a-uuid', uuidv7()]) {
       const game = await api()
         .get(`/player/games/${id}`)
         .set('Authorization', `Bearer ${playerToken}`);

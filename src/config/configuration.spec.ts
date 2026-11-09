@@ -74,3 +74,10 @@ describe('buildConfig — clamd', () => {
     );
   });
 });
+
+describe('buildConfig — trust proxy', () => {
+  it('trusts no proxy unless TRUST_PROXY says how many hops', () => {
+    expect(buildConfig(validateEnv({ ...baseEnv })).http.trustProxy).toBe(false);
+    expect(buildConfig(validateEnv({ ...baseEnv, TRUST_PROXY: '1' })).http.trustProxy).toBe(1);
+  });
+});

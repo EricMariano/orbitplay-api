@@ -7,11 +7,18 @@ import type { NotificationPort } from '../../shared/ports/notification.port';
 import { Role } from '../../shared/auth/roles';
 import type { AuthService } from '../auth/auth.service';
 import type { PasswordService } from '../auth/password.service';
-import { LastOwnerError, MemberAlreadyExistsError, type OrgsRepository } from './orgs.repository';
+import {
+  InviteEmailUnavailableError,
+  LastOwnerError,
+  MemberAlreadyExistsError,
+  OwnerOnlyError,
+  type OrgsRepository,
+} from './orgs.repository';
 import { OrgsService } from './orgs.service';
 
 const ORG = '01920000-0000-7000-8000-0000000000a1';
 const INVITED_USER = '01920000-0000-7000-8000-0000000000c9';
+const INVITED_MEMBERSHIP = '01920000-0000-7000-8000-0000000000d9';
 
 function makeOrg(overrides: Partial<OrganizationRow> = {}): OrganizationRow {
   const now = new Date('2026-01-01T00:00:00.000Z');
@@ -38,7 +45,10 @@ describe('OrgsService inviteMember', () => {
   };
   let password: { hash: ReturnType<typeof vi.fn> };
   let config: { get: ReturnType<typeof vi.fn> };
-  let auth: { triggerPasswordReset: ReturnType<typeof vi.fn> };
+  let auth: {
+    triggerPasswordReset: ReturnType<typeof vi.fn>;
+    issueInviteToken: ReturnType<typeof vi.fn>;
+  };
   let mail: { sendEmail: ReturnType<typeof vi.fn> };
   let service: OrgsService;
   let req: Request;
@@ -56,6 +66,7 @@ describe('OrgsService inviteMember', () => {
       findRoleIdByKey: vi.fn(),
       createInvitedMember: vi.fn().mockImplementation((input: Record<string, unknown>) =>
         Promise.resolve({
+          membershipId: INVITED_MEMBERSHIP,
           userId: INVITED_USER,
           email: input.email,
           displayName: input.displayName,
@@ -66,7 +77,10 @@ describe('OrgsService inviteMember', () => {
     };
     password = { hash: vi.fn().mockResolvedValue('argon2-placeholder') };
     config = { get: vi.fn().mockReturnValue('http://localhost:5173') };
-    auth = { triggerPasswordReset: vi.fn().mockResolvedValue(undefined) };
+    auth = {
+      triggerPasswordReset: vi.fn().mockResolvedValue(undefined),
+      issueInviteToken: vi.fn().mockResolvedValue('raw-invite-token'),
+    };
     mail = { sendEmail: vi.fn().mockResolvedValue(undefined) };
 
     service = new OrgsService(
@@ -167,6 +181,19 @@ describe('OrgsService inviteMember', () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it('answers a clear 409 (not "já é membro") when the e-mail belongs to a deleted account', async () => {
+    repo.createInvitedMember.mockRejectedValue(new InviteEmailUnavailableError());
+
+    const err: unknown = await service
+      .inviteMember(ORG, Role.OWNER, { email: 'excluido@estudio.dev', role: 'studio' }, req)
+      .catch((e: unknown) => e);
+
+    expect(err).toMatchObject({ status: 409 });
+    expect((err as Error).message).toContain('conta excluída');
+    expect(mail.sendEmail).not.toHaveBeenCalled();
+    expect(drainAuditDrafts(req)).toHaveLength(0);
+  });
+
   it('records an org.member_invited audit intent (Tela 20 RN-05)', async () => {
     await service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req);
 
@@ -179,9 +206,15 @@ describe('OrgsService inviteMember', () => {
     });
   });
 
-  it('sends the invitation e-mail without any token or password', async () => {
-    await service.inviteMember(ORG, Role.OWNER, { email: 'novo@estudio.dev', role: 'studio' }, req);
+  it('e-mails a single-use acceptance link (never a password) for the new membership', async () => {
+    const view = await service.inviteMember(
+      ORG,
+      Role.OWNER,
+      { email: 'novo@estudio.dev', role: 'studio' },
+      req,
+    );
 
+    expect(auth.issueInviteToken).toHaveBeenCalledWith(INVITED_MEMBERSHIP, ORG);
     expect(mail.sendEmail).toHaveBeenCalledTimes(1);
     const message = mail.sendEmail.mock.calls[0][0] as {
       to: string;
@@ -190,8 +223,11 @@ describe('OrgsService inviteMember', () => {
     };
     expect(message.to).toBe('novo@estudio.dev');
     expect(message.subject).toContain('OrbitPlay Studio Demo');
-    expect(message.text).toContain('Esqueci minha senha');
-    expect(message.text).not.toContain('token');
+    expect(message.text).toContain('http://localhost:5173/accept-invite?token=raw-invite-token');
+    expect(message.text).not.toContain('Esqueci minha senha');
+    expect(message.text).not.toContain('argon2-placeholder');
+    // The internal membership id never reaches the response.
+    expect(view).not.toHaveProperty('membershipId');
   });
 
   it('404s when the organization does not exist', async () => {
@@ -385,6 +421,7 @@ describe('OrgsService changeMemberStatus', () => {
     const view = await service.changeMemberStatus(
       ORG,
       CALLER,
+      Role.OWNER,
       TARGET,
       { status: 'disabled', confirm: true },
       req,
@@ -395,12 +432,20 @@ describe('OrgsService changeMemberStatus', () => {
       organizationId: ORG,
       userId: TARGET,
       status: 'disabled',
+      callerRole: Role.OWNER,
     });
   });
 
   it('refuses to let a caller change their own status: 403', async () => {
     await expect(
-      service.changeMemberStatus(ORG, TARGET, TARGET, { status: 'disabled', confirm: true }, req),
+      service.changeMemberStatus(
+        ORG,
+        TARGET,
+        Role.OWNER,
+        TARGET,
+        { status: 'disabled', confirm: true },
+        req,
+      ),
     ).rejects.toMatchObject({ status: 403 });
     expect(repo.changeMemberStatus).not.toHaveBeenCalled();
   });
@@ -410,6 +455,7 @@ describe('OrgsService changeMemberStatus', () => {
       service.changeMemberStatus(
         ORG,
         TARGET,
+        Role.OWNER,
         TARGET.toUpperCase(),
         { status: 'active', confirm: true },
         req,
@@ -418,11 +464,37 @@ describe('OrgsService changeMemberStatus', () => {
     expect(repo.changeMemberStatus).not.toHaveBeenCalled();
   });
 
+  it("maps an admin acting on an owner to 403 (role hierarchy), passing the caller's role", async () => {
+    repo.changeMemberStatus.mockRejectedValue(new OwnerOnlyError());
+
+    await expect(
+      service.changeMemberStatus(
+        ORG,
+        CALLER,
+        Role.ADMIN,
+        TARGET,
+        { status: 'disabled', confirm: true },
+        req,
+      ),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(repo.changeMemberStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ callerRole: Role.ADMIN }),
+    );
+    expect(drainAuditDrafts(req)).toHaveLength(0);
+  });
+
   it('maps the last-owner rule to a 409 conflict (RN-03/RN-06)', async () => {
     repo.changeMemberStatus.mockRejectedValue(new LastOwnerError());
 
     await expect(
-      service.changeMemberStatus(ORG, CALLER, TARGET, { status: 'disabled', confirm: true }, req),
+      service.changeMemberStatus(
+        ORG,
+        CALLER,
+        Role.OWNER,
+        TARGET,
+        { status: 'disabled', confirm: true },
+        req,
+      ),
     ).rejects.toMatchObject({ status: 409 });
   });
 
@@ -430,7 +502,14 @@ describe('OrgsService changeMemberStatus', () => {
     repo.changeMemberStatus.mockResolvedValue(null);
 
     await expect(
-      service.changeMemberStatus(ORG, CALLER, TARGET, { status: 'disabled', confirm: true }, req),
+      service.changeMemberStatus(
+        ORG,
+        CALLER,
+        Role.OWNER,
+        TARGET,
+        { status: 'disabled', confirm: true },
+        req,
+      ),
     ).rejects.toMatchObject({ status: 404 });
   });
 
@@ -438,6 +517,7 @@ describe('OrgsService changeMemberStatus', () => {
     await service.changeMemberStatus(
       ORG,
       CALLER,
+      Role.OWNER,
       TARGET,
       { status: 'disabled', confirm: true },
       req,
@@ -479,12 +559,12 @@ describe('OrgsService removeMember', () => {
   });
 
   it('removes the member', async () => {
-    await service.removeMember(ORG, CALLER, TARGET, req);
-    expect(repo.removeMember).toHaveBeenCalledWith(ORG, TARGET);
+    await service.removeMember(ORG, CALLER, Role.OWNER, TARGET, req);
+    expect(repo.removeMember).toHaveBeenCalledWith(ORG, TARGET, Role.OWNER);
   });
 
   it('refuses to let a caller remove themselves: 403', async () => {
-    await expect(service.removeMember(ORG, TARGET, TARGET, req)).rejects.toMatchObject({
+    await expect(service.removeMember(ORG, TARGET, Role.OWNER, TARGET, req)).rejects.toMatchObject({
       status: 403,
     });
     expect(repo.removeMember).not.toHaveBeenCalled();
@@ -492,15 +572,25 @@ describe('OrgsService removeMember', () => {
 
   it('refuses self-removal when the id comes in upper case', async () => {
     await expect(
-      service.removeMember(ORG, TARGET, TARGET.toUpperCase(), req),
+      service.removeMember(ORG, TARGET, Role.OWNER, TARGET.toUpperCase(), req),
     ).rejects.toMatchObject({ status: 403 });
     expect(repo.removeMember).not.toHaveBeenCalled();
+  });
+
+  it('maps an admin removing an owner to 403 (role hierarchy)', async () => {
+    repo.removeMember.mockRejectedValue(new OwnerOnlyError());
+
+    await expect(service.removeMember(ORG, CALLER, Role.ADMIN, TARGET, req)).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(repo.removeMember).toHaveBeenCalledWith(ORG, TARGET, Role.ADMIN);
+    expect(drainAuditDrafts(req)).toHaveLength(0);
   });
 
   it('maps the last-owner rule to a 409 conflict (RN-03)', async () => {
     repo.removeMember.mockRejectedValue(new LastOwnerError());
 
-    await expect(service.removeMember(ORG, CALLER, TARGET, req)).rejects.toMatchObject({
+    await expect(service.removeMember(ORG, CALLER, Role.OWNER, TARGET, req)).rejects.toMatchObject({
       status: 409,
     });
   });
@@ -508,13 +598,13 @@ describe('OrgsService removeMember', () => {
   it('404s when the user is not a member of this organization', async () => {
     repo.removeMember.mockResolvedValue(null);
 
-    await expect(service.removeMember(ORG, CALLER, TARGET, req)).rejects.toMatchObject({
+    await expect(service.removeMember(ORG, CALLER, Role.OWNER, TARGET, req)).rejects.toMatchObject({
       status: 404,
     });
   });
 
   it('records a logical-deactivation audit entry (RN-05/RN-06)', async () => {
-    await service.removeMember(ORG, CALLER, TARGET, req);
+    await service.removeMember(ORG, CALLER, Role.OWNER, TARGET, req);
 
     const drafts = drainAuditDrafts(req);
     expect(drafts).toHaveLength(1);
@@ -559,7 +649,7 @@ describe('OrgsService triggerMemberPasswordReset', () => {
   });
 
   it('triggers the reset flow for a member of the organization', async () => {
-    const result = await service.triggerMemberPasswordReset(ORG, TARGET, req);
+    const result = await service.triggerMemberPasswordReset(ORG, Role.OWNER, TARGET, req);
 
     expect(result).toEqual({ message: expect.any(String) });
     expect(auth.triggerPasswordReset).toHaveBeenCalledWith(TARGET);
@@ -568,14 +658,60 @@ describe('OrgsService triggerMemberPasswordReset', () => {
   it('404s when the user is not a member of this organization', async () => {
     repo.findMembership.mockResolvedValue(null);
 
-    await expect(service.triggerMemberPasswordReset(ORG, TARGET, req)).rejects.toMatchObject({
+    await expect(
+      service.triggerMemberPasswordReset(ORG, Role.OWNER, TARGET, req),
+    ).rejects.toMatchObject({
       status: 404,
     });
     expect(auth.triggerPasswordReset).not.toHaveBeenCalled();
   });
 
+  it('refuses an admin acting on an owner: 403 (role hierarchy)', async () => {
+    repo.findMembership.mockResolvedValue({
+      userId: TARGET,
+      email: 'dono@orbitplay.dev',
+      displayName: 'Dono',
+      role: 'owner',
+      status: 'active',
+    });
+
+    await expect(
+      service.triggerMemberPasswordReset(ORG, Role.ADMIN, TARGET, req),
+    ).rejects.toMatchObject({ status: 403 });
+    expect(auth.triggerPasswordReset).not.toHaveBeenCalled();
+  });
+
+  it('lets an owner act on another owner', async () => {
+    repo.findMembership.mockResolvedValue({
+      userId: TARGET,
+      email: 'dono@orbitplay.dev',
+      displayName: 'Dono',
+      role: 'owner',
+      status: 'active',
+    });
+
+    await service.triggerMemberPasswordReset(ORG, Role.OWNER, TARGET, req);
+    expect(auth.triggerPasswordReset).toHaveBeenCalledWith(TARGET);
+  });
+
+  it('answers 409 for a pending invite — a reset never accepts it (use resend)', async () => {
+    repo.findMembership.mockResolvedValue({
+      userId: TARGET,
+      email: 'convidado@orbitplay.dev',
+      displayName: 'convidado@orbitplay.dev',
+      role: 'studio',
+      status: 'invited',
+    });
+
+    await expect(
+      service.triggerMemberPasswordReset(ORG, Role.OWNER, TARGET, req),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(auth.triggerPasswordReset).not.toHaveBeenCalled();
+    expect(drainAuditDrafts(req)).toHaveLength(0);
+  });
+
   it('records the trigger in the audit trail (RN-05)', async () => {
-    await service.triggerMemberPasswordReset(ORG, TARGET, req);
+    await service.triggerMemberPasswordReset(ORG, Role.OWNER, TARGET, req);
 
     const drafts = drainAuditDrafts(req);
     expect(drafts).toHaveLength(1);
@@ -583,6 +719,88 @@ describe('OrgsService triggerMemberPasswordReset', () => {
       action: 'org.member_password_reset_triggered',
       entity: 'users',
       entityId: TARGET,
+    });
+  });
+});
+
+describe('OrgsService resendInvite', () => {
+  const TARGET = '01920000-0000-7000-8000-0000000000ca';
+  const MEMBERSHIP = '01920000-0000-7000-8000-0000000000da';
+
+  let repo: {
+    findMembership: ReturnType<typeof vi.fn>;
+    findById: ReturnType<typeof vi.fn>;
+  };
+  let auth: { reissueInviteToken: ReturnType<typeof vi.fn> };
+  let mail: { sendEmail: ReturnType<typeof vi.fn> };
+  let service: OrgsService;
+  let req: Request;
+
+  const invitedMember = (overrides: Record<string, unknown> = {}) => ({
+    membershipId: MEMBERSHIP,
+    userId: TARGET,
+    email: 'convidado@estudio.dev',
+    displayName: 'convidado@estudio.dev',
+    role: 'studio',
+    status: 'invited',
+    ...overrides,
+  });
+
+  beforeEach(() => {
+    repo = {
+      findMembership: vi.fn().mockResolvedValue(invitedMember()),
+      findById: vi.fn().mockResolvedValue(makeOrg()),
+    };
+    auth = { reissueInviteToken: vi.fn().mockResolvedValue('fresh-token') };
+    mail = { sendEmail: vi.fn().mockResolvedValue(undefined) };
+    service = new OrgsService(
+      repo as unknown as OrgsRepository,
+      { hash: vi.fn() } as unknown as PasswordService,
+      { get: vi.fn().mockReturnValue('http://localhost:5173') } as unknown as ConfigService,
+      auth as unknown as AuthService,
+      mail as unknown as NotificationPort,
+    );
+    req = {} as Request;
+  });
+
+  it('issues a fresh token (voiding the old one) and e-mails the new link', async () => {
+    const result = await service.resendInvite(ORG, Role.ADMIN, TARGET, req);
+
+    expect(result).toEqual({ message: 'Convite reenviado.' });
+    expect(auth.reissueInviteToken).toHaveBeenCalledWith(MEMBERSHIP, ORG, 'convidado@estudio.dev');
+    const message = mail.sendEmail.mock.calls[0][0] as { to: string; text: string };
+    expect(message.to).toBe('convidado@estudio.dev');
+    expect(message.text).toContain('/accept-invite?token=fresh-token');
+    expect(drainAuditDrafts(req)[0]).toMatchObject({
+      action: 'org.member_invite_resent',
+      entityId: TARGET,
+    });
+  });
+
+  it('409s for a member who already accepted', async () => {
+    repo.findMembership.mockResolvedValue(invitedMember({ status: 'active' }));
+
+    await expect(service.resendInvite(ORG, Role.OWNER, TARGET, req)).rejects.toMatchObject({
+      status: 409,
+    });
+    expect(auth.reissueInviteToken).not.toHaveBeenCalled();
+    expect(mail.sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("refuses an admin resending an owner's invite: 403", async () => {
+    repo.findMembership.mockResolvedValue(invitedMember({ role: 'owner' }));
+
+    await expect(service.resendInvite(ORG, Role.ADMIN, TARGET, req)).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(auth.reissueInviteToken).not.toHaveBeenCalled();
+  });
+
+  it('404s when the user is not a member of this organization', async () => {
+    repo.findMembership.mockResolvedValue(null);
+
+    await expect(service.resendInvite(ORG, Role.OWNER, TARGET, req)).rejects.toMatchObject({
+      status: 404,
     });
   });
 });

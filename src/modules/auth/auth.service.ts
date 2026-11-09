@@ -5,6 +5,10 @@ import { Redis } from 'ioredis';
 import { randomBytes } from 'node:crypto';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { newId } from '../../infra/database/schema/_helpers';
+import type {
+  NewRefreshTokenRow,
+  RefreshTokenRow,
+} from '../../infra/database/schema/refresh-tokens';
 import { recordAudit } from '../../shared/audit/audit-context';
 import { AppException } from '../../shared/errors/app.exception';
 import { ErrorCode } from '../../shared/errors/error-envelope';
@@ -13,8 +17,11 @@ import type { AuthUser, RoleValue } from '../../shared/auth/roles';
 import { slugify } from '../../shared/util/slugify';
 import { isAtLeast18 } from './age';
 import type {
+  AcceptInviteInput,
+  AcceptInviteResult,
   AuthUserView,
   ForgotPasswordDto,
+  InvitePreview,
   LoginDto,
   LoginResponse,
   LoginResult,
@@ -23,7 +30,7 @@ import type {
   SignupPlayerInput,
   SignupStudioInput,
 } from './dto/auth.dto';
-import { AuthRepository, EmailAlreadyTakenError } from './auth.repository';
+import { AuthRepository, EmailAlreadyTakenError, type PendingInvite } from './auth.repository';
 import { PasswordService } from './password.service';
 import { TokenService } from './token.service';
 
@@ -33,8 +40,32 @@ const GENERIC_FORGOT_MESSAGE = 'Se o e-mail existir, enviaremos instruções de 
 const GENERIC_RESET_TOKEN_ERROR = 'Token inválido ou expirado';
 const UNDERAGE_MESSAGE = 'É necessário ter 18 anos ou mais para se cadastrar';
 const EMAIL_TAKEN_MESSAGE = 'E-mail já cadastrado';
+const GENERIC_INVITE_TOKEN_ERROR = 'Convite inválido ou expirado';
 
-type IdentifierLimitKind = 'login' | 'forgot' | 'availability';
+/** How long the link in an invitation e-mail stays valid. A resend issues a fresh one. */
+export const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How long a refresh token that was just ROTATED still opens a session. Two
+ * tabs refreshing at once — or a reload while `/auth/refresh` is in flight,
+ * where the server rotated but the browser never stored the new cookie —
+ * present the previous token right after it was consumed; inside this window
+ * that is not treated as theft. Revocations other than rotation (logout,
+ * password reset, reuse detection) get no grace. Past the window, reuse still
+ * revokes the whole family — every sibling minted in the window included.
+ */
+export const REFRESH_REUSE_GRACE_MS = 30_000;
+
+/** Revoked by rotation (not logout/reset/reuse detection) and still inside the grace window. */
+function isWithinReuseGrace(row: RefreshTokenRow): boolean {
+  return (
+    row.revokedAt !== null &&
+    row.replacedByTokenId !== null &&
+    Date.now() - row.revokedAt.getTime() <= REFRESH_REUSE_GRACE_MS
+  );
+}
+
+type IdentifierLimitKind = 'login' | 'forgot' | 'availability' | 'invite';
 
 @Injectable()
 export class AuthService {
@@ -130,8 +161,10 @@ export class AuthService {
     }
 
     // Reuse detection: a token that was already rotated/revoked is being
-    // presented again → revoke the whole family and force re-login.
-    if (stored.revokedAt) {
+    // presented again → revoke the whole family and force re-login. Except a
+    // token rotated moments ago (REFRESH_REUSE_GRACE_MS): that is a second tab
+    // or a reload that lost the race, not a stolen token.
+    if (stored.revokedAt && !isWithinReuseGrace(stored)) {
       await this.repo.revokeFamily(stored.familyId);
       this.clearRefreshCookie(res);
       throw AppException.unauthorized('Sessão inválida');
@@ -158,13 +191,13 @@ export class AuthService {
 
     // Rotate within the same family. The revoke-and-insert happens atomically
     // in one transaction so two concurrent requests presenting the same
-    // token can't both mint a successor (see rotateRefreshToken).
+    // token can't both consume it (see rotateRefreshToken).
     const next = await this.token.createRefreshToken({
       userId: user.id,
       organizationId: stored.organizationId,
       familyId: stored.familyId,
     });
-    const rotated = await this.repo.rotateRefreshToken(stored.id, {
+    const nextRow = {
       id: next.tokenId,
       userId: user.id,
       organizationId: stored.organizationId,
@@ -173,11 +206,16 @@ export class AuthService {
       expiresAt: next.expiresAt,
       ip: req.ip ?? null,
       userAgent: req.headers['user-agent'] ?? null,
-    });
-    if (!rotated) {
-      // Lost the race: another request already consumed this token
-      // concurrently. Treat it the same as presenting an already-rotated
-      // token — revoke the family and force re-login.
+    };
+    const issued = stored.revokedAt
+      ? // Inside the grace window: the winner keeps its token, this request
+        // gets a sibling in the same family — never a reset of the family.
+        await this.repo.insertRefreshTokenIfFamilyActive(nextRow)
+      : await this.rotateOrJoinWinner(stored.id, nextRow);
+    if (!issued) {
+      // Reuse outside the grace window, or a family already revoked (logout,
+      // password reset, reuse detection) — revoke what's left and force
+      // re-login.
       await this.repo.revokeFamily(stored.familyId);
       this.clearRefreshCookie(res);
       throw AppException.unauthorized('Sessão inválida');
@@ -201,6 +239,19 @@ export class AuthService {
         role: membership.roleKey,
       }),
     };
+  }
+
+  /**
+   * Rotate `currentId` into `next`. When a concurrent request consumed the
+   * token first (two tabs, one cookie), re-read it: if that request ROTATED
+   * it, this one lost a race inside the grace window and gets a sibling
+   * token; any other revocation (logout, reset) is reuse — `false`.
+   */
+  private async rotateOrJoinWinner(currentId: string, next: NewRefreshTokenRow): Promise<boolean> {
+    if (await this.repo.rotateRefreshToken(currentId, next)) return true;
+    const current = await this.repo.findRefreshTokenById(currentId);
+    if (!current || !isWithinReuseGrace(current)) return false;
+    return this.repo.insertRefreshTokenIfFamilyActive(next);
   }
 
   async logout(req: Request, res: Response): Promise<{ message: string }> {
@@ -285,6 +336,146 @@ export class AuthService {
         'Se você não solicitou isso, ignore este e-mail.',
       ].join('\n'),
     });
+  }
+
+  /**
+   * Issue the single-use token of an invite (ORB-M2-03) and return it raw, for
+   * the caller to put in the invitation e-mail — only its hash is stored. Any
+   * earlier token of the same membership stops working (resend).
+   */
+  async issueInviteToken(membershipId: string, organizationId: string): Promise<string> {
+    const rawToken = randomBytes(32).toString('base64url');
+    await this.repo.replaceInviteToken({
+      organizationId,
+      membershipId,
+      tokenHash: this.token.hashToken(rawToken),
+      expiresAt: new Date(Date.now() + INVITE_TOKEN_TTL_MS),
+    });
+    return rawToken;
+  }
+
+  /**
+   * Resend: same as `issueInviteToken`, but it mails the invitee again, so it
+   * shares the per-e-mail budget of the other flows that do (`forgot`).
+   */
+  async reissueInviteToken(
+    membershipId: string,
+    organizationId: string,
+    email: string,
+  ): Promise<string> {
+    await this.enforceIdentifierLimit('forgot', email.toLowerCase().trim());
+    return this.issueInviteToken(membershipId, organizationId);
+  }
+
+  /** What the invite link opens: org, role and which form the invitee fills (no auth). */
+  async previewInvite(rawToken: string): Promise<InvitePreview> {
+    const invite = await this.findInviteOrThrow(rawToken);
+    return {
+      organizationName: invite.organizationName,
+      role: invite.role,
+      email: invite.email,
+      accountExists: await this.inviteAccountExists(invite),
+      birthdateRequired: invite.birthdate === null,
+    };
+  }
+
+  /**
+   * Accept an invite (explicit consent — the only path from `invited` to
+   * `active`). A token is not an account takeover: an account that already
+   * exists proves it is the invitee with its CURRENT password, and keeps it.
+   * Only an account created by the invite picks its password here. Either way
+   * a missing birthdate is collected and the 18+ rule enforced (§1.4).
+   */
+  async acceptInvite(dto: AcceptInviteInput, req: Request): Promise<AcceptInviteResult> {
+    const invite = await this.findInviteOrThrow(dto.token);
+    const accountExists = await this.inviteAccountExists(invite);
+
+    const birthdate = invite.birthdate === null ? dto.birthdate : undefined;
+    if (invite.birthdate === null) {
+      if (!birthdate) {
+        throw AppException.validation('Dados inválidos', {
+          birthdate: 'Data de nascimento obrigatória',
+        });
+      }
+      if (!isAtLeast18(birthdate)) {
+        throw AppException.validation(UNDERAGE_MESSAGE, { birthdate: UNDERAGE_MESSAGE });
+      }
+    }
+
+    let passwordHash: string | undefined;
+    if (accountExists) {
+      if (!dto.currentPassword) {
+        throw AppException.validation('Dados inválidos', {
+          currentPassword: 'Informe a senha atual da sua conta',
+        });
+      }
+      const email = invite.email.toLowerCase().trim();
+      await this.enforceIdentifierLimit('invite', email);
+      const ok = await this.password.verify(invite.passwordHash, dto.currentPassword);
+      if (!ok) {
+        throw AppException.validation('Dados inválidos', { currentPassword: 'Senha incorreta' });
+      }
+      await this.clearIdentifierLimit('invite', email);
+    } else {
+      if (!dto.password) {
+        throw AppException.validation('Dados inválidos', { password: 'Senha obrigatória' });
+      }
+      passwordHash = await this.password.hash(dto.password);
+    }
+
+    const accepted = await this.repo.acceptInvite({
+      tokenHash: this.token.hashToken(dto.token),
+      membershipId: invite.membershipId,
+      userId: invite.userId,
+      passwordHash,
+      birthdate,
+    });
+    if (!accepted) {
+      throw AppException.validation(GENERIC_INVITE_TOKEN_ERROR, {
+        token: GENERIC_INVITE_TOKEN_ERROR,
+      });
+    }
+
+    recordAudit(req, {
+      action: 'org.invite_accepted',
+      entity: 'memberships',
+      entityId: invite.userId,
+      before: { status: 'invited' },
+      after: {
+        status: 'active',
+        organizationId: invite.organizationId,
+        role: invite.role,
+        accountCreated: !accountExists,
+      },
+    });
+
+    return {
+      message: 'Convite aceito. Entre com seu e-mail e senha.',
+      email: invite.email,
+      organizationName: invite.organizationName,
+    };
+  }
+
+  private async findInviteOrThrow(rawToken: string): Promise<PendingInvite> {
+    const invite = await this.repo.findPendingInviteByTokenHash(this.token.hashToken(rawToken));
+    if (!invite) {
+      throw AppException.validation(GENERIC_INVITE_TOKEN_ERROR, {
+        token: GENERIC_INVITE_TOKEN_ERROR,
+      });
+    }
+    return invite;
+  }
+
+  /**
+   * Whether the invited e-mail has an account of its own, beyond the invite:
+   * one that signed up (signup always records a birthdate) or that is already
+   * active in some organization. An account the invite created has neither
+   * until it accepts.
+   */
+  private async inviteAccountExists(invite: PendingInvite): Promise<boolean> {
+    if (invite.birthdate !== null) return true;
+    const active = await this.repo.findActiveMemberships(invite.userId);
+    return active.length > 0;
   }
 
   async resetPassword(dto: ResetPasswordDto, req: Request): Promise<{ message: string }> {
@@ -551,7 +742,10 @@ export class AuthService {
     };
   }
 
-  private async clearIdentifierLimit(kind: 'login' | 'forgot', email: string): Promise<void> {
+  private async clearIdentifierLimit(
+    kind: 'login' | 'forgot' | 'invite',
+    email: string,
+  ): Promise<void> {
     await this.redis.del(`${kind}:id:${email}`);
   }
 }

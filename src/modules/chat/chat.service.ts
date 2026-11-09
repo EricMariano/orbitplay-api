@@ -29,6 +29,9 @@ const MODERATE_ACTION_TO_STATUS: Record<ModerateChatMessageDto['action'], PostSt
   remove: 'removed',
 };
 
+/** Who is looking at a channel: only the organization matters for a game's visibility. */
+type ChatViewer = Pick<AuthUser, 'organizationId'>;
+
 /** Socket events (join, leave, typing, presence) per user, per window — see `enforceSocketEventLimit`. */
 const SOCKET_EVENT_LIMIT = 30;
 const SOCKET_EVENT_WINDOW_SECONDS = 60;
@@ -43,8 +46,12 @@ export class ChatService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  async listChannels(gameId: string, query: PaginationQuery): Promise<Page<ChatChannelView>> {
-    await this.games.existsAnyOrg(gameId);
+  async listChannels(
+    gameId: string,
+    viewer: ChatViewer,
+    query: PaginationQuery,
+  ): Promise<Page<ChatChannelView>> {
+    await this.getVisibleGame(gameId, viewer);
     const page = await this.repo.listChannels(gameId, query);
     return { data: page.data.map(toChannelView), nextCursor: page.nextCursor };
   }
@@ -81,7 +88,7 @@ export class ChatService {
     user: AuthUser,
     dto: UpdateChatChannelDto,
   ): Promise<ChatChannelView> {
-    const channel = await this.getChannelOrThrow(channelId);
+    const channel = await this.getChannelOrThrow(channelId, user);
     await this.assertOwnsGame(channel.gameId, user);
 
     const updated = await this.repo.updateChannel(channelId, {
@@ -95,8 +102,12 @@ export class ChatService {
     return view;
   }
 
-  async listMessages(channelId: string, query: PaginationQuery): Promise<Page<ChatMessageView>> {
-    await this.getChannelOrThrow(channelId);
+  async listMessages(
+    channelId: string,
+    viewer: ChatViewer,
+    query: PaginationQuery,
+  ): Promise<Page<ChatMessageView>> {
+    await this.getChannelOrThrow(channelId, viewer);
     const page = await this.repo.listVisibleMessages(channelId, query);
     return { data: page.data.map(toMessageView), nextCursor: page.nextCursor };
   }
@@ -107,15 +118,15 @@ export class ChatService {
    */
   async sendMessage(
     channelId: string,
-    authorUserId: string,
+    author: Pick<AuthUser, 'userId' | 'organizationId'>,
     dto: SendChatMessageDto,
   ): Promise<ChatMessageView> {
-    const channel = await this.getChannelOrThrow(channelId);
+    const channel = await this.getChannelOrThrow(channelId, author);
     if (channel.archivedAt) throw AppException.conflict('Canal arquivado');
 
-    await this.enforceMessageLimit(authorUserId);
+    await this.enforceMessageLimit(author.userId);
 
-    const created = await this.repo.createMessage(channelId, authorUserId, dto.body);
+    const created = await this.repo.createMessage(channelId, author.userId, dto.body);
     const view = toMessageView(created);
     this.realtime.messageCreated(view);
     return view;
@@ -134,7 +145,7 @@ export class ChatService {
     const message = await this.repo.findMessageRowById(messageId);
     if (!message) throw AppException.notFound();
 
-    const channel = await this.getChannelOrThrow(message.channelId);
+    const channel = await this.getChannelOrThrow(message.channelId, moderator);
     await this.assertOwnsGame(channel.gameId, moderator);
 
     const before = await this.repo.findMessageById(messageId);
@@ -170,12 +181,14 @@ export class ChatService {
    * channel lives as long as its game, like the mural: once the game is
    * deleted, reading, writing and joining all 404 — before, the channel kept
    * taking messages that nobody, not even the studio, could moderate anymore.
+   * Same for a game that isn't `active`, except for its own studio
+   * (`getVisibleGame`).
    */
-  async getChannelOrThrow(channelId: string): Promise<ChatChannelRow> {
+  async getChannelOrThrow(channelId: string, viewer: ChatViewer): Promise<ChatChannelRow> {
     const channel = await this.repo.findChannelById(channelId);
     if (!channel) throw AppException.notFound('Canal não encontrado');
     try {
-      await this.games.existsAnyOrg(channel.gameId);
+      await this.getVisibleGame(channel.gameId, viewer);
     } catch (err) {
       if (err instanceof AppException && err.getStatus() === HttpStatus.NOT_FOUND) {
         throw AppException.notFound('Canal não encontrado');
@@ -186,10 +199,27 @@ export class ChatService {
   }
 
   private async assertOwnsGame(gameId: string, user: AuthUser): Promise<void> {
-    const game = await this.games.existsAnyOrg(gameId);
+    const game = await this.getVisibleGame(gameId, user);
     if (game.organizationId !== user.organizationId) {
       throw AppException.forbidden('Seu estúdio não é dono deste jogo');
     }
+  }
+
+  /**
+   * A game that isn't `active` (draft, archived) is the studio's private state
+   * — like the player catalog (DECISIONS.md M8-03), its chat answers 404 to
+   * everyone except members of the organization that owns it, who keep
+   * reading, talking and moderating there.
+   */
+  private async getVisibleGame(
+    gameId: string,
+    viewer: ChatViewer,
+  ): Promise<{ id: string; organizationId: string; status: string }> {
+    const game = await this.games.existsAnyOrg(gameId);
+    if (game.status !== 'active' && game.organizationId !== viewer.organizationId) {
+      throw AppException.notFound();
+    }
+    return game;
   }
 
   /**

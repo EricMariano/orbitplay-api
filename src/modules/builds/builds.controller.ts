@@ -33,8 +33,12 @@ export class BuildsController {
 
   @Get(':id/compatibility')
   @ZodResponse({ type: CompatibilityReportDto })
-  checkCompatibility(@Param('id') id: string, @Query() query: CompatibilityQueryDto) {
-    return this.builds.checkCompatibility(id, query);
+  checkCompatibility(
+    @CurrentUser('organizationId') organizationId: string,
+    @Param('id') id: string,
+    @Query() query: CompatibilityQueryDto,
+  ) {
+    return this.builds.checkCompatibility(organizationId, id, query);
   }
 
   @Get(':id/download-url')
@@ -42,9 +46,10 @@ export class BuildsController {
   @ZodResponse({ type: DownloadUrlResponseDto })
   getDownloadUrl(
     @CurrentUser('userId') userId: string,
+    @CurrentUser('organizationId') organizationId: string,
     @Param('id') id: string,
     @Query() query: DownloadUrlQueryDto,
   ) {
-    return this.builds.getDownloadUrl(userId, id, query);
+    return this.builds.getDownloadUrl(userId, organizationId, id, query);
   }
 }

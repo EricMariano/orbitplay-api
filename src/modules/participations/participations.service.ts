@@ -40,8 +40,8 @@ export class ParticipationsService {
    * archetype eligibility (`test_audience_criteria.countries`/`archetypes`)
    * also isn't checked — the player schema has no such columns yet (same stub
    * pattern `TestsRepository.countEligiblePlayers` already documents for the
-   * reach estimate). Only the age bracket is enforced, since `users.birthdate`
-   * already exists.
+   * reach estimate). Only the age bracket (and having a birthdate at all) is
+   * enforced, since `users.birthdate` already exists.
    */
   async join(testId: string, userId: string): Promise<ParticipationView> {
     const test = await this.repo.findTestById(testId);
@@ -79,17 +79,25 @@ export class ParticipationsService {
     return this.toView(row, test);
   }
 
-  /** 403 (Forbidden), not 409: this is a mismatch with who the player is, not with the test's state. */
+  /**
+   * 403 (Forbidden), not 409: this is a mismatch with who the player is, not
+   * with the test's state. The platform is 18+ (DECISIONS §1.4), so a player
+   * without a birthdate (an account created by invite) can't take part in any
+   * test, bracket or not, until the invite acceptance collects it.
+   */
   private async assertAgeEligible(testId: string, userId: string): Promise<void> {
+    const birthdate = await this.repo.findUserBirthdate(userId);
+    if (!birthdate) throw AppException.forbidden('Data de nascimento obrigatória para participar');
+
     const range = await this.repo.findAudienceAgeRange(testId);
     if (!range || (range.ageMin == null && range.ageMax == null)) return;
 
-    const birthdate = await this.repo.findUserBirthdate(userId);
-    if (!birthdate) return; // nothing to compare against — don't block on missing data
-
+    // Age in [ageMin, ageMax] ⇔ dateYearsAgo(ageMax + 1) < birthdate <= dateYearsAgo(ageMin)
+    // (same rule as the reach estimate). Born exactly `ageMax + 1` years ago
+    // means turning `ageMax + 1` today — already too old.
     const minBirthdate = range.ageMax != null ? dateYearsAgo(range.ageMax + 1) : null;
     const maxBirthdate = range.ageMin != null ? dateYearsAgo(range.ageMin) : null;
-    const tooOld = minBirthdate != null && birthdate < minBirthdate;
+    const tooOld = minBirthdate != null && birthdate <= minBirthdate;
     const tooYoung = maxBirthdate != null && birthdate > maxBirthdate;
     if (tooOld || tooYoung) {
       throw AppException.forbidden('Fora da faixa etária deste teste');

@@ -221,6 +221,68 @@ describe('CommunityService', () => {
     });
   });
 
+  describe.each(['draft', 'archived'])('a game that is %s (not active)', (status) => {
+    const page = { limit: 20 };
+    const outsider = makeUser({ userId: 'player-x', organizationId: OTHER_ORG });
+
+    beforeEach(() => {
+      games.existsAnyOrg.mockResolvedValue({ id: GAME_ID, organizationId: OWNER_ORG, status });
+      repo.findPostRowById.mockResolvedValue(makePostRow());
+      repo.listVisiblePosts.mockResolvedValue({ data: [], nextCursor: null });
+      repo.listReviews.mockResolvedValue({
+        page: { data: [], nextCursor: null },
+        averageRating: null,
+      });
+    });
+
+    it('404s outsiders listing or creating posts and reviews, or reporting a post', async () => {
+      const notFound = { status: 404 };
+      await expect(service.listPosts(GAME_ID, outsider, page)).rejects.toMatchObject(notFound);
+      await expect(service.createPost(GAME_ID, outsider, { body: 'oi' })).rejects.toMatchObject(
+        notFound,
+      );
+      await expect(service.listReviews(GAME_ID, outsider, page)).rejects.toMatchObject(notFound);
+      await expect(service.createReview(GAME_ID, outsider, { rating: 5 })).rejects.toMatchObject(
+        notFound,
+      );
+      await expect(service.reportPost(POST_ID, outsider, { reason: 'spam' })).rejects.toMatchObject(
+        notFound,
+      );
+
+      expect(repo.createPost).not.toHaveBeenCalled();
+      expect(repo.hasValidSessionForGame).not.toHaveBeenCalled();
+      expect(repo.insertReport).not.toHaveBeenCalled();
+    });
+
+    it('404s (not 403) another studio trying to moderate', async () => {
+      await expect(
+        service.moderatePost(
+          POST_ID,
+          makeUser({ organizationId: OTHER_ORG, role: 'owner' }),
+          { action: 'hide' },
+          req,
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(repo.moderatePost).not.toHaveBeenCalled();
+    });
+
+    it('stays readable and moderable by the owning studio', async () => {
+      const ownStudio = makeUser({ userId: 'mod-1', organizationId: OWNER_ORG, role: 'owner' });
+      repo.findPostById.mockResolvedValue(makePostRecord());
+      repo.moderatePost.mockResolvedValue(makePostRecord({ status: 'hidden' }));
+
+      await expect(service.listPosts(GAME_ID, ownStudio, page)).resolves.toMatchObject({
+        data: [],
+      });
+      await expect(service.listReviews(GAME_ID, ownStudio, page)).resolves.toMatchObject({
+        averageRating: null,
+      });
+      await expect(
+        service.moderatePost(POST_ID, ownStudio, { action: 'hide' }, req),
+      ).resolves.toMatchObject({ status: 'hidden' });
+    });
+  });
+
   describe('createReview', () => {
     it('403s without a completed valid session for the game', async () => {
       repo.hasValidSessionForGame.mockResolvedValue(false);

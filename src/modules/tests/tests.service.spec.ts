@@ -13,6 +13,7 @@ import type { BuildWithSteps, BuildsRepository } from '../builds/builds.reposito
 import { GamesService } from '../games/games.service';
 import { TestModelsService } from '../test-models/test-models.service';
 import { MAX_BUILD_BYTES } from './dto/test.dto';
+import { buildBuildStorageKey, validatedBuildStorageKey } from './storage-key';
 import { TestsService } from './tests.service';
 import type { TestsRepository } from './tests.repository';
 import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
@@ -96,6 +97,24 @@ function makeAudience(overrides: Partial<TestAudienceCriteriaRow> = {}): TestAud
   };
 }
 
+/** Batch-lookup result holding one entry for TEST_ID. */
+function byTest<T>(value: T): Map<string, T> {
+  return new Map([[TEST_ID, value]]);
+}
+
+/** A Drizzle-wrapped unique violation, as postgres-js + Drizzle actually throw it. */
+function wrappedUniqueViolation(constraint: string): Error {
+  // The top-level `.code` is undefined; the real PostgresError sits on `.cause`.
+  return Object.assign(new Error('duplicate key value violates unique constraint'), {
+    name: 'DrizzleQueryError',
+    code: undefined,
+    cause: Object.assign(new Error('duplicate key'), {
+      code: '23505',
+      constraint_name: constraint,
+    }),
+  });
+}
+
 describe('TestsService', () => {
   let repo: {
     getByIdInOrgOrThrow: ReturnType<typeof vi.fn>;
@@ -104,13 +123,15 @@ describe('TestsService', () => {
     withRowLock: ReturnType<typeof vi.fn>;
     findFormQuestions: ReturnType<typeof vi.fn>;
     replaceForm: ReturnType<typeof vi.fn>;
-    findAudience: ReturnType<typeof vi.fn>;
+    findAudiencesByTestIds: ReturnType<typeof vi.fn>;
+    countFormQuestionsByTestIds: ReturnType<typeof vi.fn>;
     upsertAudience: ReturnType<typeof vi.fn>;
     countEligiblePlayers: ReturnType<typeof vi.fn>;
     listByGameInOrg: ReturnType<typeof vi.fn>;
   };
   let buildsRepo: {
     findLatestBuild: ReturnType<typeof vi.fn>;
+    findLatestBuildsByTestIds: ReturnType<typeof vi.fn>;
     createBuildWithSteps: ReturnType<typeof vi.fn>;
     deleteBuild: ReturnType<typeof vi.fn>;
     markBuildFailed: ReturnType<typeof vi.fn>;
@@ -136,13 +157,15 @@ describe('TestsService', () => {
       withRowLock: vi.fn(),
       findFormQuestions: vi.fn().mockResolvedValue([]),
       replaceForm: vi.fn(),
-      findAudience: vi.fn().mockResolvedValue(null),
+      findAudiencesByTestIds: vi.fn().mockResolvedValue(new Map()),
+      countFormQuestionsByTestIds: vi.fn().mockResolvedValue(new Map()),
       upsertAudience: vi.fn(),
       countEligiblePlayers: vi.fn().mockResolvedValue(0),
       listByGameInOrg: vi.fn(),
     };
     buildsRepo = {
       findLatestBuild: vi.fn().mockResolvedValue(null),
+      findLatestBuildsByTestIds: vi.fn().mockResolvedValue(new Map()),
       createBuildWithSteps: vi.fn(),
       deleteBuild: vi.fn().mockResolvedValue(undefined),
       markBuildFailed: vi.fn(),
@@ -186,6 +209,15 @@ describe('TestsService', () => {
     );
     req = {} as Request;
   });
+
+  /** Every wizard step done: one question, a validated build, a reachable audience. */
+  function readyToPublish() {
+    repo.countFormQuestionsByTestIds.mockResolvedValue(byTest(1));
+    buildsRepo.findLatestBuildsByTestIds.mockResolvedValue(
+      byTest({ build: makeBuild({ status: 'validated' }), steps: makeSteps('ready') }),
+    );
+    repo.findAudiencesByTestIds.mockResolvedValue(byTest(makeAudience()));
+  }
 
   describe('create', () => {
     it('rejects an unavailable model (free_exploration_telemetry) with 422', async () => {
@@ -242,6 +274,89 @@ describe('TestsService', () => {
       expect(result.nextCursor).toBe('cursor-1');
       expect(result.data).toHaveLength(2);
       expect(result.data.map((t) => t.id)).toEqual([TEST_ID, 'other-id']);
+    });
+
+    it('loads the whole page with one batched lookup per table, not ~8 queries per test', async () => {
+      const otherId = '01990000-0000-7000-8000-0000000000c2';
+      repo.listByGameInOrg.mockResolvedValue({
+        data: [makeTestRow(), makeTestRow({ id: otherId })],
+        nextCursor: null,
+      });
+      repo.findAudiencesByTestIds.mockResolvedValue(byTest(makeAudience()));
+      repo.countFormQuestionsByTestIds.mockResolvedValue(byTest(2));
+      buildsRepo.findLatestBuildsByTestIds.mockResolvedValue(
+        byTest({ build: makeBuild({ status: 'validated' }), steps: makeSteps('ready') }),
+      );
+
+      const { data } = await service.listByGame(ORG, GAME_ID, {
+        tab: 'active',
+        limit: 20,
+      } as never);
+
+      for (const batch of [
+        repo.findAudiencesByTestIds,
+        repo.countFormQuestionsByTestIds,
+        buildsRepo.findLatestBuildsByTestIds,
+      ]) {
+        expect(batch).toHaveBeenCalledTimes(1);
+        expect(batch).toHaveBeenCalledWith([TEST_ID, otherId], undefined);
+      }
+      expect(repo.findFormQuestions).not.toHaveBeenCalled();
+      expect(buildsRepo.findLatestBuild).not.toHaveBeenCalled();
+      // Each view gets its own test's data, nothing borrowed from a neighbour.
+      expect(data[0]).toMatchObject({ pendingValidations: [], build: { id: BUILD_ID } });
+      expect(data[0].audience).not.toBeNull();
+      expect(data[1]).toMatchObject({ audience: null, build: null });
+      expect(data[1].pendingValidations.map((p) => p.code)).toEqual([
+        'FORM_EMPTY',
+        'BUILD_NOT_VALIDATED',
+        'AUDIENCE_NOT_CONFIGURED',
+      ]);
+    });
+
+    it('skips the lookups entirely for an empty page', async () => {
+      repo.listByGameInOrg.mockResolvedValue({ data: [], nextCursor: null });
+
+      const { data } = await service.listByGame(ORG, GAME_ID, {
+        tab: 'active',
+        limit: 20,
+      } as never);
+
+      expect(data).toEqual([]);
+      expect(repo.findAudiencesByTestIds).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('get', () => {
+    it('fetches each input of the view once (the publish gate no longer re-reads them)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      readyToPublish();
+
+      const view = await service.get(ORG, TEST_ID);
+
+      expect(view.pendingValidations).toEqual([]);
+      expect(repo.findAudiencesByTestIds).toHaveBeenCalledTimes(1);
+      expect(repo.countFormQuestionsByTestIds).toHaveBeenCalledTimes(1);
+      expect(buildsRepo.findLatestBuildsByTestIds).toHaveBeenCalledTimes(1);
+      expect(buildsRepo.findLatestBuild).not.toHaveBeenCalled();
+    });
+
+    it('keeps the failed build reason as the BUILD_NOT_VALIDATED message for the owning studio', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      buildsRepo.findLatestBuildsByTestIds.mockResolvedValue(
+        byTest({
+          build: makeBuild({ status: 'failed', failureReason: 'Ameaça detectada: X' }),
+          steps: makeSteps('failed'),
+        }),
+      );
+
+      const view = await service.get(ORG, TEST_ID);
+
+      expect(view.pendingValidations).toContainEqual({
+        step: 3,
+        code: 'BUILD_NOT_VALIDATED',
+        message: 'Ameaça detectada: X',
+      });
     });
   });
 
@@ -375,8 +490,8 @@ describe('TestsService', () => {
         makeTestRow({ currentStep: 'review', durationDays: 30 }),
       );
       repo.countEligiblePlayers.mockResolvedValue(40);
-      repo.findAudience.mockResolvedValue(
-        makeAudience({ playerTier: 'experienced', boosted: true, testerCount: 750 }),
+      repo.findAudiencesByTestIds.mockResolvedValue(
+        byTest(makeAudience({ playerTier: 'experienced', boosted: true, testerCount: 750 })),
       );
 
       const view = await service.setAudience(
@@ -408,7 +523,7 @@ describe('TestsService', () => {
         makeTestRow({ currentStep: 'review', slotsTotal: 25 }),
       );
       repo.countEligiblePlayers.mockResolvedValue(10);
-      repo.findAudience.mockResolvedValue(makeAudience({ testerCount: 25 }));
+      repo.findAudiencesByTestIds.mockResolvedValue(byTest(makeAudience({ testerCount: 25 })));
 
       const view = await service.setAudience(
         ORG,
@@ -435,6 +550,72 @@ describe('TestsService', () => {
   });
 
   describe('confirmBuild', () => {
+    const newKey = buildBuildStorageKey(ORG, TEST_ID, OTHER_BUILD_ID, 'game.zip');
+
+    it('checks storage before taking the row lock, so no lock is held across the HEAD', async () => {
+      storage.stat.mockResolvedValue(null);
+
+      await expect(
+        service.confirmBuild(ORG, TEST_ID, { storageKey: newKey, platform: 'windows' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      expect(repo.withRowLock).not.toHaveBeenCalled();
+    });
+
+    it('refuses a key shaped like the validated copy (a raw `/` in the file name)', async () => {
+      const storageKey = validatedBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip');
+
+      await expect(
+        service.confirmBuild(ORG, TEST_ID, { storageKey, platform: 'windows' }, req),
+      ).rejects.toMatchObject({ status: 422 });
+      expect(storage.stat).not.toHaveBeenCalled();
+    });
+
+    it('replaces a failed build and removes its objects — upload and validated copy', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      const failed = makeBuild({ status: 'failed' });
+      buildsRepo.findLatestBuild.mockResolvedValue({ build: failed, steps: makeSteps('failed') });
+      storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
+      buildsRepo.createBuildWithSteps.mockResolvedValue({
+        build: makeBuild({ id: OTHER_BUILD_ID, status: 'processing', storageKey: newKey }),
+        steps: makeSteps('processing'),
+      });
+
+      await service.confirmBuild(ORG, TEST_ID, { storageKey: newKey, platform: 'windows' }, req);
+
+      expect(buildsRepo.deleteBuild).toHaveBeenCalledWith(BUILD_ID, undefined);
+      const removed = storage.remove.mock.calls.map(([key]) => key as string);
+      expect(removed.sort()).toEqual(
+        [failed.storageKey, validatedBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip')].sort(),
+      );
+      expect(removed).not.toContain(newKey);
+    });
+
+    it("keeps the upload when a retry re-confirms the failed build's own key (only its stale copy goes)", async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      const failed = makeBuild({ status: 'failed' });
+      buildsRepo.findLatestBuild.mockResolvedValue({ build: failed, steps: makeSteps('failed') });
+      storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
+      buildsRepo.createBuildWithSteps.mockResolvedValue({
+        build: makeBuild({ status: 'processing' }),
+        steps: makeSteps('processing'),
+      });
+
+      await service.confirmBuild(
+        ORG,
+        TEST_ID,
+        { storageKey: failed.storageKey, platform: 'windows' },
+        req,
+      );
+
+      expect(storage.remove.mock.calls).toEqual([
+        [validatedBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip')],
+      ]);
+      // The copy is gone before the job could reuse it.
+      expect(storage.remove.mock.invocationCallOrder[0]).toBeLessThan(
+        queue.ensureEnqueued.mock.invocationCallOrder[0],
+      );
+    });
+
     it('rejects a storageKey that does not belong to this test', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
       await expect(
@@ -449,6 +630,7 @@ describe('TestsService', () => {
 
     it('conflicts when a non-failed build already exists for the test', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      storage.stat.mockResolvedValue({ sizeBytes: 2048, contentType: 'application/zip' });
       buildsRepo.findLatestBuild.mockResolvedValue({
         build: makeBuild({ status: 'processing' }),
         steps: makeSteps('processing'),
@@ -465,6 +647,7 @@ describe('TestsService', () => {
           req,
         ),
       ).rejects.toMatchObject({ status: 409 });
+      expect(storage.remove).not.toHaveBeenCalled();
     });
 
     it('deletes the oversized object from storage before rejecting it (SEC-06)', async () => {
@@ -508,6 +691,8 @@ describe('TestsService', () => {
         'build.validate',
         `build-validate-${BUILD_ID}`,
         { buildId: BUILD_ID },
+        // A reconfirmed failed build reuses its id: its finished job must run again.
+        { rerunCompleted: true },
       );
     });
 
@@ -537,6 +722,33 @@ describe('TestsService', () => {
     });
   });
 
+  describe('deleteBuild', () => {
+    it('removes both the validated copy and the upload (it can be re-PUT while its URL lives)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ currentStep: 'audience' }));
+      const copyKey = validatedBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip');
+      buildsRepo.findLatestBuild.mockResolvedValue({
+        build: makeBuild({ status: 'validated', storageKey: copyKey }),
+        steps: makeSteps('ready'),
+      });
+
+      await service.deleteBuild(ORG, TEST_ID, req);
+
+      const removed = storage.remove.mock.calls.map(([key]) => key as string);
+      expect(removed.sort()).toEqual(
+        [copyKey, buildBuildStorageKey(ORG, TEST_ID, BUILD_ID, 'game.zip')].sort(),
+      );
+    });
+
+    it('still succeeds when storage cleanup fails (best-effort)', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
+      buildsRepo.findLatestBuild.mockResolvedValue({ build: makeBuild(), steps: makeSteps() });
+      storage.remove.mockRejectedValue(new Error('minio down'));
+
+      await expect(service.deleteBuild(ORG, TEST_ID, req)).resolves.toBeUndefined();
+      expect(buildsRepo.deleteBuild).toHaveBeenCalledWith(BUILD_ID, undefined);
+    });
+  });
+
   describe('publish', () => {
     it('requires the Idempotency-Key header', async () => {
       await expect(service.publish(ORG, TEST_ID, undefined, req)).rejects.toMatchObject({
@@ -546,7 +758,7 @@ describe('TestsService', () => {
 
     it('lists pendingValidations when a step is incomplete', async () => {
       repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow());
-      repo.findFormQuestions.mockResolvedValue([]); // form still empty
+      // form still empty: countFormQuestionsByTestIds has no entry for the test
 
       await expect(service.publish(ORG, TEST_ID, 'idem-1', req)).rejects.toMatchObject({
         status: 422,
@@ -556,12 +768,7 @@ describe('TestsService', () => {
     it('publishes once every step is complete and sets startsAt/endsAt', async () => {
       const draft = makeTestRow({ durationDays: 7 });
       repo.getByIdInOrgOrThrow.mockResolvedValue(draft);
-      repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      buildsRepo.findLatestBuild.mockResolvedValue({
-        build: makeBuild({ status: 'validated' }),
-        steps: makeSteps('ready'),
-      });
-      repo.findAudience.mockResolvedValue(makeAudience());
+      readyToPublish();
       repo.updateByIdInOrg.mockImplementation((_org, _id, patch) =>
         Promise.resolve({ ...draft, ...patch }),
       );
@@ -581,9 +788,9 @@ describe('TestsService', () => {
     it('publishes an ab_test_images test with no build at all (GAP-03)', async () => {
       const draft = makeTestRow({ modelKey: 'ab_test_images', durationDays: 7 });
       repo.getByIdInOrgOrThrow.mockResolvedValue(draft);
-      repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      buildsRepo.findLatestBuild.mockResolvedValue(null); // no build ever uploaded
-      repo.findAudience.mockResolvedValue(makeAudience());
+      repo.countFormQuestionsByTestIds.mockResolvedValue(byTest(1));
+      // no build ever uploaded: findLatestBuildsByTestIds stays empty
+      repo.findAudiencesByTestIds.mockResolvedValue(byTest(makeAudience()));
       repo.updateByIdInOrg.mockImplementation((_org, _id, patch) =>
         Promise.resolve({ ...draft, ...patch }),
       );
@@ -608,26 +815,56 @@ describe('TestsService', () => {
       repo.getByIdInOrgOrThrow
         .mockResolvedValueOnce(draft)
         .mockResolvedValueOnce(makeTestRow({ status: 'published', durationDays: 7 }));
-      repo.findFormQuestions.mockResolvedValue([{ id: 'q1' }]);
-      buildsRepo.findLatestBuild.mockResolvedValue({
-        build: makeBuild({ status: 'validated' }),
-        steps: makeSteps('ready'),
-      });
-      repo.findAudience.mockResolvedValue(makeAudience());
-      // Mirrors what postgres-js + Drizzle actually throw: the top-level
-      // `.code` is undefined, and the real PostgresError sits on `.cause`.
+      readyToPublish();
       repo.updateByIdInOrg.mockRejectedValue(
-        Object.assign(new Error('duplicate key value violates unique constraint'), {
-          name: 'DrizzleQueryError',
-          code: undefined,
-          cause: Object.assign(new Error('duplicate key'), { code: '23505' }),
-        }),
+        wrappedUniqueViolation('tests_publish_idempotency_key_unique'),
       );
 
       const view = await service.publish(ORG, TEST_ID, 'idem-1', req);
 
       expect(view.status).toBe('published');
       expect(repo.getByIdInOrgOrThrow).toHaveBeenCalledTimes(2);
+    });
+
+    it('409s, instead of a 200 carrying the draft, when the key was already spent on another test', async () => {
+      const draft = makeTestRow({ durationDays: 7 });
+      repo.getByIdInOrgOrThrow.mockResolvedValue(draft); // still a draft after the rollback
+      readyToPublish();
+      repo.updateByIdInOrg.mockRejectedValue(
+        wrappedUniqueViolation('tests_publish_idempotency_key_unique'),
+      );
+
+      await expect(service.publish(ORG, TEST_ID, 'used-elsewhere', req)).rejects.toMatchObject({
+        status: 409,
+      });
+      expect(drainAuditDrafts(req)).toEqual([]);
+    });
+
+    it('does not take any other unique violation for a publish replay', async () => {
+      repo.getByIdInOrgOrThrow.mockResolvedValue(makeTestRow({ durationDays: 7 }));
+      readyToPublish();
+      const other = wrappedUniqueViolation('some_other_unique');
+      repo.updateByIdInOrg.mockRejectedValue(other);
+
+      await expect(service.publish(ORG, TEST_ID, 'idem-1', req)).rejects.toBe(other);
+      expect(repo.getByIdInOrgOrThrow).toHaveBeenCalledTimes(1);
+    });
+
+    it("reads the publish gate's inputs on the row lock's transaction, and reuses them for the view", async () => {
+      const draft = makeTestRow({ durationDays: 7 });
+      const tx = { sentinel: 'tx' };
+      repo.withRowLock.mockImplementation(async (_org, _id, fn) =>
+        fn(draft, (patch: unknown) => Promise.resolve({ ...draft, ...(patch as object) }), tx),
+      );
+      readyToPublish();
+
+      const view = await service.publish(ORG, TEST_ID, 'idem-1', req);
+
+      expect(view.status).toBe('published');
+      expect(repo.findAudiencesByTestIds).toHaveBeenCalledTimes(1);
+      expect(repo.findAudiencesByTestIds).toHaveBeenCalledWith([TEST_ID], tx);
+      expect(buildsRepo.findLatestBuildsByTestIds).toHaveBeenCalledWith([TEST_ID], tx);
+      expect(repo.countFormQuestionsByTestIds).toHaveBeenCalledWith([TEST_ID], tx);
     });
   });
 

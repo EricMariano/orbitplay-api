@@ -23,6 +23,9 @@ export const passwordResetTokens = pgTable(
   (t) => [
     uniqueIndex('password_reset_tokens_hash_unique').on(t.tokenHash),
     index('password_reset_tokens_user_idx').on(t.userId),
+    // Housekeeping deletes expired or long-used tokens: one index per branch of the OR.
+    index('password_reset_tokens_expires_idx').on(t.expiresAt),
+    index('password_reset_tokens_used_idx').on(t.usedAt),
   ],
 );
 

@@ -95,36 +95,58 @@ export class OrgsController {
     return this.orgs.changeMemberRole(organizationId, userId, dto, req);
   }
 
-  /** Owner/admin — activate/disable a member (Tela 20 RN-06). Never your own. */
+  /**
+   * Owner/admin — activate/disable a member (Tela 20 RN-06). Never your own;
+   * only an owner acts on an owner.
+   */
   @Patch('members/:userId/status')
   @Roles(Role.OWNER, Role.ADMIN)
   @ZodResponse({ type: MemberDto })
   changeStatus(
     @CurrentUser('organizationId') organizationId: string,
     @CurrentUser('userId') callerUserId: string,
+    @CurrentUser('role') callerRole: RoleValue,
     @Param('userId') userId: string,
     @Body() dto: ChangeStatusDto,
     @Req() req: Request,
   ) {
-    return this.orgs.changeMemberStatus(organizationId, callerUserId, userId, dto, req);
+    return this.orgs.changeMemberStatus(organizationId, callerUserId, callerRole, userId, dto, req);
   }
 
-  /** Owner/admin — never sets/sees the password, only dispatches the reset e-mail (RN-04). */
+  /**
+   * Owner/admin — never sets/sees the password, only dispatches the reset
+   * e-mail (RN-04). Only an owner acts on an owner; 409 for a pending invite.
+   */
   @Post('members/:userId/password-reset')
   @Roles(Role.OWNER, Role.ADMIN)
   @HttpCode(HttpStatus.ACCEPTED)
   @ZodResponse({ status: HttpStatus.ACCEPTED, type: MessageResponseDto })
   triggerPasswordReset(
     @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('role') callerRole: RoleValue,
     @Param('userId') userId: string,
     @Req() req: Request,
   ) {
-    return this.orgs.triggerMemberPasswordReset(organizationId, userId, req);
+    return this.orgs.triggerMemberPasswordReset(organizationId, callerRole, userId, req);
+  }
+
+  /** Owner/admin — a fresh acceptance link for a pending invite; the old one stops working. */
+  @Post('members/:userId/invite/resend')
+  @Roles(Role.OWNER, Role.ADMIN)
+  @HttpCode(HttpStatus.ACCEPTED)
+  @ZodResponse({ status: HttpStatus.ACCEPTED, type: MessageResponseDto })
+  resendInvite(
+    @CurrentUser('organizationId') organizationId: string,
+    @CurrentUser('role') callerRole: RoleValue,
+    @Param('userId') userId: string,
+    @Req() req: Request,
+  ) {
+    return this.orgs.resendInvite(organizationId, callerRole, userId, req);
   }
 
   /**
-   * Owner/admin — logical deactivation, RN-06, never your own. Not
-   * owner-only (see OrgsService.removeMember for why).
+   * Owner/admin — logical deactivation, RN-06, never your own; only an owner
+   * removes an owner (see OrgsService.removeMember).
    */
   @Delete('members/:userId')
   @Roles(Role.OWNER, Role.ADMIN)
@@ -132,9 +154,10 @@ export class OrgsController {
   async removeMember(
     @CurrentUser('organizationId') organizationId: string,
     @CurrentUser('userId') callerUserId: string,
+    @CurrentUser('role') callerRole: RoleValue,
     @Param('userId') userId: string,
     @Req() req: Request,
   ) {
-    await this.orgs.removeMember(organizationId, callerUserId, userId, req);
+    await this.orgs.removeMember(organizationId, callerUserId, callerRole, userId, req);
   }
 }

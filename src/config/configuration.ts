@@ -36,6 +36,10 @@ export function buildConfig(env: Env) {
     nodeEnv: env.NODE_ENV,
     isProduction: env.NODE_ENV === 'production',
     port: env.PORT,
+    http: {
+      /** Express `trust proxy`: hops in front of the API, or false to ignore X-Forwarded-For. */
+      trustProxy: env.TRUST_PROXY,
+    },
     database: {
       url: env.DATABASE_URL,
     },

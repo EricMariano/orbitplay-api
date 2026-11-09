@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { and, eq, gt, isNull, sql } from 'drizzle-orm';
 import { DRIZZLE, type Database } from '../../infra/database/database.module';
 import { newId } from '../../infra/database/schema/_helpers';
+import { inviteTokens } from '../../infra/database/schema/invite-tokens';
 import { memberships } from '../../infra/database/schema/memberships';
 import { organizations } from '../../infra/database/schema/organizations';
 import {
@@ -67,6 +68,29 @@ export interface CreatedPlayerAccount {
   role: 'player';
 }
 
+/** A pending invite reached through a still-valid, unused token. */
+export interface PendingInvite {
+  inviteTokenId: string;
+  membershipId: string;
+  organizationId: string;
+  organizationName: string;
+  role: RoleValue;
+  userId: string;
+  email: string;
+  passwordHash: string;
+  birthdate: string | null;
+}
+
+export interface InviteAcceptance {
+  tokenHash: string;
+  membershipId: string;
+  userId: string;
+  /** Set only when the invite created the account: the invitee picks the password here. */
+  passwordHash?: string;
+  /** Set when the account has none yet (18+ is checked by the service). */
+  birthdate?: string;
+}
+
 /** Thrown when `users.email` unique index is hit (race-safe signup). */
 export class EmailAlreadyTakenError extends Error {
   constructor() {
@@ -74,6 +98,9 @@ export class EmailAlreadyTakenError extends Error {
     this.name = 'EmailAlreadyTakenError';
   }
 }
+
+/** Rolls `acceptInvite`'s transaction back when the membership left `invited` meanwhile. */
+class InviteNoLongerPendingError extends Error {}
 
 function isUniqueViolation(err: unknown, constraint: string): boolean {
   const candidates: unknown[] = [err];
@@ -112,8 +139,8 @@ export class AuthRepository {
 
   /**
    * True if any row owns this email (including soft-deleted / inactive).
-   * Signup uniqueness is a plain unique index on email — deleted addresses
-   * cannot be reused, so availability must match that rule.
+   * Signup uniqueness is the `users_email_unique` index on `lower(email)` —
+   * deleted addresses cannot be reused, so availability must match that rule.
    */
   async emailExists(email: string): Promise<boolean> {
     const rows = await this.db
@@ -221,6 +248,44 @@ export class AuthRepository {
     return rows[0] ?? null;
   }
 
+  async findRefreshTokenById(id: string): Promise<RefreshTokenRow | null> {
+    const rows = await this.db
+      .select()
+      .from(refreshTokens)
+      .where(eq(refreshTokens.id, id))
+      .limit(1);
+    return rows[0] ?? null;
+  }
+
+  /**
+   * Insert another token into a family whose predecessor was already rotated
+   * (the reuse grace window in `AuthService.refresh`) — but only while the
+   * family still holds a live token. Rotation leaves the rotated row with its
+   * own `revoked_at`, so a logout, a password reset or a reuse detection that
+   * revoked the rest of the family would otherwise not stop a just-rotated
+   * token from reopening it. `FOR UPDATE` makes a revocation already in flight
+   * be waited for and seen, instead of read past from a stale snapshot.
+   */
+  async insertRefreshTokenIfFamilyActive(row: NewRefreshTokenRow): Promise<boolean> {
+    return this.db.transaction(async (tx) => {
+      const live = await tx
+        .select({ id: refreshTokens.id })
+        .from(refreshTokens)
+        .where(
+          and(
+            eq(refreshTokens.familyId, row.familyId),
+            isNull(refreshTokens.revokedAt),
+            gt(refreshTokens.expiresAt, new Date()),
+          ),
+        )
+        .for('update');
+      if (live.length === 0) return false;
+
+      await tx.insert(refreshTokens).values(row);
+      return true;
+    });
+  }
+
   /** Reuse detected: revoke every still-active token in the family. */
   async revokeFamily(familyId: string): Promise<void> {
     await this.db
@@ -272,15 +337,11 @@ export class AuthRepository {
   }
 
   /**
-   * Consume the reset token, set the new password hash, revoke every active
-   * refresh token, and accept any pending org invites for this user — all in
-   * one transaction. Setting a password IS how an invitee proves they own the
-   * account (the invite e-mail sends them straight to "Esqueci minha senha",
-   * never a password), so completing the reset is the moment their `invited`
-   * memberships become `active` (GAP-02): before this, the invite e-mail's
-   * "activate access" promise was a lie — nothing ever flipped the status, so
-   * login (which only accepts `active`) rejected the invitee forever. Returns
-   * the user id, or null when the token is invalid/expired/already used.
+   * Consume the reset token, set the new password hash and revoke every active
+   * refresh token — all in one transaction. Memberships are left alone: a
+   * pending invite is accepted only through its own token (`acceptInvite`),
+   * never as a side effect of recovering a password. Returns the user id, or
+   * null when the token is invalid/expired/already used.
    */
   async applyPasswordReset(tokenHash: string, passwordHash: string): Promise<string | null> {
     return this.db.transaction(async (tx) => {
@@ -300,22 +361,137 @@ export class AuthRepository {
 
       await tx.update(users).set({ passwordHash }).where(eq(users.id, row.userId));
       await tx
-        .update(memberships)
-        .set({ status: 'active' })
-        .where(
-          and(
-            eq(memberships.userId, row.userId),
-            eq(memberships.status, 'invited'),
-            isNull(memberships.deletedAt),
-          ),
-        );
-      await tx
         .update(refreshTokens)
         .set({ revokedAt: new Date() })
         .where(and(eq(refreshTokens.userId, row.userId), isNull(refreshTokens.revokedAt)));
 
       return row.userId;
     });
+  }
+
+  /**
+   * Issue the invite's token: void every unused one of the same membership
+   * (a resend makes the previous link stop working) and store the new hash.
+   */
+  async replaceInviteToken(row: {
+    organizationId: string;
+    membershipId: string;
+    tokenHash: string;
+    expiresAt: Date;
+  }): Promise<void> {
+    await this.db.transaction(async (tx) => {
+      await tx
+        .update(inviteTokens)
+        .set({ usedAt: new Date() })
+        .where(and(eq(inviteTokens.membershipId, row.membershipId), isNull(inviteTokens.usedAt)));
+      await tx.insert(inviteTokens).values({ id: newId(), ...row });
+    });
+  }
+
+  /**
+   * The invite behind a token, while it can still be accepted: token unused
+   * and unexpired, membership still `invited` (not removed), organization and
+   * account still there and active.
+   */
+  async findPendingInviteByTokenHash(tokenHash: string): Promise<PendingInvite | null> {
+    const rows = await this.db
+      .select({
+        inviteTokenId: inviteTokens.id,
+        membershipId: memberships.id,
+        organizationId: organizations.id,
+        organizationName: organizations.name,
+        role: roles.key,
+        userId: users.id,
+        email: users.email,
+        passwordHash: users.passwordHash,
+        birthdate: users.birthdate,
+      })
+      .from(inviteTokens)
+      .innerJoin(memberships, eq(inviteTokens.membershipId, memberships.id))
+      .innerJoin(organizations, eq(memberships.organizationId, organizations.id))
+      .innerJoin(roles, eq(memberships.roleId, roles.id))
+      .innerJoin(users, eq(memberships.userId, users.id))
+      .where(
+        and(
+          eq(inviteTokens.tokenHash, tokenHash),
+          isNull(inviteTokens.usedAt),
+          gt(inviteTokens.expiresAt, new Date()),
+          eq(memberships.status, 'invited'),
+          isNull(memberships.deletedAt),
+          isNull(organizations.deletedAt),
+          isNull(users.deletedAt),
+          eq(users.isActive, true),
+        ),
+      )
+      .limit(1);
+    const row = rows[0];
+    return row ? { ...row, role: row.role as RoleValue } : null;
+  }
+
+  /**
+   * Accept an invite in one transaction: consume the token, flip the
+   * membership `invited` → `active`, and — for an account the invite created —
+   * store the password (revoking any session) and birthdate. False when the
+   * token was consumed or the membership changed in the meantime (nothing is
+   * written then).
+   */
+  async acceptInvite(input: InviteAcceptance): Promise<boolean> {
+    try {
+      return await this.db.transaction(async (tx) => {
+        const consumed = await tx
+          .update(inviteTokens)
+          .set({ usedAt: new Date() })
+          .where(
+            and(
+              eq(inviteTokens.tokenHash, input.tokenHash),
+              eq(inviteTokens.membershipId, input.membershipId),
+              isNull(inviteTokens.usedAt),
+              gt(inviteTokens.expiresAt, new Date()),
+            ),
+          )
+          .returning({ id: inviteTokens.id });
+        if (consumed.length === 0) return false;
+
+        const activated = await tx
+          .update(memberships)
+          .set({ status: 'active' })
+          .where(
+            and(
+              eq(memberships.id, input.membershipId),
+              eq(memberships.userId, input.userId),
+              eq(memberships.status, 'invited'),
+              isNull(memberships.deletedAt),
+            ),
+          )
+          .returning({ id: memberships.id });
+        if (activated.length === 0) throw new InviteNoLongerPendingError();
+
+        const profile = {
+          ...(input.passwordHash ? { passwordHash: input.passwordHash } : {}),
+          ...(input.birthdate ? { birthdate: input.birthdate } : {}),
+        };
+        if (Object.keys(profile).length > 0) {
+          await tx.update(users).set(profile).where(eq(users.id, input.userId));
+        }
+        if (input.passwordHash) {
+          await tx
+            .update(refreshTokens)
+            .set({ revokedAt: new Date() })
+            .where(and(eq(refreshTokens.userId, input.userId), isNull(refreshTokens.revokedAt)));
+        }
+        // Any other link of the same invite stops working too.
+        await tx
+          .update(inviteTokens)
+          .set({ usedAt: new Date() })
+          .where(
+            and(eq(inviteTokens.membershipId, input.membershipId), isNull(inviteTokens.usedAt)),
+          );
+        return true;
+      });
+    } catch (err) {
+      if (err instanceof InviteNoLongerPendingError) return false;
+      throw err;
+    }
   }
 
   async findRoleIdByKey(key: RoleValue): Promise<string | null> {

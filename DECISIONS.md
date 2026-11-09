@@ -317,9 +317,8 @@ received_at)`; a exatidão entre dias é garantida na ingestão via
   cujo `.code` próprio é `undefined` — o `PostgresError` real (com `.code`)
   fica em `.cause`. `CommunityService.isUniqueViolation` agora checa os dois.
   O mesmíssimo helper em `tests.service.ts` (M5, usado no fallback de
-  `publish()`) tem o bug idêntico, mas nunca foi pego pelos testes porque o
-  `IdempotencyInterceptor` intercepta a repetição por `Idempotency-Key` antes
-  de chegar no service — ver task sinalizada para corrigir lá também.
+  `publish()`) tinha o bug idêntico; corrigido na auditoria de 2026-11-08
+  (§4), agora também conferindo o nome da constraint.
 - **Bug real encontrado e corrigido: catálogo do M4 contradizia o gate real
   do wizard (GAP-03).** `ab_test` prometia "duas builds válidas, uma por
   variante", mas a plataforma só suporta uma build por teste (§1.3, reforçado
@@ -578,10 +577,77 @@ findLatestSnapshot` busca o snapshot mais recente por
   `org_group_members` e `game_access` (4 booleanos: gerenciar acessos/excluir,
   editar informações, criar/editar testes, acessar relatórios). Rotas:
   `/orgs/groups` (listar: studio+; criar/editar/excluir: owner/admin) e
-  `GET|PUT /games/{id}/access` (studio+; o PUT substitui a lista inteira).
+  `GET|PUT /games/{id}/access` (GET: studio+; PUT: owner/admin desde a
+  auditoria de 2026-11-08, §4 — o PUT substitui a lista inteira).
   Destinatários precisam ser membros ativos da org com papel de estúdio.
   **As permissões são só persistidas e lidas: nenhum endpoint de jogos, testes
   ou relatórios as consulta ainda** — o enforcement fica para a tela de
   Gerenciamento de acessos, que reaproveita estas rotas. Sem linhas em
   `game_access`, vale o comportamento anterior (qualquer papel de estúdio da
   org).
+
+## 4. Auditoria de 2026-11-08 — decisões de produto e mudanças de regra
+
+Decisões tomadas pelo usuário (os três primeiros itens) e regras que mudaram
+junto com as correções da auditoria. Prevalecem sobre o texto anterior deste
+arquivo onde houver conflito.
+
+- **Sessão válida — regra endurecida (substitui "validade intencionalmente
+  simples").** Válida só com `durationMs >= 60 s` (`MIN_VALID_SESSION_MS`),
+  nenhuma gravação `failed` e, quando o tutorial do modelo exige
+  `screen_recording`, uma gravação de tela `ready`. O veredito espera a mídia:
+  gravação ainda `processing` adia (limite de 24 h após `endedAt`); gravação
+  obrigatória ausente após a janela de upload de 2 h invalida com "Gravação
+  obrigatória ausente". O worker de mídia reenfileira `session.validate` ao
+  terminar uma gravação, e a varredura revalida sessões encerradas sem veredito.
+- **"Marcar inválida" pelo estúdio reverte tudo.** Na mesma transação: sessão
+  `invalidated`, participação `rejected` (vaga devolvida) e XP da sessão
+  removido. Restaurar volta a `completed`, recredita o XP (uma vez por teste)
+  e retoma a vaga; responde `409` se o teste lotou ou se o jogador já tem outra
+  participação ocupando vaga no teste.
+- **Hierarquia de papéis (substitui a justificativa de admin remover owner em
+  §2).** Status, remoção, reset de senha e reenvio de convite: admin age só
+  sobre admin/studio/player; sobre owner, só outro owner (`403`). A regra do
+  último owner ativo continua como checagem defensiva.
+- **Convite com aceite explícito (substitui GAP-02: "definir a senha aceita o
+  convite").** O convite gera um token de uso único (só o hash, em
+  `invite_tokens`, validade de 7 dias) e o e-mail leva a
+  `/accept-invite?token=…`. `POST /auth/invite/preview` e
+  `POST /auth/invite/accept` são públicos, com throttle por IP e o token no
+  corpo. Conta criada pelo convite define senha e data de nascimento (18+);
+  conta existente (tem data de nascimento ou membership ativa) aceita com a
+  senha atual, que não muda. O aceite não abre sessão. O reset de senha não
+  toca mais em memberships; `POST /orgs/members/{id}/password-reset` responde
+  `409` para convidado, e `POST /orgs/members/{id}/invite/resend` reemite o
+  token (é por ele que convites anteriores à mudança se recuperam).
+- **18+ obrigatório para participar.** Jogador sem `birthdate` recebe `403`
+  ao entrar num teste, mesmo sem faixa etária no público.
+- **Vagas.** `rejected` devolve a vaga (`slots_taken`), coerente com o M8-03
+  ("`abandoned`/`rejected` não seguram vaga"). Faixa etária:
+  `dateYearsAgo(ageMax + 1) < birthdate <= dateYearsAgo(ageMin)`.
+- **Builds servidas de cópia imutável.** O worker copia o upload para
+  `…/builds/<id>/validated/<arquivo>` (nenhuma URL pré-assinada aponta para
+  essa chave), valida e escaneia a cópia, e aprova apontando `storage_key`
+  para ela; o upload original é removido. Fora da org dona, `/compatibility`
+  e o `409` de `/download-url` usam motivo genérico, sem `failureReason`.
+- **Comunidade e chat só de jogo `active`.** Fora da org dona, jogo `draft`
+  ou `archived` responde `404` em posts, reviews, denúncia, canais, mensagens
+  e `channel:join`, inclusive para moderar (antes `403`). A página do jogo no
+  catálogo do jogador (`GET /player/games/{id}` e `/tests`) segue a mesma
+  regra; `GET /player/tests/{id}` continua respondendo para quem já participou.
+- **Refresh com carência de 30 s.** Um token revogado por rotação há menos
+  de 30 s (duas abas, reload no meio do refresh) recebe um irmão na mesma
+  família em vez de revogar a família; logout, reset e reuso fora da janela
+  continuam sem carência. O web serializa refreshes entre abas com
+  `navigator.locks`.
+- **`TRUST_PROXY` opcional** (padrão `false`, número de saltos quando atrás
+  de proxy; `true` é recusado). Exceção deliberada à regra "toda variável é
+  obrigatória", no precedente de `CLAMD_*`, para `.env` existentes subirem.
+- **Cache de relatório (M10) marca como velho em vez de apagar.** A
+  invalidação zera `computed_at` e mantém o payload; um único pedido por teste
+  recalcula (trava Redis), os demais servem o valor anterior.
+- **Gravações.** No máximo 10 por sessão e 1000 partes; sessão encerrada há
+  mais de 2 h (ou validada há mais de 15 min) não aceita upload novo. O web
+  envia partes de 8 MiB durante a gravação.
+- **Índices sem `CONCURRENTLY`.** As migrações 0016 e 0018 criam índices em
+  transação; em produção com tabelas grandes, aplicar em janela de manutenção.

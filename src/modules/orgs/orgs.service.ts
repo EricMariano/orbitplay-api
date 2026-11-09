@@ -20,9 +20,12 @@ import type {
   UpdateOrgInput,
 } from './dto/org.dto';
 import {
+  canManageRole,
+  InviteEmailUnavailableError,
   LastOwnerError,
   MemberAlreadyExistsError,
   OrgsRepository,
+  OwnerOnlyError,
   PendingInviteError,
 } from './orgs.repository';
 
@@ -118,8 +121,10 @@ export class OrgsService {
 
   /**
    * Invite a member (ORB-M2-03, Tela 20): creates the `invited` membership and
-   * sends the invitation e-mail. No password is set here — the invitee defines
-   * theirs through the recovery flow, so an admin never knows it (RN-04).
+   * e-mails a single-use acceptance link (`/accept-invite?token=…`). No
+   * password is set here — an account created by the invite picks its own
+   * when accepting, so an admin never knows it (RN-04); an existing account
+   * accepts with the password it already has.
    */
   async inviteMember(
     organizationId: string,
@@ -139,9 +144,9 @@ export class OrgsService {
 
     const passwordHash = await this.password.hash(randomBytes(32).toString('base64url'));
 
-    let created;
+    let invited;
     try {
-      created = await this.repo.createInvitedMember({
+      invited = await this.repo.createInvitedMember({
         organizationId,
         email,
         displayName,
@@ -149,11 +154,13 @@ export class OrgsService {
         passwordHash,
       });
     } catch (err) {
-      if (err instanceof MemberAlreadyExistsError) {
+      if (err instanceof MemberAlreadyExistsError || err instanceof InviteEmailUnavailableError) {
         throw AppException.conflict(err.message);
       }
       throw err;
     }
+
+    const { membershipId, ...created } = invited;
 
     recordAudit(req, {
       action: 'org.member_invited',
@@ -163,19 +170,67 @@ export class OrgsService {
       after: created,
     });
 
-    const origin = this.config.get<string>('web.origin')!;
-    await this.mail.sendEmail({
-      to: created.email,
-      subject: `Convite para ${org.name} — OrbitPlay`,
-      text: [
-        `Você foi convidado para a organização ${org.name} no OrbitPlay.`,
-        '',
-        `Acesse ${origin} e use a opção "Esqueci minha senha" com este e-mail`,
-        'para definir sua senha e ativar o acesso.',
-      ].join('\n'),
-    });
+    const rawToken = await this.auth.issueInviteToken(membershipId, organizationId);
+    await this.sendInviteEmail(created.email, org.name, rawToken);
 
     return created;
+  }
+
+  /**
+   * Resend an invitation (Tela 20): a fresh acceptance link, the previous one
+   * stops working. Only for a membership still `invited` — also how invites
+   * created before explicit acceptance existed (with no token) recover. Same
+   * role hierarchy as the other member actions.
+   */
+  async resendInvite(
+    organizationId: string,
+    callerRole: RoleValue,
+    targetUserId: string,
+    req: Request,
+  ): Promise<{ message: string }> {
+    const member = await this.repo.findMembership(organizationId, targetUserId);
+    if (!member) throw AppException.notFound('Membro não encontrado');
+    assertCanManage(callerRole, member.role);
+    if (member.status !== 'invited') {
+      throw AppException.conflict('Este membro não tem convite pendente');
+    }
+
+    const org = await this.repo.findById(organizationId);
+    if (!org) throw AppException.notFound('Organização não encontrada');
+
+    const rawToken = await this.auth.reissueInviteToken(
+      member.membershipId,
+      organizationId,
+      member.email,
+    );
+    await this.sendInviteEmail(member.email, org.name, rawToken);
+
+    recordAudit(req, {
+      action: 'org.member_invite_resent',
+      entity: 'memberships',
+      entityId: member.userId,
+      before: null,
+      after: null,
+    });
+
+    return { message: 'Convite reenviado.' };
+  }
+
+  private async sendInviteEmail(to: string, orgName: string, rawToken: string): Promise<void> {
+    const origin = this.config.get<string>('web.origin')!;
+    // Must match the web route (`orbitplay-web/src/routes/accept-invite.tsx`).
+    const link = `${origin}/accept-invite?token=${rawToken}`;
+    await this.mail.sendEmail({
+      to,
+      subject: `Convite para ${orgName} — OrbitPlay`,
+      text: [
+        `Você foi convidado para a organização ${orgName} no OrbitPlay.`,
+        '',
+        `Para aceitar, abra o link (válido por 7 dias): ${link}`,
+        '',
+        'Se você não esperava este convite, ignore este e-mail.',
+      ].join('\n'),
+    });
   }
 
   /**
@@ -228,11 +283,13 @@ export class OrgsService {
   }
 
   /**
-   * Change a member's status (ORB-M2-05, Tela 20). Owner/admin. Two guards
+   * Change a member's status (ORB-M2-05, Tela 20). Owner/admin. Guards
    * beyond the schema's active/disabled/invited range:
    *  - a caller can never change their OWN status (no accidental
    *    self-lockout, and never a way to dodge the last-owner rule below by
    *    disabling yourself);
+   *  - role hierarchy: an admin acts on admins, studio members and players;
+   *    only an owner acts on an owner (403);
    *  - RN-03/RN-06: disabling the org's last active owner is refused with
    *    409 — same transactional guard as changeMemberRole, in the
    *    repository.
@@ -240,6 +297,7 @@ export class OrgsService {
   async changeMemberStatus(
     organizationId: string,
     callerUserId: string,
+    callerRole: RoleValue,
     targetUserId: string,
     dto: ChangeStatusInput,
     req: Request,
@@ -254,8 +312,10 @@ export class OrgsService {
         organizationId,
         userId: targetUserId,
         status: dto.status,
+        callerRole,
       });
     } catch (err) {
+      if (err instanceof OwnerOnlyError) throw AppException.forbidden(err.message);
       if (err instanceof LastOwnerError || err instanceof PendingInviteError) {
         throw AppException.conflict(err.message);
       }
@@ -285,21 +345,21 @@ export class OrgsService {
 
   /**
    * Remove a member (ORB-M2-06, Tela 20). Owner/admin — same area as
-   * status/invite, not owner-only: kept this way (deviating from the design
-   * table's literal "papel: owner") because, combined with the
-   * never-touch-yourself guard below, an owner-only restriction would make
-   * the last-active-owner check on this route unreachable — an owner can
-   * never legally be both the caller and the sole remaining owner being
-   * removed. Letting an admin remove a lone owner keeps RN-03 a real,
-   * testable guarantee instead of dead code.
+   * status/invite — under the role hierarchy: an admin removes admins, studio
+   * members and players (and cancels their invites); only an owner removes an
+   * owner (403 otherwise).
    *
    * RN-06: always a logical deactivation, never a physical delete; RN-03:
-   * refuses to remove the last active owner with 409. Self-removal is
+   * refuses to remove the last active owner with 409 — with the hierarchy and
+   * the self-removal guard that is now a defensive check (it fires only for an
+   * owner whose own membership stopped being active after their token was
+   * issued), kept in the same transaction as the write. Self-removal is
    * refused regardless of role (no accidental self-lockout).
    */
   async removeMember(
     organizationId: string,
     callerUserId: string,
+    callerRole: RoleValue,
     targetUserId: string,
     req: Request,
   ): Promise<void> {
@@ -309,8 +369,9 @@ export class OrgsService {
 
     let result;
     try {
-      result = await this.repo.removeMember(organizationId, targetUserId);
+      result = await this.repo.removeMember(organizationId, targetUserId, callerRole);
     } catch (err) {
+      if (err instanceof OwnerOnlyError) throw AppException.forbidden(err.message);
       if (err instanceof LastOwnerError) {
         throw AppException.conflict(err.message);
       }
@@ -331,15 +392,25 @@ export class OrgsService {
   /**
    * Trigger a password reset e-mail for a member (ORB-M2-07, Tela 20 RN-04).
    * Owner/admin never sets or sees the password — only dispatches the same
-   * recovery flow as the self-service "Esqueci minha senha".
+   * recovery flow as the self-service "Esqueci minha senha". Same role
+   * hierarchy as the other member actions. A pending invite is answered with
+   * 409: recovering a password never accepts an invite — that's "Reenviar
+   * convite" (`resendInvite`).
    */
   async triggerMemberPasswordReset(
     organizationId: string,
+    callerRole: RoleValue,
     targetUserId: string,
     req: Request,
   ): Promise<{ message: string }> {
     const member = await this.repo.findMembership(organizationId, targetUserId);
     if (!member) throw AppException.notFound('Membro não encontrado');
+    assertCanManage(callerRole, member.role);
+    if (member.status === 'invited') {
+      throw AppException.conflict(
+        'Convite pendente: use "Reenviar convite" em vez de redefinir a senha',
+      );
+    }
 
     await this.auth.triggerPasswordReset(targetUserId);
 
@@ -352,6 +423,13 @@ export class OrgsService {
     });
 
     return { message: 'E-mail de redefinição enviado.' };
+  }
+}
+
+/** Role hierarchy for member actions: only an owner acts on an owner (403 otherwise). */
+function assertCanManage(callerRole: RoleValue, targetRole: string): void {
+  if (!canManageRole(callerRole, targetRole)) {
+    throw AppException.forbidden(new OwnerOnlyError().message);
   }
 }
 

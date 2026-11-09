@@ -4,7 +4,7 @@ import type {
   TestReportExportRow,
   TestReportSnapshotRow,
 } from '../../infra/database/schema/community';
-import { isSnapshotFresh } from '../../infra/database/report-snapshot-cache';
+import { isSnapshotFresh, ReportRecomputeLock } from '../../infra/database/report-snapshot-cache';
 import { newId } from '../../infra/database/schema/_helpers';
 import { JobName, reportExportJobId } from '../../infra/queue/queue.constants';
 import { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
@@ -45,6 +45,17 @@ export const REPORT_DOWNLOAD_TTL_SECONDS = 900;
 /** A computer resolves `null` when the block has no data source yet (`unavailable`). */
 type BlockComputer = () => Promise<object | null>;
 
+type StaleBlockResolver = (
+  key: ReportBlockKey,
+  row: TestReportSnapshotRow | undefined,
+) => Promise<ReportBlockView>;
+
+/**
+ * Never cached while `unavailable` (no plug-in manifest yet, DECISIONS M10), so
+ * it has no snapshot row most of the time — not a reason to wait for the holder.
+ */
+const UNCACHED_WHILE_UNAVAILABLE: ReportBlockKey = 'telemetry';
+
 @Injectable()
 export class ReportsService {
   private readonly logger = new Logger(ReportsService.name);
@@ -55,6 +66,7 @@ export class ReportsService {
     @Inject(QUEUE_PORT) private readonly queue: QueuePort,
     private readonly dashboardKpis: DashboardKpiCache,
     @Inject(TELEMETRY_STORE_PORT) private readonly telemetry: TelemetryStorePort,
+    private readonly recomputeLock: ReportRecomputeLock,
   ) {}
 
   /* ------------------------------ M10-02: blocks ----------------------------- */
@@ -63,28 +75,69 @@ export class ReportsService {
    * Returns every report block. Blocks are computed on demand and cached as
    * `test_report_snapshots` rows; each block is computed on its own, so one
    * failing block is reported as `failed` without hiding the others. Writes
-   * that feed the report drop the cache (`ReportSnapshotCache`); a snapshot
-   * past the TTL, or whose payload no longer matches the block's schema
-   * (written before the contract grew), is recomputed instead of served.
+   * that feed the report mark the cache stale (`ReportSnapshotCache`, payload
+   * kept); a stale snapshot, one past the TTL, or one whose payload no longer
+   * matches the block's schema (written before the contract grew) is
+   * recomputed instead of served.
+   *
+   * Single flight per test (`ReportRecomputeLock`): only the request holding
+   * the lock recomputes. Concurrent ones serve the stale payload it is
+   * replacing; a block with nothing to serve (never computed, failed,
+   * outdated payload) waits briefly for the holder and takes what it wrote,
+   * computing inline only if that didn't land in time.
    */
   async getReport(organizationId: string, testId: string): Promise<TestReportView> {
     await this.assertTestInOrg(organizationId, testId);
+    const compute = (key: ReportBlockKey) => this.computeBlock(testId, key);
 
-    const stored = new Map<string, TestReportSnapshotRow>(
-      (await this.repo.findSnapshots(testId)).map((s) => [s.blockKey, s]),
-    );
+    const snapshots = await this.loadSnapshots(testId);
+    if (reportBlockKeyValues.every((key) => isFresh(key, snapshots.get(key)))) {
+      return this.assembleReport(testId, snapshots, compute);
+    }
 
+    const lease = await this.recomputeLock.tryAcquire(testId);
+    if (lease) {
+      try {
+        // Re-read under the lock: the previous holder may have just refreshed
+        // what this request saw stale.
+        return await this.assembleReport(testId, await this.loadSnapshots(testId), compute);
+      } finally {
+        await lease.release();
+      }
+    }
+
+    const mustWait = reportBlockKeyValues.some((key) => {
+      const row = snapshots.get(key);
+      if (hasPayload(key, row)) return false;
+      return !(key === UNCACHED_WHILE_UNAVAILABLE && row === undefined);
+    });
+    let settled = new Map<string, TestReportSnapshotRow>();
+    if (mustWait) {
+      await this.recomputeLock.waitForRelease(testId);
+      settled = await this.loadSnapshots(testId);
+    }
+    return this.assembleReport(testId, snapshots, async (key, row) => {
+      if (hasPayload(key, row)) return this.toBlockView(row);
+      const written = settled.get(key);
+      if (hasPayload(key, written) || justFailed(written)) return this.toBlockView(written);
+      return compute(key);
+    });
+  }
+
+  private async loadSnapshots(testId: string): Promise<Map<string, TestReportSnapshotRow>> {
+    return new Map((await this.repo.findSnapshots(testId)).map((s) => [s.blockKey, s]));
+  }
+
+  /** Fresh blocks as stored; every other one through `resolveStale`. */
+  private async assembleReport(
+    testId: string,
+    snapshots: Map<string, TestReportSnapshotRow>,
+    resolveStale: StaleBlockResolver,
+  ): Promise<TestReportView> {
     const blocks = await Promise.all(
-      reportBlockKeyValues.map(async (key): Promise<ReportBlockView> => {
-        const existing = stored.get(key);
-        if (
-          existing?.status === 'ready' &&
-          isSnapshotFresh(existing.computedAt) &&
-          isCurrentPayload(key, existing.payload)
-        ) {
-          return this.toBlockView(existing);
-        }
-        return this.computeBlock(testId, key);
+      reportBlockKeyValues.map((key): Promise<ReportBlockView> => {
+        const row = snapshots.get(key);
+        return isFresh(key, row) ? Promise.resolve(this.toBlockView(row)) : resolveStale(key, row);
       }),
     );
     return { testId, blocks };
@@ -377,6 +430,27 @@ function toSessionView(row: ReportSessionRow): ReportSessionView {
 
 function isCurrentPayload(key: ReportBlockKey, payload: unknown): boolean {
   return reportBlockPayloadSchemas[key].safeParse(payload).success;
+}
+
+/** A `ready` block in the current format, fresh or stale. */
+function hasPayload(
+  key: ReportBlockKey,
+  row: TestReportSnapshotRow | undefined,
+): row is TestReportSnapshotRow {
+  return row?.status === 'ready' && isCurrentPayload(key, row.payload);
+}
+
+/** Servable as is: in the current format and computed within the TTL (not marked stale). */
+function isFresh(
+  key: ReportBlockKey,
+  row: TestReportSnapshotRow | undefined,
+): row is TestReportSnapshotRow {
+  return hasPayload(key, row) && isSnapshotFresh(row.computedAt);
+}
+
+/** The holder just tried this block and it failed — serve that instead of retrying it here. */
+function justFailed(row: TestReportSnapshotRow | undefined): row is TestReportSnapshotRow {
+  return row?.status === 'failed' && isSnapshotFresh(row.computedAt);
 }
 
 /**

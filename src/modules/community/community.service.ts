@@ -41,8 +41,12 @@ export class CommunityService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  async listPosts(gameId: string, query: PaginationQuery): Promise<Page<CommunityPostView>> {
-    await this.games.existsAnyOrg(gameId);
+  async listPosts(
+    gameId: string,
+    viewer: AuthUser,
+    query: PaginationQuery,
+  ): Promise<Page<CommunityPostView>> {
+    await this.getVisibleGame(gameId, viewer);
     const page = await this.repo.listVisiblePosts(gameId, query);
     return { data: page.data.map(toPostView), nextCursor: page.nextCursor };
   }
@@ -52,7 +56,7 @@ export class CommunityService {
     author: AuthUser,
     dto: CreateCommunityPostDto,
   ): Promise<CommunityPostView> {
-    await this.games.existsAnyOrg(gameId);
+    await this.getVisibleGame(gameId, author);
     await this.enforceLimit(`community:posts:${author.userId}`, POST_LIMIT);
     const created = await this.repo.createPost(gameId, author.userId, dto.body);
     return toPostView(created);
@@ -61,6 +65,7 @@ export class CommunityService {
   async reportPost(postId: string, reporter: AuthUser, dto: ReportPostDto): Promise<void> {
     const post = await this.repo.findPostRowById(postId);
     if (!post) throw AppException.notFound();
+    await this.getVisibleGame(post.gameId, reporter);
     await this.enforceLimit(`community:reports:${reporter.userId}`, REPORT_LIMIT);
     await this.repo.insertReport(postId, reporter.userId, dto.reason, dto.details ?? null);
   }
@@ -69,7 +74,9 @@ export class CommunityService {
    * "Papéis do estúdio dono do jogo" (BACKEND-SPEC.md §M13): unlike
    * tenancy-scoped resources, a post belonging to another studio's game is
    * visible (it's public content) but not moderable — 403, not 404, matching
-   * `openapi.design.yaml`'s declared Forbidden response for this route.
+   * `openapi.design.yaml`'s declared Forbidden response for this route. A post
+   * of a game that isn't `active` is not public: 404 to anyone outside the
+   * owning studio (`getVisibleGame`).
    */
   async moderatePost(
     postId: string,
@@ -80,7 +87,7 @@ export class CommunityService {
     const post = await this.repo.findPostRowById(postId);
     if (!post) throw AppException.notFound();
 
-    const game = await this.games.existsAnyOrg(post.gameId);
+    const game = await this.getVisibleGame(post.gameId, moderator);
     if (game.organizationId !== moderator.organizationId) {
       throw AppException.forbidden('Seu estúdio não é dono deste jogo');
     }
@@ -106,9 +113,10 @@ export class CommunityService {
 
   async listReviews(
     gameId: string,
+    viewer: AuthUser,
     query: PaginationQuery,
   ): Promise<Page<ReviewView> & { averageRating: number | null }> {
-    await this.games.existsAnyOrg(gameId);
+    await this.getVisibleGame(gameId, viewer);
     const { page, averageRating } = await this.repo.listReviews(gameId, query);
     return { data: page.data.map(toReviewView), nextCursor: page.nextCursor, averageRating };
   }
@@ -121,7 +129,7 @@ export class CommunityService {
    * real from day one and just starts working once M8 populates those rows.
    */
   async createReview(gameId: string, author: AuthUser, dto: CreateReviewDto): Promise<ReviewView> {
-    await this.games.existsAnyOrg(gameId);
+    await this.getVisibleGame(gameId, author);
 
     const eligible = await this.repo.hasValidSessionForGame(author.userId, gameId);
     if (!eligible) {
@@ -142,6 +150,24 @@ export class CommunityService {
       }
       throw err;
     }
+  }
+
+  /**
+   * The game behind a community route, if the viewer may see it. A game that
+   * isn't `active` (draft, archived) is the studio's private state — like the
+   * player catalog (DECISIONS.md M8-03), its posts and reviews answer 404 to
+   * everyone except members of the organization that owns it, who keep
+   * reading and moderating them.
+   */
+  private async getVisibleGame(
+    gameId: string,
+    viewer: Pick<AuthUser, 'organizationId'>,
+  ): Promise<{ id: string; organizationId: string; status: string }> {
+    const game = await this.games.existsAnyOrg(gameId);
+    if (game.status !== 'active' && game.organizationId !== viewer.organizationId) {
+      throw AppException.notFound();
+    }
+    return game;
   }
 
   private async enforceLimit(

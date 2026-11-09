@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
-import { buildValidationSteps, builds } from '../infra/database/schema/tests';
+import { buildValidationSteps, builds, type BuildRow } from '../infra/database/schema/tests';
+import { validatedBuildStorageKey } from '../modules/tests/storage-key';
 import type { ScanResult } from '../shared/ports/malware-scanner.port';
+import type { StorageObjectMeta } from '../shared/ports/storage.port';
 import type { WorkerDeps } from './deps';
 
 type BuildStepKey = 'checksum' | 'malware_scan' | 'metadata';
@@ -28,14 +30,20 @@ const FORMAT_SIGNATURES: Record<string, readonly number[]> = {
 };
 
 /**
- * Real validation pipeline: HEAD confirms the object landed in storage, then
- * the object's actual bytes are streamed server-side to compute a SHA-256
- * checksum and sniff the format's magic bytes — neither trusts anything the
- * client claimed at upload time. The same bytes are then streamed to the
- * malware scanner (ClamAV via clamd). Only a `clean` verdict validates the
- * build; a scan that could not finish is retried, never waved through. The
- * dev bypass swaps in a scanner that reports `skipped` (never `clean`);
- * `buildConfig` refuses it in production.
+ * Real validation pipeline: the upload is first copied server-side to an
+ * immutable key no presigned URL was ever issued for
+ * (`validatedBuildStorageKey`), and everything after that reads THE COPY —
+ * the upload URL stays valid for an hour, so validating (and later serving)
+ * the upload key itself let a studio re-PUT other bytes behind an already
+ * `validated` badge, or between the checksum read and the scan read. The
+ * copy's bytes are streamed to compute a SHA-256 checksum and sniff the
+ * format's magic bytes — neither trusts anything the client claimed at upload
+ * time — and then to the malware scanner (ClamAV via clamd). Only a `clean`
+ * verdict validates the build, and that same write points `storage_key` at
+ * the copy; the upload object is removed afterwards. A scan that could not
+ * finish is retried, never waved through. The dev bypass swaps in a scanner
+ * that reports `skipped` (never `clean`); `buildConfig` refuses it in
+ * production.
  * `plugin_manifest` is a reserved future step
  * (ORB-M6-02 scope) and is never instantiated here.
  */
@@ -44,7 +52,23 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
   const build = rows[0];
   if (!build) throw new Error(`build ${buildId} not found`);
 
-  const meta = await deps.storage.stat(build.storageKey);
+  const validatedKey = validatedBuildStorageKey(
+    build.organizationId,
+    build.testId,
+    build.id,
+    build.fileName,
+  );
+  // Redelivered after an earlier run already approved it: the row already
+  // serves the validated copy, so there is nothing left to check.
+  if (build.status === 'validated' && build.storageKey === validatedKey) return;
+
+  let meta: StorageObjectMeta | null;
+  try {
+    meta = await ensureValidatedCopy(deps, build.storageKey, validatedKey);
+  } catch (err) {
+    await fail(deps, buildId, 'checksum', `Falha ao copiar objeto para validação: ${String(err)}`);
+    return;
+  }
   if (!meta) {
     await fail(deps, buildId, 'checksum', 'Arquivo não encontrado no storage');
     return;
@@ -52,7 +76,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
 
   let hashed: { sha256: string; headBytes: Buffer };
   try {
-    hashed = await hashObject(deps, build.storageKey);
+    hashed = await hashObject(deps, validatedKey);
   } catch (err) {
     await fail(deps, buildId, 'checksum', `Falha ao ler objeto para checksum: ${String(err)}`);
     return;
@@ -101,7 +125,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
   let scan: ScanResult;
   try {
     scan = await deps.scanner.scan(
-      await deps.storage.getObjectStream(build.storageKey),
+      await deps.storage.getObjectStream(validatedKey),
       meta.sizeBytes,
     );
   } catch (err) {
@@ -118,10 +142,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
         'ready',
         `Nenhuma ameaça encontrada (${scan.engine}, assinaturas ${scan.signatures})`,
       );
-      await deps.db
-        .update(builds)
-        .set({ status: 'validated', failureReason: null })
-        .where(eq(builds.id, buildId));
+      await approve(deps, build, validatedKey, meta.sizeBytes);
       return;
     case 'skipped':
       await setStep(
@@ -131,10 +152,7 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
         'ready',
         'Verificação de malware PULADA (BUILD_MALWARE_SCAN_BYPASS, só em desenvolvimento)',
       );
-      await deps.db
-        .update(builds)
-        .set({ status: 'validated', failureReason: null })
-        .where(eq(builds.id, buildId));
+      await approve(deps, build, validatedKey, meta.sizeBytes);
       return;
     case 'infected':
       await recordScan(deps, buildId, scan.engine, scan.signatures);
@@ -154,6 +172,55 @@ export async function processBuildValidate(deps: WorkerDeps, buildId: string): P
       // job fails; the reconciliation sweep re-enqueues it up to MAX_JOB_RUNS times and then
       // settles the build as failed. A build is never approved for a scan that did not finish.
       throw new Error(`Verificação de malware indisponível: ${scan.reason}`);
+  }
+}
+
+/**
+ * Copy-once: the validated key is written a single time, from whatever the
+ * upload holds at that moment, and from then on only read. A redelivered job
+ * (stalled lock, retry after a scanner outage) reuses the existing copy
+ * instead of copying again — a second copy could swap the bytes under a run
+ * still scanning them, or under a build an earlier run already approved. The
+ * only window left is two deliveries racing on the very first copy, and a
+ * stalled job is only redelivered once its lock expires, long after a copy
+ * completes. `null` when there is nothing to validate.
+ */
+async function ensureValidatedCopy(
+  deps: WorkerDeps,
+  sourceKey: string,
+  validatedKey: string,
+): Promise<StorageObjectMeta | null> {
+  const existing = await deps.storage.stat(validatedKey);
+  if (existing) return existing;
+  if (sourceKey === validatedKey) return null;
+  if (!(await deps.storage.stat(sourceKey))) return null;
+  await deps.storage.copyObject(sourceKey, validatedKey);
+  return deps.storage.stat(validatedKey);
+}
+
+/**
+ * Approves the build and points the row at the validated copy in the same
+ * write, so a `validated` build never serves the mutable upload key. The
+ * upload object goes afterwards (best-effort, like every storage cleanup):
+ * nothing reads it anymore. A row deleted mid-run (`DELETE /tests/:id/build`)
+ * leaves nobody to clean the copy up later, so it goes too.
+ */
+async function approve(
+  deps: WorkerDeps,
+  build: BuildRow,
+  validatedKey: string,
+  sizeBytes: number,
+): Promise<void> {
+  const updated = await deps.db
+    .update(builds)
+    .set({ status: 'validated', failureReason: null, storageKey: validatedKey, sizeBytes })
+    .where(eq(builds.id, build.id))
+    .returning({ id: builds.id });
+  if (build.storageKey !== validatedKey) {
+    await deps.storage.remove(build.storageKey).catch(() => undefined);
+  }
+  if (updated.length === 0) {
+    await deps.storage.remove(validatedKey).catch(() => undefined);
   }
 }
 

@@ -1,6 +1,9 @@
 import type { Request } from 'express';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { REPORT_SNAPSHOT_TTL_SECONDS } from '../../infra/database/report-snapshot-cache';
+import {
+  REPORT_SNAPSHOT_TTL_SECONDS,
+  type ReportRecomputeLock,
+} from '../../infra/database/report-snapshot-cache';
 import type { TestReportSnapshotRow } from '../../infra/database/schema/community';
 import type { SessionRatingRow } from '../../infra/database/schema/participations';
 import type { DashboardKpiCache } from '../../infra/redis/dashboard-kpi-cache';
@@ -13,6 +16,16 @@ import type { ReportsRepository } from './reports.repository';
 import { ReportsService } from './reports.service';
 
 const ORG_ID = '01990000-0000-7000-8000-0000000000a1';
+
+/** Lock that is always free (this request recomputes) unless a test says otherwise. */
+function makeLock() {
+  const release = vi.fn().mockResolvedValue(undefined);
+  return {
+    release,
+    tryAcquire: vi.fn().mockResolvedValue({ release }),
+    waitForRelease: vi.fn().mockResolvedValue(undefined),
+  };
+}
 const USER_ID = '01990000-0000-7000-8000-0000000000b1';
 const SESSION_ID = '01990000-0000-7000-8000-0000000000c1';
 
@@ -43,6 +56,7 @@ describe('ReportsService.rateSession', () => {
       {} as QueuePort,
       { invalidate: vi.fn() } as unknown as DashboardKpiCache,
       {} as TelemetryStorePort,
+      makeLock() as unknown as ReportRecomputeLock,
     );
     req = {} as Request;
   });
@@ -160,17 +174,20 @@ function makeReportRepo() {
 describe('ReportsService.getReport', () => {
   let repo: ReturnType<typeof makeReportRepo>;
   let telemetry: { countSessionsWithEvents: ReturnType<typeof vi.fn> };
+  let lock: ReturnType<typeof makeLock>;
   let service: ReportsService;
 
   beforeEach(() => {
     repo = makeReportRepo();
     telemetry = { countSessionsWithEvents: vi.fn().mockResolvedValue(3) };
+    lock = makeLock();
     service = new ReportsService(
       repo as unknown as ReportsRepository,
       {} as StoragePort,
       {} as QueuePort,
       { invalidate: vi.fn() } as unknown as DashboardKpiCache,
       telemetry as unknown as TelemetryStorePort,
+      lock as unknown as ReportRecomputeLock,
     );
   });
 
@@ -266,6 +283,174 @@ describe('ReportsService.getReport', () => {
   });
 });
 
+describe('ReportsService.getReport — single flight per test', () => {
+  const PAYLOADS = {
+    overview: OVERVIEW,
+    evolution: { points: [], weeks: [] },
+    rating_distribution: { buckets: [] },
+    tester_profile: { ageBrackets: [], archetypes: [], playerTiers: [] },
+    evaluations: {
+      questionsCount: 0,
+      responsesCount: 0,
+      averageResponseTimeMs: null,
+      dropoutRate: null,
+      questions: [],
+    },
+    telemetry: { sessionsAnalyzed: 1, activeTriggers: 2, discoveries: null, aiSuggestions: null },
+  };
+  const snapshot = (
+    blockKey: keyof typeof PAYLOADS,
+    computedAt: Date | null,
+    overrides: Partial<TestReportSnapshotRow> = {},
+  ) =>
+    ({
+      blockKey,
+      status: 'ready',
+      payload: PAYLOADS[blockKey],
+      computedAt,
+      ...overrides,
+    }) as TestReportSnapshotRow;
+  const allBlocks = (computedAt: Date | null) =>
+    (Object.keys(PAYLOADS) as (keyof typeof PAYLOADS)[]).map((key) => snapshot(key, computedAt));
+
+  let repo: ReturnType<typeof makeReportRepo>;
+  let lock: ReturnType<typeof makeLock>;
+  let service: ReportsService;
+
+  beforeEach(() => {
+    repo = makeReportRepo();
+    repo.findPluginSummary.mockResolvedValue({ activeTriggers: 2 });
+    lock = makeLock();
+    service = new ReportsService(
+      repo as unknown as ReportsRepository,
+      {} as StoragePort,
+      {} as QueuePort,
+      { invalidate: vi.fn() } as unknown as DashboardKpiCache,
+      { countSessionsWithEvents: vi.fn().mockResolvedValue(1) } as unknown as TelemetryStorePort,
+      lock as unknown as ReportRecomputeLock,
+    );
+  });
+
+  const block = (report: Awaited<ReturnType<ReportsService['getReport']>>, key: string) =>
+    report.blocks.find((b) => b.key === key);
+
+  it('serves an all-fresh report without touching the lock', async () => {
+    repo.findSnapshots.mockResolvedValue(allBlocks(new Date()));
+
+    await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.tryAcquire).not.toHaveBeenCalled();
+    expect(repo.computeOverview).not.toHaveBeenCalled();
+  });
+
+  it('recomputes the stale blocks under the lock and releases it', async () => {
+    repo.findSnapshots.mockResolvedValue(allBlocks(null));
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.tryAcquire).toHaveBeenCalledWith(TEST_ID);
+    expect(repo.computeOverview).toHaveBeenCalledOnce();
+    expect(repo.upsertSnapshot).toHaveBeenCalledWith(TEST_ID, 'overview', {
+      status: 'ready',
+      payload: OVERVIEW,
+    });
+    expect(block(report, 'overview')?.computedAt).not.toBeNull();
+    expect(lock.release).toHaveBeenCalledOnce();
+  });
+
+  it('releases the lock even when recomputing throws', async () => {
+    repo.findSnapshots
+      .mockResolvedValueOnce(allBlocks(null))
+      .mockRejectedValueOnce(new Error('db down'));
+
+    await expect(service.getReport(ORG_ID, TEST_ID)).rejects.toThrow('db down');
+    expect(lock.release).toHaveBeenCalledOnce();
+  });
+
+  it('serves what the previous holder just refreshed instead of recomputing it', async () => {
+    repo.findSnapshots
+      .mockResolvedValueOnce(allBlocks(null))
+      .mockResolvedValueOnce(allBlocks(new Date()));
+
+    await service.getReport(ORG_ID, TEST_ID);
+
+    expect(repo.computeOverview).not.toHaveBeenCalled();
+  });
+
+  it('serves the stale payloads while another request recomputes', async () => {
+    lock.tryAcquire.mockResolvedValue(null);
+    repo.findSnapshots.mockResolvedValue(allBlocks(null));
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.waitForRelease).not.toHaveBeenCalled();
+    expect(repo.computeOverview).not.toHaveBeenCalled();
+    expect(repo.upsertSnapshot).not.toHaveBeenCalled();
+    // Same contract: a stale block is still `ready`, just without `computedAt`.
+    expect(block(report, 'overview')).toEqual({
+      key: 'overview',
+      status: 'ready',
+      payload: OVERVIEW,
+      computedAt: null,
+    });
+  });
+
+  it('waits for the holder when a block has nothing to serve, and takes what it wrote', async () => {
+    lock.tryAcquire.mockResolvedValue(null);
+    const others = allBlocks(null).filter((row) => row.blockKey !== 'overview');
+    repo.findSnapshots
+      .mockResolvedValueOnce(others)
+      .mockResolvedValueOnce([...others, snapshot('overview', new Date())]);
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.waitForRelease).toHaveBeenCalledWith(TEST_ID);
+    expect(repo.computeOverview).not.toHaveBeenCalled();
+    expect(block(report, 'overview')).toMatchObject({ status: 'ready', payload: OVERVIEW });
+  });
+
+  it('serves the failure the holder just recorded instead of retrying the block', async () => {
+    lock.tryAcquire.mockResolvedValue(null);
+    const others = allBlocks(null).filter((row) => row.blockKey !== 'overview');
+    repo.findSnapshots
+      .mockResolvedValueOnce(others)
+      .mockResolvedValueOnce([
+        ...others,
+        snapshot('overview', new Date(), { status: 'failed', payload: null }),
+      ]);
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(repo.computeOverview).not.toHaveBeenCalled();
+    expect(block(report, 'overview')).toMatchObject({ status: 'failed', payload: null });
+  });
+
+  it('computes inline what the holder did not write in time', async () => {
+    lock.tryAcquire.mockResolvedValue(null);
+    const others = allBlocks(null).filter((row) => row.blockKey !== 'overview');
+    repo.findSnapshots.mockResolvedValue(others);
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.waitForRelease).toHaveBeenCalledOnce();
+    expect(repo.computeOverview).toHaveBeenCalledOnce();
+    expect(block(report, 'overview')).toMatchObject({ status: 'ready', payload: OVERVIEW });
+  });
+
+  it('does not wait just because telemetry is uncached (unavailable is never stored)', async () => {
+    lock.tryAcquire.mockResolvedValue(null);
+    repo.findPluginSummary.mockResolvedValue(null);
+    repo.findSnapshots.mockResolvedValue(
+      allBlocks(null).filter((row) => row.blockKey !== 'telemetry'),
+    );
+
+    const report = await service.getReport(ORG_ID, TEST_ID);
+
+    expect(lock.waitForRelease).not.toHaveBeenCalled();
+    expect(block(report, 'telemetry')).toMatchObject({ status: 'unavailable' });
+  });
+});
+
 describe('ReportsService.listInsights', () => {
   it('answers unavailable with no insights until the AI generation exists', async () => {
     const repo = makeReportRepo();
@@ -275,6 +460,7 @@ describe('ReportsService.listInsights', () => {
       {} as QueuePort,
       { invalidate: vi.fn() } as unknown as DashboardKpiCache,
       {} as TelemetryStorePort,
+      makeLock() as unknown as ReportRecomputeLock,
     );
 
     await expect(service.listInsights(ORG_ID, TEST_ID, { q: 'menu' })).resolves.toEqual({
@@ -293,6 +479,7 @@ describe('ReportsService.listInsights', () => {
       {} as QueuePort,
       { invalidate: vi.fn() } as unknown as DashboardKpiCache,
       {} as TelemetryStorePort,
+      makeLock() as unknown as ReportRecomputeLock,
     );
 
     await expect(service.listInsights(ORG_ID, TEST_ID, {})).rejects.toBeInstanceOf(AppException);

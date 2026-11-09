@@ -3,10 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR, APP_PIPE } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
 import { ZodValidationPipe } from 'nestjs-zod';
-import { v7 as uuidv7 } from 'uuid';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { loadConfiguration } from './config/configuration';
 import { validateEnv } from './config/env.schema';
+import { resolveRequestId } from './config/request-id';
 import { DatabaseModule } from './infra/database/database.module';
 import { FakesModule } from './infra/fakes/fakes.module';
 import { MailModule } from './infra/mail/mail.module';
@@ -58,10 +58,10 @@ import { PlayerModule } from './modules/player/player.module';
                 ? 'info'
                 : 'debug',
           // Propagate/gen a requestId, echo it back, and surface it as req.id so
-          // it lands in the error envelope and every log line.
+          // it lands in the error envelope, every log line and audit_log. A
+          // client-sent id is only adopted when well-formed (resolveRequestId).
           genReqId: (req: IncomingMessage, res: ServerResponse) => {
-            const existing = req.headers['x-request-id'];
-            const id = (Array.isArray(existing) ? existing[0] : existing) ?? uuidv7();
+            const id = resolveRequestId(req.headers['x-request-id']);
             res.setHeader('x-request-id', id);
             return id;
           },

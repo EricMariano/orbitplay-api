@@ -291,7 +291,7 @@ describe('Test report — M10 (e2e)', () => {
   });
 
   // Runs after the assertions above: it adds a third tester to the test.
-  it('drops the cached blocks when a new form response arrives', async () => {
+  it('invalidates the cached blocks when a new form response arrives', async () => {
     const before = await getBlocks();
     expect(before.get('evaluations')?.payload).toMatchObject({ responsesCount: 1 });
 
@@ -311,6 +311,15 @@ describe('Test report — M10 (e2e)', () => {
       .set('Authorization', `Bearer ${playerToken}`)
       .send({ answers: [{ questionId: scaleQuestionId, value: 3 }] });
     expect(submit.status).toBe(201);
+
+    // Marked stale, not deleted: the previous payload stays servable while
+    // one request recomputes (single flight per test).
+    const stale = await sql`
+      SELECT computed_at, payload FROM test_report_snapshots
+      WHERE test_id = ${testId} AND block_key = 'evaluations'`;
+    expect(stale).toHaveLength(1);
+    expect(stale[0].computed_at).toBeNull();
+    expect(stale[0].payload).toMatchObject({ responsesCount: 1 });
 
     const after = await getBlocks();
     expect(after.get('evaluations')?.payload).toMatchObject({ responsesCount: 2 });

@@ -1,4 +1,15 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Param, Patch, Post, Query, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { ZodResponse } from 'nestjs-zod';
 import type { Request } from 'express';
@@ -22,7 +33,8 @@ import {
  * M13 — comunidade e avaliações do jogo (Tela 15). Global content: unlike
  * `games`/`tests`, posts and reviews are readable across organizations (any
  * authenticated user browses any published game's community), and only
- * `POST`/moderation are role-restricted.
+ * `POST`/moderation are role-restricted. A game that isn't `active` answers
+ * 404 outside its own studio (see `CommunityService.getVisibleGame`).
  */
 @ApiTags('community')
 @ApiBearerAuth()
@@ -32,8 +44,12 @@ export class CommunityController {
 
   @Get('games/:gameId/community/posts')
   @ZodResponse({ type: CommunityPostListDto })
-  listPosts(@Param('gameId') gameId: string, @Query() query: PaginationQueryDto) {
-    return this.community.listPosts(gameId, query);
+  listPosts(
+    @Param('gameId') gameId: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.community.listPosts(gameId, user, query);
   }
 
   @Post('games/:gameId/community/posts')
@@ -72,8 +88,12 @@ export class CommunityController {
 
   @Get('games/:gameId/reviews')
   @ZodResponse({ type: ReviewListDto })
-  listReviews(@Param('gameId') gameId: string, @Query() query: PaginationQueryDto) {
-    return this.community.listReviews(gameId, query);
+  listReviews(
+    @Param('gameId') gameId: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: PaginationQueryDto,
+  ) {
+    return this.community.listReviews(gameId, user, query);
   }
 
   @Post('games/:gameId/reviews')

@@ -18,8 +18,12 @@ import { CurrentUser } from '../../shared/decorators/current-user.decorator';
 import { Public } from '../../shared/decorators/public.decorator';
 import type { AuthUser } from '../../shared/auth/roles';
 import {
+  AcceptInviteDto,
+  AcceptInviteResponseDto,
   AuthUserDto,
   ForgotPasswordDto,
+  InvitePreviewDto,
+  InvitePreviewRequestDto,
   LoginDto,
   LoginResponseDto,
   LoginResultDto,
@@ -33,8 +37,9 @@ import {
 import { AuthService } from './auth.service';
 
 /**
- * Auth endpoints. Login and password recovery are rate-limited per IP by the
- * ThrottlerGuard and per identifier by AuthService (both dimensions, RN + §10.2).
+ * Auth endpoints. Login, password recovery and invite acceptance are
+ * rate-limited per IP by the ThrottlerGuard and per identifier by AuthService
+ * (both dimensions, RN + §10.2).
  * Signup availability uses a dedicated, stricter `availability` throttler.
  * The access token is returned in the body; the refresh token is set as an
  * httpOnly cookie and rotated on every /refresh with reuse detection.
@@ -130,5 +135,28 @@ export class AuthController {
   @ZodResponse({ type: MessageResponseDto })
   resetPassword(@Body() dto: ResetPasswordDto, @Req() req: Request) {
     return this.auth.resetPassword(dto, req);
+  }
+
+  /**
+   * What an invite link opens (org, role, which form to show). POST, not GET:
+   * the token stays in the body, out of access logs. Throttled per IP.
+   */
+  @Public()
+  @Post('invite/preview')
+  @SkipThrottle({ default: false })
+  @HttpCode(HttpStatus.OK)
+  @ZodResponse({ type: InvitePreviewDto })
+  previewInvite(@Body() dto: InvitePreviewRequestDto) {
+    return this.auth.previewInvite(dto.token);
+  }
+
+  /** Explicit acceptance of an invite — the only way `invited` becomes `active`. */
+  @Public()
+  @Post('invite/accept')
+  @SkipThrottle({ default: false })
+  @HttpCode(HttpStatus.OK)
+  @ZodResponse({ type: AcceptInviteResponseDto })
+  acceptInvite(@Body() dto: AcceptInviteDto, @Req() req: Request) {
+    return this.auth.acceptInvite(dto, req);
   }
 }

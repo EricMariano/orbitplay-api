@@ -103,6 +103,52 @@ export const loginResultSchema = z.union([
 
 export const messageResponseSchema = z.object({ message: z.string() });
 
+/** Body of POST /auth/invite/preview — the token travels in the body, never in a URL that gets logged. */
+export const invitePreviewRequestSchema = z.object({
+  token: z.string().min(1, 'Token obrigatório').max(PASSWORD_MAX, 'Token inválido'),
+});
+
+/**
+ * What the invitee sees before accepting. `accountExists`: the e-mail already
+ * has an account of its own (it signed up, or already belongs to an org) — it
+ * accepts with its CURRENT password and the invite never changes it. Otherwise
+ * the account was created by the invite and the invitee picks the password
+ * here. `birthdateRequired`: the account has no birthdate yet (18+ rule).
+ */
+export const invitePreviewSchema = z.object({
+  organizationName: z.string(),
+  role: z.enum(['owner', 'admin', 'studio', 'player']),
+  email: z.string(),
+  accountExists: z.boolean(),
+  birthdateRequired: z.boolean(),
+});
+
+/**
+ * Body of POST /auth/invite/accept. Which fields apply comes from the preview:
+ * a new account sends `password` (+ `birthdate`); an existing one sends
+ * `currentPassword` (+ `birthdate` if it has none). The service enforces it.
+ */
+export const acceptInviteSchema = z.object({
+  token: z.string().min(1, 'Token obrigatório').max(PASSWORD_MAX, 'Token inválido'),
+  password: z
+    .string()
+    .min(8, 'Senha deve ter no mínimo 8 caracteres')
+    .max(PASSWORD_MAX, 'Senha muito longa')
+    .optional(),
+  currentPassword: z
+    .string()
+    .min(1, 'Senha obrigatória')
+    .max(PASSWORD_MAX, 'Senha muito longa')
+    .optional(),
+  birthdate: z.iso.date().optional(),
+});
+
+export const acceptInviteResponseSchema = z.object({
+  message: z.string(),
+  email: z.string(),
+  organizationName: z.string(),
+});
+
 export class LoginDto extends createZodDto(loginSchema) {}
 export class ForgotPasswordDto extends createZodDto(forgotPasswordSchema) {}
 export class ResetPasswordDto extends createZodDto(resetPasswordSchema) {}
@@ -121,6 +167,10 @@ export const LoginResultDto = createZodDto(loginResultSchema);
 // "AugmentedZodDto_Output" model name in the generated OpenAPI doc.
 Object.defineProperty(LoginResultDto, 'name', { value: 'LoginResultDto', configurable: true });
 export class MessageResponseDto extends createZodDto(messageResponseSchema) {}
+export class InvitePreviewRequestDto extends createZodDto(invitePreviewRequestSchema) {}
+export class InvitePreviewDto extends createZodDto(invitePreviewSchema) {}
+export class AcceptInviteDto extends createZodDto(acceptInviteSchema) {}
+export class AcceptInviteResponseDto extends createZodDto(acceptInviteResponseSchema) {}
 
 export type LoginResponse = z.infer<typeof loginResponseSchema>;
 export type OrganizationSelectionRequired = z.infer<typeof organizationSelectionRequiredSchema>;
@@ -129,3 +179,6 @@ export type AuthUserView = z.infer<typeof authUserSchema>;
 export type SignupStudioInput = z.infer<typeof signupStudioSchema>;
 export type SignupPlayerInput = z.infer<typeof signupPlayerSchema>;
 export type SignupAvailability = z.infer<typeof signupAvailabilitySchema>;
+export type InvitePreview = z.infer<typeof invitePreviewSchema>;
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+export type AcceptInviteResult = z.infer<typeof acceptInviteResponseSchema>;
