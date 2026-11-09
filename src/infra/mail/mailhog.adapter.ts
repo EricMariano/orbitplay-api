@@ -16,11 +16,16 @@ export class MailhogAdapter implements NotificationPort {
 
   constructor(private readonly config: ConfigService) {
     this.from = this.config.get<string>('mail.from')!;
+    // Mailhog speaks plain SMTP, so TLS is skipped in dev. In production the
+    // mail carries password-reset and invite tokens: refuse to send it unless
+    // the server upgrades the connection (STARTTLS) — never fall back to plaintext.
+    const isProduction = this.config.get<boolean>('isProduction') ?? false;
     this.transporter = createTransport({
       host: this.config.get<string>('mail.host'),
       port: this.config.get<number>('mail.port'),
       secure: false,
-      ignoreTLS: true,
+      ignoreTLS: !isProduction,
+      requireTLS: isProduction,
     });
   }
 
